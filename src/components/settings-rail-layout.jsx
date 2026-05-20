@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import {
   Building2,
@@ -33,9 +34,16 @@ import {
   Code,
   ArrowLeft,
   ChevronRight,
+  AlertOctagon,
 } from "lucide-react"
 import MobileHeader from "./mobile-header"
 import { SfPageHeader, SfButton, SfTag } from "./sf-primitives"
+import api from "../services/api"
+
+// Module-level cache so each rail mount doesn't refetch.
+let _identityConflictCount = null
+let _identityConflictCountAt = 0
+const IDENTITY_CACHE_MS = 60 * 1000 // 60s
 
 /**
  * Settings shell with a persistent left-rail nav + right content area.
@@ -126,7 +134,53 @@ export const RAIL_SECTIONS = [
       { id: "developers",       label: "Developers",       icon: Code,          to: "/settings/developers" },
     ],
   },
+  {
+    id: "data-integrity",
+    title: "Data integrity",
+    items: [
+      {
+        id: "identity-conflicts",
+        label: "Identity conflicts",
+        icon: AlertOctagon,
+        to: "/settings/identity-conflicts",
+        dynamicBadge: "identity_conflicts",
+      },
+    ],
+  },
 ]
+
+// Tiny hook for the rail's dynamic conflict-count badge. Module-cached
+// for 60s so opening multiple settings pages doesn't refetch on every
+// mount. Returns null until first load completes.
+const useIdentityConflictCount = () => {
+  const [count, setCount] = useState(_identityConflictCount)
+  useEffect(() => {
+    const fresh = Date.now() - _identityConflictCountAt < IDENTITY_CACHE_MS
+    if (fresh && _identityConflictCount != null) {
+      setCount(_identityConflictCount)
+      return
+    }
+    let cancelled = false
+    api
+      .get("/identity-conflicts/summary")
+      .then((res) => {
+        if (cancelled) return
+        const n = Number(res?.data?.identity_conflict_count)
+        if (Number.isFinite(n)) {
+          _identityConflictCount = n
+          _identityConflictCountAt = Date.now()
+          setCount(n)
+        }
+      })
+      .catch(() => {
+        // Silent failure — endpoint may not be available or auth missing.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return count
+}
 
 export const SettingsRailLayout = ({
   title,
@@ -142,6 +196,7 @@ export const SettingsRailLayout = ({
   const location = useLocation()
   const navigate = useNavigate()
   const here = location.pathname
+  const identityConflictCount = useIdentityConflictCount()
 
   return (
     <div
@@ -248,6 +303,16 @@ export const SettingsRailLayout = ({
                             {it.badge}
                           </SfTag>
                         )}
+                        {it.dynamicBadge === "identity_conflicts" &&
+                          identityConflictCount != null &&
+                          identityConflictCount > 0 && (
+                            <SfTag
+                              color="var(--sf-red-dark)"
+                              bg="var(--sf-red-soft)"
+                            >
+                              {identityConflictCount}
+                            </SfTag>
+                          )}
                       </button>
                     )
                   })}

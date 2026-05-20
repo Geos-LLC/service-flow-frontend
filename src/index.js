@@ -69,6 +69,7 @@ import PaymentsSettings from "./pages/settings/payments"
 import PayoutSettings from "./pages/settings/payout-settings"
 import Invoicing from "./pages/settings/invoicing"
 import ZenbookerSettings from "./pages/settings/zenbooker"
+import IdentityConflictsPage from "./pages/settings/identity-conflicts"
 import ServiceAreas from "./pages/settings/service-areas"
 import BookingQuoteRequests from "./pages/settings/booking-quote-requests"
 import FieldApp from "./pages/settings/field-app"
@@ -242,6 +243,7 @@ root.render(
       <Route path="/settings/payout-settings" element={<PayoutSettings />} />
       <Route path="/settings/invoicing" element={<Invoicing />} />
       <Route path="/settings/zenbooker" element={<ZenbookerSettings />} />
+      <Route path="/settings/identity-conflicts" element={<IdentityConflictsPage />} />
       <Route path="/settings/service-areas" element={<ServiceAreas />} />
       <Route path="/settings/booking-quote-requests" element={<BookingQuoteRequests />} />
       <Route path="/settings/field-app" element={<FieldApp />} />
