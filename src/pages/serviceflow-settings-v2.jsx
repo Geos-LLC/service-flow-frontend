@@ -35,8 +35,10 @@ import {
   ChevronRight,
   Search as SearchIcon,
   Sparkles,
+  AlertOctagon,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
+import api from "../services/api"
 import { canEditAccountOwnerSettings } from "../utils/roleUtils"
 import MobileHeader from "../components/mobile-header"
 import {
@@ -293,11 +295,26 @@ const SECTIONS = [
       },
     ],
   },
+  {
+    id: "data-integrity",
+    title: "Data integrity",
+    items: [
+      {
+        id: "identity-conflicts", icon: AlertOctagon,
+        title: "Identity conflicts",
+        desc: "Cross-role phone collisions that can mis-route SMS",
+        to: "/settings/identity-conflicts",
+        // status is injected dynamically by the page from
+        // /api/identity-conflicts/summary — see useIdentityConflictStatus.
+      },
+    ],
+  },
 ]
 
-// 3-column grouping per the screenshot (Account+Financial, Operations+Communications, Sales+Integrations)
+// 3-column grouping per the screenshot. Data integrity lives in the
+// Account column (col 1) so account-level concerns cluster together.
 const COLUMNS = [
-  ["account", "financial"],
+  ["account", "financial", "data-integrity"],
   ["operations", "communications"],
   ["sales", "integrations"],
 ]
@@ -309,15 +326,34 @@ const ServiceFlowSettingsV2 = () => {
   const { user } = useAuth()
   const [search, setSearch] = useState("")
   const [showInactive, setShowInactive] = useState(false)
+  const [identityConflictCount, setIdentityConflictCount] = useState(null)
 
   useEffect(() => {
     if (user?.teamMemberId) navigate("/settings/account")
   }, [user, navigate])
 
+  // Pull the open-conflict count so the Data integrity card shows
+  // either "All clear" (count=0) or "N to review" (count>0). Silent
+  // failure — card still renders without a badge.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get("/identity-conflicts/summary")
+      .then((res) => {
+        if (cancelled) return
+        const n = Number(res?.data?.identity_conflict_count)
+        if (Number.isFinite(n)) setIdentityConflictCount(n)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const filteredSections = useMemo(() => {
     const q = search.trim().toLowerCase()
     return SECTIONS.map((s) => {
-      const items = s.items.filter((it) => {
+      let items = s.items.filter((it) => {
         if (it.comingSoon && !showInactive && !q) return false
         if (!q) return true
         return (
@@ -325,9 +361,22 @@ const ServiceFlowSettingsV2 = () => {
           (it.desc || "").toLowerCase().includes(q)
         )
       })
+      // Inject dynamic status badge for the identity-conflicts item.
+      if (s.id === "data-integrity" && identityConflictCount != null) {
+        items = items.map((it) => {
+          if (it.id !== "identity-conflicts") return it
+          const isClean = identityConflictCount === 0
+          return {
+            ...it,
+            status: isClean
+              ? { label: "All clear", color: "var(--sf-green-dark)", bg: "var(--sf-green-soft)" }
+              : { label: `${identityConflictCount} to review`, color: "var(--sf-red-dark)", bg: "var(--sf-red-soft)" },
+          }
+        })
+      }
       return { ...s, items }
     })
-  }, [search, showInactive])
+  }, [search, showInactive, identityConflictCount])
 
   const sectionById = (id) => filteredSections.find((s) => s.id === id)
   const owner = canEditAccountOwnerSettings(user)
