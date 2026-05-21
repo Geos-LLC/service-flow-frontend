@@ -8,7 +8,9 @@ import {
   Filter,
   GitMerge,
   Layers,
+  Link2,
   RefreshCw,
+  Sparkles,
   Trash2,
   TrendingUp,
   Users,
@@ -240,7 +242,7 @@ const FilterBar = ({ filters, setFilters, onReset }) => (
 
 // ── Detail drawer ─────────────────────────────────────────────────
 
-const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCombine, deletingKey }) => {
+const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCombine, onLinkLeadToCustomer, deletingKey }) => {
   if (!open || !conflict) return null
   const sev = SEVERITY_STYLES[conflict.severity] || SEVERITY_STYLES.same_role_duplicate
   const stat = STATUS_STYLES[conflict.status] || STATUS_STYLES.open
@@ -256,6 +258,13 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCom
     }, new Map())
   ).filter(([, count]) => count >= 2)
   const canCombine = combineEligibleTypes.length > 0
+  // Lead → Customer link is offered when the conflict has exactly one
+  // lead and one customer (the most common reconciliation pattern).
+  const customerCount = owners.filter((o) => o.entity_type === "customer").length
+  const leadCount = owners.filter((o) => o.entity_type === "lead").length
+  const canLinkLeadToCustomer = customerCount === 1 && leadCount === 1
+  const linkCustomer = canLinkLeadToCustomer ? owners.find((o) => o.entity_type === "customer") : null
+  const linkLead = canLinkLeadToCustomer ? owners.find((o) => o.entity_type === "lead") : null
   return (
     <>
       <div
@@ -467,6 +476,14 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCom
                   className="text-[12px] text-[var(--sf-ink-2)] leading-relaxed pl-4"
                   style={{ listStyle: "decimal" }}
                 >
+                  {canLinkLeadToCustomer && (
+                    <li className="mb-1.5">
+                      <strong>Link lead → customer</strong> — this conflict is a lead that converted to a
+                      customer (same person, lifecycle artifact). Click <em>Link lead → customer</em> below to
+                      set <code style={{ fontFamily: "var(--sf-font-mono)" }}>leads.converted_customer_id</code>{" "}
+                      and preserve the funnel analytics. The lead stays, the conflict auto-resolves.
+                    </li>
+                  )}
                   <li className="mb-1.5">
                     <strong>Delete a record</strong> — click the red trash button on any owner card to remove
                     that source row entirely. The conflict auto-resolves when only one owner remains. Use this
@@ -486,7 +503,22 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCom
               </SfCard>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <SfButton variant="primary" size="md" onClick={() => onResolve(conflict, "keep_separate")} icon={CheckCircle2}>
+                {canLinkLeadToCustomer && (
+                  <SfButton
+                    variant="primary"
+                    size="md"
+                    icon={Link2}
+                    onClick={() => onLinkLeadToCustomer({ lead: linkLead, customer: linkCustomer })}
+                  >
+                    Link lead → customer
+                  </SfButton>
+                )}
+                <SfButton
+                  variant={canLinkLeadToCustomer ? "secondary" : "primary"}
+                  size="md"
+                  onClick={() => onResolve(conflict, "keep_separate")}
+                  icon={CheckCircle2}
+                >
                   Keep separate
                 </SfButton>
                 {canCombine ? (
@@ -496,7 +528,7 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCom
                       .map(([type, count]) => `${count} ${ENTITY_TYPE_LABEL[type] || type}s`)
                       .join(" or ")}
                   </SfButton>
-                ) : (
+                ) : !canLinkLeadToCustomer ? (
                   <SfButton
                     variant="secondary"
                     size="md"
@@ -506,7 +538,7 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCom
                   >
                     Combine — not available
                   </SfButton>
-                )}
+                ) : null}
               </div>
             </>
           )}
@@ -582,6 +614,35 @@ const DeleteOwnerModal = ({ open, conflict, owner, onClose, onConfirm, submittin
         submitting={submitting}
         submitLabel={`Delete ${ENTITY_TYPE_LABEL[owner.entity_type] || owner.entity_type}`}
         submitVariant="danger"
+        onSubmit={onConfirm}
+      />
+    </ModalShell>
+  )
+}
+
+const LinkLeadModal = ({ open, conflict, target, onClose, onConfirm, submitting }) => {
+  if (!open || !conflict || !target || !target.lead || !target.customer) return null
+  return (
+    <ModalShell title="Link lead → customer" onClose={onClose}>
+      <p className="text-[12.5px] text-[var(--sf-ink-2)] leading-relaxed">
+        Mark <strong>Lead #{target.lead.entity_id} ({target.lead.name || "—"})</strong> as converted to{" "}
+        <strong>Customer #{target.customer.entity_id} ({target.customer.name || "—"})</strong>.
+      </p>
+      <div
+        className="mt-3 rounded-md p-2.5 text-[11.5px]"
+        style={{
+          background: "var(--sf-blue-soft)",
+          border: "1px solid var(--sf-blue-dark)",
+          color: "var(--sf-blue-dark)",
+        }}
+      >
+        Sets <code style={{ fontFamily: "var(--sf-font-mono)" }}>leads.converted_customer_id = {target.customer.entity_id}</code>.
+        The lead row remains — funnel analytics are preserved. The conflict auto-resolves.
+      </div>
+      <ModalActions
+        onClose={onClose}
+        submitting={submitting}
+        submitLabel="Confirm link"
         onSubmit={onConfirm}
       />
     </ModalShell>
@@ -790,8 +851,10 @@ const IdentityConflictsPage = () => {
   const [keepSeparateOpen, setKeepSeparateOpen] = useState(false)
   const [combineOpen, setCombineOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null) // owner being deleted (modal trigger)
+  const [linkTarget, setLinkTarget] = useState(null)     // {lead, customer} for link-lead modal
   const [deletingKey, setDeletingKey] = useState(null)   // 'entity_type:entity_id' while in flight
   const [submitting, setSubmitting] = useState(false)
+  const [repairing, setRepairing] = useState(false)
   const [toast, setToast] = useState(null)
 
   const flash = useCallback((text, kind = "ok") => {
@@ -924,6 +987,56 @@ const IdentityConflictsPage = () => {
     [selected, deleteTarget, flash]
   )
 
+  const handleLinkLeadToCustomer = useCallback(
+    async () => {
+      if (!selected || !linkTarget || !linkTarget.lead || !linkTarget.customer) return
+      setSubmitting(true)
+      try {
+        await api.post(`/identity-conflicts/${selected.id}/link-lead`, {
+          lead_entity_id: linkTarget.lead.entity_id,
+          customer_entity_id: linkTarget.customer.entity_id,
+        })
+        flash(`Linked Lead #${linkTarget.lead.entity_id} → Customer #${linkTarget.customer.entity_id}.`)
+        setLinkTarget(null)
+        setSelected(null)
+        setRefreshKey((k) => k + 1)
+      } catch (err) {
+        const e = err?.response?.data || {}
+        flash(e.error === "lead_already_converted"
+          ? `Lead already converted to a different customer (#${e.current}). Open the lead record to investigate.`
+          : e.error || "Link failed.", "err")
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [selected, linkTarget, flash]
+  )
+
+  const handleRepairAll = useCallback(
+    async (dryRun) => {
+      setRepairing(true)
+      try {
+        const res = await api.post("/identity-conflicts/repair-lead-links", { dryRun, limit: 200 })
+        const d = res.data || {}
+        if (dryRun) {
+          flash(
+            `Dry-run: ${d.total_candidates || 0} lead↔customer conflicts. ${d.high || 0} would auto-link, ${d.medium || 0} pending review, ${d.low || 0} too weak.`
+          )
+        } else {
+          flash(
+            `Repair applied: ${d.linked || 0} of ${d.total_candidates || 0} conflicts linked. ${d.medium || 0} pending review.`
+          )
+          setRefreshKey((k) => k + 1)
+        }
+      } catch (err) {
+        flash(err?.response?.data?.error || "Repair failed.", "err")
+      } finally {
+        setRepairing(false)
+      }
+    },
+    [flash]
+  )
+
   const handleCombine = useCallback(
     async ({ primary, secondaries }) => {
       if (!selected || !primary || !secondaries || secondaries.length === 0) return
@@ -953,9 +1066,34 @@ const IdentityConflictsPage = () => {
       section="Data integrity"
       subtitle="Cross-role and same-role phone collisions detected in your data. Resolve to prevent SMS misroutes."
       actions={
-        <SfButton variant="secondary" size="md" icon={RefreshCw} onClick={() => setRefreshKey((k) => k + 1)}>
-          Refresh
-        </SfButton>
+        <div className="flex items-center gap-2 flex-wrap">
+          <SfButton
+            variant="secondary"
+            size="md"
+            icon={Sparkles}
+            disabled={repairing}
+            onClick={() => handleRepairAll(true)}
+            title="Preview which open lead↔customer conflicts the auto-linker would resolve. No data changes."
+          >
+            {repairing ? "Scanning…" : "Auto-link: dry run"}
+          </SfButton>
+          <SfButton
+            variant="primary"
+            size="md"
+            icon={Link2}
+            disabled={repairing}
+            onClick={() => {
+              if (!window.confirm("Apply auto-linker to all open lead↔customer conflicts. HIGH-confidence matches will be linked atomically. Proceed?")) return
+              handleRepairAll(false)
+            }}
+            title="Apply the auto-linker: HIGH-confidence lead↔customer matches set leads.converted_customer_id and resolve the conflict. Lower-confidence matches stay open for manual review."
+          >
+            {repairing ? "Linking…" : "Auto-link: apply"}
+          </SfButton>
+          <SfButton variant="ghost" size="md" icon={RefreshCw} onClick={() => setRefreshKey((k) => k + 1)}>
+            Refresh
+          </SfButton>
+        </div>
       }
     >
       <div className="flex flex-col gap-4">
@@ -1148,7 +1286,7 @@ const IdentityConflictsPage = () => {
 
       {/* Drawer + modals */}
       <DetailDrawer
-        open={!!selected && !keepSeparateOpen && !combineOpen && !deleteTarget}
+        open={!!selected && !keepSeparateOpen && !combineOpen && !deleteTarget && !linkTarget}
         conflict={selected}
         onClose={() => setSelected(null)}
         onResolve={(_c, action) => {
@@ -1156,7 +1294,16 @@ const IdentityConflictsPage = () => {
         }}
         onDeleteOwner={(owner) => setDeleteTarget(owner)}
         onCombine={() => setCombineOpen(true)}
+        onLinkLeadToCustomer={(pair) => setLinkTarget(pair)}
         deletingKey={deletingKey}
+      />
+      <LinkLeadModal
+        open={!!linkTarget}
+        conflict={selected}
+        target={linkTarget}
+        onClose={() => setLinkTarget(null)}
+        onConfirm={handleLinkLeadToCustomer}
+        submitting={submitting}
       />
       <KeepSeparateModal
         open={keepSeparateOpen}
