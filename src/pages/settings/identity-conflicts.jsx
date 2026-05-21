@@ -72,11 +72,32 @@ const ENTITY_TYPE_LABEL = {
   external: "External",
 }
 
+const EXTERNAL_SOURCE_STYLES = {
+  zenbooker: { label: "Zenbooker", color: "#1E3A8A", bg: "#DBEAFE" },
+  leadbridge: { label: "LeadBridge", color: "#92400E", bg: "#FEF3C7" },
+  openphone: { label: "OpenPhone", color: "#5B21B6", bg: "#EDE9FE" },
+  sf: { label: "ServiceFlow", color: "var(--sf-ink-2)", bg: "var(--sf-panel-soft)" },
+  unknown: { label: "Unknown", color: "var(--sf-ink-3)", bg: "var(--sf-panel-soft)" },
+}
+
 const maskPhone = (p) => {
   if (!p) return "—"
   const digits = String(p).replace(/\D/g, "")
   if (digits.length < 4) return "***"
   return `*** *** ${digits.slice(-4)}`
+}
+
+// Format a phone for display in the drawer (unmasked — the operator
+// needs the actual number to act on the conflict). Falls back to the
+// raw stored value if it isn't 10 / 11 digits.
+const formatPhone = (p) => {
+  if (!p) return "—"
+  const digits = String(p).replace(/\D/g, "")
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  }
+  return p
 }
 
 const fmtDate = (iso) => {
@@ -252,8 +273,11 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
             <div className="text-[11px] font-semibold uppercase text-[var(--sf-ink-3)]" style={{ letterSpacing: ".05em" }}>
               Conflict #{conflict.id}
             </div>
-            <div className="text-[15px] font-semibold text-[var(--sf-ink)] truncate mt-0.5">
-              {maskPhone(conflict.normalized_phone)}
+            <div className="text-[17px] font-semibold text-[var(--sf-ink)] truncate mt-0.5" style={{ fontFamily: "var(--sf-font-mono)", letterSpacing: "-0.01em" }}>
+              {formatPhone(conflict.normalized_phone)}
+            </div>
+            <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5">
+              Raw normalized: <span style={{ fontFamily: "var(--sf-font-mono)" }}>{conflict.normalized_phone}</span>
             </div>
           </div>
           <button
@@ -282,31 +306,94 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
           <SfCard>
             <SfCardHeader title="Owners" subtitle="Entities currently registered against this phone" />
             <div className="flex flex-col gap-2">
-              {owners.map((o, i) => (
-                <div
-                  key={`${o.entity_type}-${o.entity_id}-${i}`}
-                  className="rounded-md p-2.5"
-                  style={{
-                    background: "var(--sf-panel-soft)",
-                    border: "1px solid var(--sf-border-soft)",
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11.5px] font-semibold text-[var(--sf-ink-2)]">
-                      {ENTITY_TYPE_LABEL[o.entity_type] || o.entity_type}
-                    </span>
-                    <span className="text-[11px] text-[var(--sf-ink-3)]" style={{ fontFamily: "var(--sf-font-mono)" }}>
-                      #{o.entity_id}
-                    </span>
+              {owners.map((o, i) => {
+                const ext = EXTERNAL_SOURCE_STYLES[o.external_source] || EXTERNAL_SOURCE_STYLES.unknown
+                const detailHref =
+                  o.entity_type === "customer" ? `/customers/${o.entity_id}`
+                  : o.entity_type === "team_member" ? `/team`
+                  : o.entity_type === "lead" ? `/leads`
+                  : null
+                return (
+                  <div
+                    key={`${o.entity_type}-${o.entity_id}-${i}`}
+                    className="rounded-md p-3"
+                    style={{
+                      background: "var(--sf-panel-soft)",
+                      border: "1px solid var(--sf-border-soft)",
+                    }}
+                  >
+                    {/* Top row: type + name + ext source chip + missing flag */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <SfTag color="var(--sf-ink-2)" bg="var(--sf-panel)">
+                        {ENTITY_TYPE_LABEL[o.entity_type] || o.entity_type}
+                      </SfTag>
+                      {o.missing ? (
+                        <SfTag color="var(--sf-red-dark)" bg="var(--sf-red-soft)">
+                          Source row not found
+                        </SfTag>
+                      ) : (
+                        <>
+                          <span className="text-[13px] font-semibold text-[var(--sf-ink)]">
+                            {o.name || `#${o.entity_id}`}
+                          </span>
+                          <SfTag color={ext.color} bg={ext.bg}>
+                            From {ext.label}
+                          </SfTag>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Body: ID, phone, email, source, first_seen */}
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11.5px]">
+                      <div>
+                        <span className="text-[var(--sf-ink-3)]">ID:</span>{" "}
+                        <span className="text-[var(--sf-ink-2)]" style={{ fontFamily: "var(--sf-font-mono)" }}>
+                          #{o.entity_id}
+                        </span>
+                      </div>
+                      {!o.missing && (
+                        <>
+                          <div>
+                            <span className="text-[var(--sf-ink-3)]">Phone:</span>{" "}
+                            <span className="text-[var(--sf-ink-2)]" style={{ fontFamily: "var(--sf-font-mono)" }}>
+                              {formatPhone(o.phone) || "—"}
+                            </span>
+                          </div>
+                          {o.email && (
+                            <div>
+                              <span className="text-[var(--sf-ink-3)]">Email:</span>{" "}
+                              <span className="text-[var(--sf-ink-2)]">{o.email}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      <div>
+                        <span className="text-[var(--sf-ink-3)]">Registry source:</span>{" "}
+                        <span className="text-[var(--sf-ink-2)]">{o.source || "—"}</span>
+                      </div>
+                      <div>
+                        <span className="text-[var(--sf-ink-3)]">First seen:</span>{" "}
+                        <span className="text-[var(--sf-ink-2)]">{fmtDate(o.first_seen)}</span>
+                      </div>
+                    </div>
+
+                    {/* Open-record link (operator can navigate to the underlying entity) */}
+                    {!o.missing && detailHref && (
+                      <div className="mt-2">
+                        <a
+                          href={detailHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11.5px] font-semibold underline"
+                          style={{ color: "var(--sf-blue-dark)" }}
+                        >
+                          Open record →
+                        </a>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[11px] text-[var(--sf-ink-3)] mt-1">
-                    Source: <span className="text-[var(--sf-ink-2)]">{o.source || "—"}</span>
-                  </div>
-                  <div className="text-[11px] text-[var(--sf-ink-3)]">
-                    First seen: <span className="text-[var(--sf-ink-2)]">{fmtDate(o.first_seen)}</span>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               {owners.length === 0 && (
                 <div className="text-[12px] text-[var(--sf-ink-3)] italic">No owner records.</div>
               )}
@@ -688,11 +775,17 @@ const IdentityConflictsPage = () => {
                         </Td>
                         <Td>
                           <div className="flex flex-wrap gap-1">
-                            {ownersList.map((o, i) => (
-                              <SfTag key={i}>
-                                {ENTITY_TYPE_LABEL[o.entity_type] || o.entity_type} #{o.entity_id}
-                              </SfTag>
-                            ))}
+                            {ownersList.map((o, i) => {
+                              const ext = EXTERNAL_SOURCE_STYLES[o.external_source] || EXTERNAL_SOURCE_STYLES.unknown
+                              const label = o.name
+                                ? `${ENTITY_TYPE_LABEL[o.entity_type] || o.entity_type}: ${o.name}`
+                                : `${ENTITY_TYPE_LABEL[o.entity_type] || o.entity_type} #${o.entity_id}`
+                              return (
+                                <SfTag key={i} color={ext.color} bg={ext.bg}>
+                                  {label}
+                                </SfTag>
+                              )
+                            })}
                           </div>
                         </Td>
                         <Td>
