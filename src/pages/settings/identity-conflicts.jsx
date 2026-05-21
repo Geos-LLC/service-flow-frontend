@@ -5,10 +5,11 @@ import {
   AlertOctagon,
   AlertTriangle,
   CheckCircle2,
-  EyeOff,
   Filter,
+  GitMerge,
   Layers,
   RefreshCw,
+  Trash2,
   TrendingUp,
   Users,
   X,
@@ -71,6 +72,9 @@ const ENTITY_TYPE_LABEL = {
   conversation: "Conversation",
   external: "External",
 }
+
+const DELETE_SUPPORTED = new Set(["customer", "team_member", "lead"])
+const COMBINE_SUPPORTED = new Set(["customer", "lead"])
 
 const EXTERNAL_SOURCE_STYLES = {
   zenbooker: { label: "Zenbooker", color: "#1E3A8A", bg: "#DBEAFE" },
@@ -236,11 +240,22 @@ const FilterBar = ({ filters, setFilters, onReset }) => (
 
 // ── Detail drawer ─────────────────────────────────────────────────
 
-const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
+const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCombine, deletingKey }) => {
   if (!open || !conflict) return null
   const sev = SEVERITY_STYLES[conflict.severity] || SEVERITY_STYLES.same_role_duplicate
   const stat = STATUS_STYLES[conflict.status] || STATUS_STYLES.open
   const owners = Array.isArray(conflict.owners) ? conflict.owners : []
+  // Combine is only meaningful when there are ≥2 owners of the same
+  // combinable type (customer or lead).
+  const combineEligibleTypes = Array.from(
+    owners.reduce((acc, o) => {
+      if (COMBINE_SUPPORTED.has(o.entity_type)) {
+        acc.set(o.entity_type, (acc.get(o.entity_type) || 0) + 1)
+      }
+      return acc
+    }, new Map())
+  ).filter(([, count]) => count >= 2)
+  const canCombine = combineEligibleTypes.length > 0
   return (
     <>
       <div
@@ -377,18 +392,31 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
                       </div>
                     </div>
 
-                    {/* Open-record link (operator can navigate to the underlying entity) */}
-                    {!o.missing && detailHref && (
-                      <div className="mt-2">
-                        <a
-                          href={detailHref}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11.5px] font-semibold underline"
-                          style={{ color: "var(--sf-blue-dark)" }}
-                        >
-                          Open record →
-                        </a>
+                    {/* Action row per owner: Open record + Delete */}
+                    {!o.missing && (
+                      <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                        {detailHref && (
+                          <a
+                            href={detailHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11.5px] font-semibold underline"
+                            style={{ color: "var(--sf-blue-dark)" }}
+                          >
+                            Open record →
+                          </a>
+                        )}
+                        {DELETE_SUPPORTED.has(o.entity_type) && conflict.status === "open" && (
+                          <SfButton
+                            variant="danger"
+                            size="sm"
+                            icon={Trash2}
+                            disabled={deletingKey === `${o.entity_type}:${o.entity_id}`}
+                            onClick={() => onDeleteOwner(o)}
+                          >
+                            {deletingKey === `${o.entity_type}:${o.entity_id}` ? "Deleting…" : "Delete this record"}
+                          </SfButton>
+                        )}
                       </div>
                     )}
                   </div>
@@ -440,29 +468,45 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
                   style={{ listStyle: "decimal" }}
                 >
                   <li className="mb-1.5">
-                    <strong>If these are duplicates of the same person</strong> — open each record with{" "}
-                    <em>Open record →</em> and delete the redundant ones. When only one remains, the conflict
-                    auto-resolves.
+                    <strong>Delete a record</strong> — click the red trash button on any owner card to remove
+                    that source row entirely. The conflict auto-resolves when only one owner remains. Use this
+                    for test data or genuine duplicates with no useful history.
                   </li>
                   <li className="mb-1.5">
-                    <strong>If different people share this phone</strong> (household, shared work line, or
-                    multi-role testing on one device) — click <em>Keep separate</em>. This consents to the
-                    collision and <strong>unblocks SMS</strong> to this phone.
+                    <strong>Combine</strong> — merge same-type duplicates (customer↔customer or lead↔lead) into
+                    a single canonical record. All jobs, invoices, properties, etc. re-point to the primary; the
+                    secondaries are deleted. Available below when ≥ 2 customers or leads are present.
                   </li>
                   <li>
-                    <strong>If you'll deal with it later</strong> — click <em>Ignore</em> to hide the warning.
-                    SMS stays blocked until the data is reconciled or you switch to Keep separate.
+                    <strong>Keep separate</strong> — distinct people sharing a phone (household, shared work
+                    line, or multi-role testing). This consents to the collision and <strong>unblocks SMS</strong>{" "}
+                    to this phone.
                   </li>
                 </ol>
               </SfCard>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <SfButton variant="primary" size="md" onClick={() => onResolve(conflict, "keep_separate")} icon={CheckCircle2}>
                   Keep separate
                 </SfButton>
-                <SfButton variant="secondary" size="md" onClick={() => onResolve(conflict, "ignore")} icon={EyeOff}>
-                  Ignore
-                </SfButton>
+                {canCombine ? (
+                  <SfButton variant="secondary" size="md" onClick={onCombine} icon={GitMerge}>
+                    Combine{" "}
+                    {combineEligibleTypes
+                      .map(([type, count]) => `${count} ${ENTITY_TYPE_LABEL[type] || type}s`)
+                      .join(" or ")}
+                  </SfButton>
+                ) : (
+                  <SfButton
+                    variant="secondary"
+                    size="md"
+                    icon={GitMerge}
+                    disabled
+                    title="Combine requires ≥ 2 owners of the same role (customer or lead). Use Delete or Keep separate."
+                  >
+                    Combine — not available
+                  </SfButton>
+                )}
               </div>
             </>
           )}
@@ -474,127 +518,263 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
 
 // ── Resolve modal ──────────────────────────────────────────────────
 
-const ResolveModal = ({ open, action, conflict, onClose, onConfirm, submitting }) => {
+const KeepSeparateModal = ({ open, conflict, onClose, onConfirm, submitting }) => {
   const [note, setNote] = useState("")
-  useEffect(() => {
-    if (open) setNote("")
-  }, [open])
+  useEffect(() => { if (open) setNote("") }, [open])
   if (!open || !conflict) return null
-  const isKeepSeparate = action === "keep_separate"
   return (
-    <>
+    <ModalShell title="Keep separate" onClose={onClose}>
+      <p className="text-[12.5px] text-[var(--sf-ink-2)] leading-relaxed">
+        Mark this collision as <strong>intentional</strong>. By confirming, you're stating these owners are
+        expected to share a phone — for example multi-role testing on a single device.
+      </p>
       <div
-        onClick={onClose}
+        className="mt-3 rounded-md p-2.5 text-[11.5px]"
         style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(15,23,42,0.45)",
-          zIndex: 50,
-        }}
-      />
-      <div
-        role="dialog"
-        aria-label="Resolve conflict"
-        style={{
-          position: "fixed",
-          left: "50%",
-          top: "50%",
-          transform: "translate(-50%, -50%)",
-          width: "min(420px, 92vw)",
-          background: "var(--sf-panel)",
-          borderRadius: 12,
-          zIndex: 51,
-          boxShadow: "0 24px 64px rgba(15,23,42,0.25)",
-          overflow: "hidden",
-          fontFamily: "var(--sf-font-ui)",
+          background: "var(--sf-green-soft)",
+          border: "1px solid var(--sf-green-dark)",
+          color: "var(--sf-green-dark)",
         }}
       >
-        <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--sf-border-soft)" }}>
-          <div className="text-[14px] font-semibold text-[var(--sf-ink)]">
-            {isKeepSeparate ? "Keep separate" : "Ignore conflict"}
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="p-1 rounded hover:bg-[var(--sf-panel-soft)]"
-            style={{ border: "none", background: "transparent", cursor: "pointer" }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="px-4 py-3">
-          <p className="text-[12.5px] text-[var(--sf-ink-2)] leading-relaxed">
-            {isKeepSeparate ? (
-              <>
-                Mark this collision as <strong>intentional</strong>. By confirming, you're stating these owners
-                are expected to share a phone — for example multi-role testing on a single device.
-              </>
-            ) : (
-              <>
-                Hide this conflict from the open list <strong>without endorsing the collision</strong>. SMS to
-                this phone will continue to be blocked by the recipient-integrity guard. Use this when you plan
-                to deduplicate the data later but don't want to see the warning right now.
-              </>
-            )}
-          </p>
-          {isKeepSeparate && (
-            <div
-              className="mt-3 rounded-md p-2.5 text-[11.5px]"
-              style={{
-                background: "var(--sf-green-soft)",
-                border: "1px solid var(--sf-green-dark)",
-                color: "var(--sf-green-dark)",
-              }}
-            >
-              <strong>This will unblock SMS</strong> to this phone. Subsequent customer-facing or cleaner-facing
-              sends will go through with a <code style={{ fontFamily: "var(--sf-font-mono)", fontSize: 11 }}>
-              [RecipientIntegrityBypass]</code> audit log entry. If owner data changes later, a new conflict
-              will reappear.
-            </div>
-          )}
-          {!isKeepSeparate && (
-            <div
-              className="mt-3 rounded-md p-2.5 text-[11.5px]"
-              style={{
-                background: "var(--sf-panel-soft)",
-                border: "1px solid var(--sf-border-2)",
-                color: "var(--sf-ink-3)",
-              }}
-            >
-              SMS to this phone remains <strong>blocked</strong>. To unblock, delete duplicate records via "Open
-              record →", or use Keep separate to consent to the collision.
-            </div>
-          )}
-          <label className="block mt-3 text-[11.5px] font-semibold text-[var(--sf-ink-2)]">
-            Note (optional)
-          </label>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Add context for the audit trail"
-            rows={3}
-            maxLength={1000}
-            className="w-full mt-1 rounded-md border bg-[var(--sf-panel)] text-[12.5px] px-2.5 py-2 outline-none"
-            style={{ borderColor: "var(--sf-border-2)", color: "var(--sf-ink)", fontFamily: "var(--sf-font-ui)" }}
-          />
-        </div>
-        <div className="px-4 py-3 border-t flex items-center justify-end gap-2" style={{ borderColor: "var(--sf-border-soft)" }}>
-          <SfButton variant="ghost" size="md" onClick={onClose}>
-            Cancel
-          </SfButton>
-          <SfButton
-            variant="primary"
-            size="md"
-            onClick={() => onConfirm(action, note)}
-            disabled={submitting}
-          >
-            {submitting ? "Resolving…" : isKeepSeparate ? "Keep separate" : "Ignore"}
-          </SfButton>
-        </div>
+        <strong>This will unblock SMS</strong> to this phone. Subsequent customer-facing or cleaner-facing sends
+        will go through with a{" "}
+        <code style={{ fontFamily: "var(--sf-font-mono)", fontSize: 11 }}>[RecipientIntegrityBypass]</code>{" "}
+        audit log entry. If owner data changes later, a new conflict will reappear.
       </div>
-    </>
+      <label className="block mt-3 text-[11.5px] font-semibold text-[var(--sf-ink-2)]">Note (optional)</label>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Add context for the audit trail"
+        rows={3}
+        maxLength={1000}
+        className="w-full mt-1 rounded-md border bg-[var(--sf-panel)] text-[12.5px] px-2.5 py-2 outline-none"
+        style={{ borderColor: "var(--sf-border-2)", color: "var(--sf-ink)", fontFamily: "var(--sf-font-ui)" }}
+      />
+      <ModalActions onClose={onClose} submitting={submitting} submitLabel="Keep separate" onSubmit={() => onConfirm(note)} />
+    </ModalShell>
   )
 }
+
+const DeleteOwnerModal = ({ open, conflict, owner, onClose, onConfirm, submitting }) => {
+  if (!open || !conflict || !owner) return null
+  const ownerLabel = `${ENTITY_TYPE_LABEL[owner.entity_type] || owner.entity_type} #${owner.entity_id} (${owner.name || "unnamed"})`
+  return (
+    <ModalShell title="Delete this record?" onClose={onClose}>
+      <p className="text-[12.5px] text-[var(--sf-ink-2)] leading-relaxed">
+        Permanently delete <strong>{ownerLabel}</strong>. This removes the source row from the database and
+        archives the registry entry. If this is the only remaining duplicate, the conflict auto-resolves.
+      </p>
+      <div
+        className="mt-3 rounded-md p-2.5 text-[11.5px]"
+        style={{
+          background: "var(--sf-red-soft)",
+          border: "1px solid var(--sf-red-dark)",
+          color: "var(--sf-red-dark)",
+        }}
+      >
+        <strong>This cannot be undone.</strong> If the record has dependent rows (jobs, invoices, transactions),
+        the database will refuse the delete and you'll see the foreign-key error — in that case, use{" "}
+        <strong>Combine</strong> instead, or reassign the dependent rows first.
+      </div>
+      <ModalActions
+        onClose={onClose}
+        submitting={submitting}
+        submitLabel={`Delete ${ENTITY_TYPE_LABEL[owner.entity_type] || owner.entity_type}`}
+        submitVariant="danger"
+        onSubmit={onConfirm}
+      />
+    </ModalShell>
+  )
+}
+
+const CombineModal = ({ open, conflict, onClose, onConfirm, submitting }) => {
+  const owners = conflict && Array.isArray(conflict.owners) ? conflict.owners : []
+  // Group combinable owners by type so the operator picks within one role.
+  const customerOwners = owners.filter((o) => o.entity_type === "customer")
+  const leadOwners = owners.filter((o) => o.entity_type === "lead")
+  const initialType = customerOwners.length >= 2 ? "customer" : leadOwners.length >= 2 ? "lead" : null
+
+  const [type, setType] = useState(initialType)
+  const [primaryId, setPrimaryId] = useState(null)
+  useEffect(() => {
+    if (open) {
+      setType(initialType)
+      setPrimaryId(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  if (!open || !conflict) return null
+
+  const pool = type === "customer" ? customerOwners : type === "lead" ? leadOwners : []
+  const primary = pool.find((o) => String(o.entity_id) === String(primaryId)) || null
+  const secondaries = pool.filter((o) => String(o.entity_id) !== String(primaryId))
+
+  return (
+    <ModalShell title="Combine duplicate records" onClose={onClose} width={520}>
+      <p className="text-[12.5px] text-[var(--sf-ink-2)] leading-relaxed">
+        Pick one record to keep. All matching {type === "lead" ? "leads" : "customers"} are merged into the
+        primary — their jobs, invoices, properties, files, and history all re-point to the primary. The
+        secondaries are deleted afterwards.
+      </p>
+
+      {customerOwners.length >= 2 && leadOwners.length >= 2 && (
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-[11.5px] font-semibold text-[var(--sf-ink-2)]">Combine:</span>
+          <button
+            onClick={() => { setType("customer"); setPrimaryId(null) }}
+            style={typeChip(type === "customer")}
+          >
+            Customers ({customerOwners.length})
+          </button>
+          <button
+            onClick={() => { setType("lead"); setPrimaryId(null) }}
+            style={typeChip(type === "lead")}
+          >
+            Leads ({leadOwners.length})
+          </button>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-col gap-1.5">
+        <span className="text-[11.5px] font-semibold text-[var(--sf-ink-2)]">Keep this record (primary):</span>
+        {pool.map((o) => (
+          <label
+            key={`${o.entity_type}:${o.entity_id}`}
+            className="flex items-start gap-2 rounded-md p-2 cursor-pointer"
+            style={{
+              border: `1px solid ${String(primaryId) === String(o.entity_id) ? "var(--sf-blue)" : "var(--sf-border-2)"}`,
+              background: String(primaryId) === String(o.entity_id) ? "var(--sf-blue-soft)" : "var(--sf-panel)",
+            }}
+          >
+            <input
+              type="radio"
+              name="combine-primary"
+              checked={String(primaryId) === String(o.entity_id)}
+              onChange={() => setPrimaryId(o.entity_id)}
+              style={{ marginTop: 2, accentColor: "var(--sf-blue)" }}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold text-[var(--sf-ink)]">
+                {o.name || `${ENTITY_TYPE_LABEL[o.entity_type]} #${o.entity_id}`}
+              </div>
+              <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5">
+                <span style={{ fontFamily: "var(--sf-font-mono)" }}>#{o.entity_id}</span>
+                {o.phone ? <> · {formatPhone(o.phone)}</> : null}
+                {o.email ? <> · {o.email}</> : null}
+                {o.external_source ? (
+                  <> · From {EXTERNAL_SOURCE_STYLES[o.external_source]?.label || o.external_source}</>
+                ) : null}
+              </div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {primary && secondaries.length > 0 && (
+        <div
+          className="mt-3 rounded-md p-2.5 text-[11.5px]"
+          style={{
+            background: "var(--sf-amber-soft, #FEF3C7)",
+            border: "1px solid var(--sf-amber-dark, #B45309)",
+            color: "var(--sf-amber-dark, #B45309)",
+          }}
+        >
+          About to merge <strong>{secondaries.length} {type === "lead" ? "lead(s)" : "customer(s)"}</strong> into{" "}
+          <strong>#{primary.entity_id}</strong>:{" "}
+          {secondaries.map((s) => `#${s.entity_id}`).join(", ")}. This cannot be undone.
+        </div>
+      )}
+
+      <ModalActions
+        onClose={onClose}
+        submitting={submitting}
+        submitLabel={
+          submitting
+            ? "Combining…"
+            : primary && secondaries.length > 0
+            ? `Combine ${secondaries.length} into #${primary.entity_id}`
+            : "Combine"
+        }
+        submitDisabled={!primary || secondaries.length === 0}
+        onSubmit={() => onConfirm({ primary, secondaries })}
+      />
+    </ModalShell>
+  )
+}
+
+const typeChip = (active) => ({
+  padding: "4px 10px",
+  borderRadius: 6,
+  border: `1px solid ${active ? "var(--sf-blue)" : "var(--sf-border-2)"}`,
+  background: active ? "var(--sf-blue-soft)" : "var(--sf-panel)",
+  color: active ? "var(--sf-blue-dark)" : "var(--sf-ink-2)",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+  fontFamily: "var(--sf-font-ui)",
+})
+
+// ── Generic modal shell + action footer ────────────────────────────
+
+const ModalShell = ({ title, onClose, children, width = 420 }) => (
+  <>
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 50 }}
+    />
+    <div
+      role="dialog"
+      aria-label={title}
+      style={{
+        position: "fixed",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        width: `min(${width}px, 92vw)`,
+        background: "var(--sf-panel)",
+        borderRadius: 12,
+        zIndex: 51,
+        boxShadow: "0 24px 64px rgba(15,23,42,0.25)",
+        overflow: "hidden",
+        fontFamily: "var(--sf-font-ui)",
+        maxHeight: "92vh",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--sf-border-soft)" }}>
+        <div className="text-[14px] font-semibold text-[var(--sf-ink)]">{title}</div>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="p-1 rounded hover:bg-[var(--sf-panel-soft)]"
+          style={{ border: "none", background: "transparent", cursor: "pointer" }}
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <div className="px-4 py-3" style={{ overflowY: "auto" }}>{children}</div>
+    </div>
+  </>
+)
+
+const ModalActions = ({ onClose, submitting, submitLabel, submitVariant = "primary", submitDisabled, onSubmit }) => (
+  <div className="px-4 py-3 border-t flex items-center justify-end gap-2 mt-3 -mx-4 -mb-3" style={{ borderColor: "var(--sf-border-soft)" }}>
+    <SfButton variant="ghost" size="md" onClick={onClose}>
+      Cancel
+    </SfButton>
+    <SfButton
+      variant={submitVariant}
+      size="md"
+      onClick={onSubmit}
+      disabled={submitting || submitDisabled}
+    >
+      {submitting ? "Working…" : submitLabel}
+    </SfButton>
+  </div>
+)
 
 // ── Page ───────────────────────────────────────────────────────────
 
@@ -607,7 +787,10 @@ const IdentityConflictsPage = () => {
   const [perDay, setPerDay] = useState([])
   const [refreshKey, setRefreshKey] = useState(0)
   const [selected, setSelected] = useState(null)
-  const [resolveAction, setResolveAction] = useState(null) // 'keep_separate' | 'ignore' | null
+  const [keepSeparateOpen, setKeepSeparateOpen] = useState(false)
+  const [combineOpen, setCombineOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null) // owner being deleted (modal trigger)
+  const [deletingKey, setDeletingKey] = useState(null)   // 'entity_type:entity_id' while in flight
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -674,21 +857,88 @@ const IdentityConflictsPage = () => {
     }
   }, [refreshKey])
 
-  const handleResolve = useCallback(
-    async (action, note) => {
+  const handleKeepSeparate = useCallback(
+    async (note) => {
       if (!selected) return
       setSubmitting(true)
       try {
-        await api.post(`/identity-conflicts/${selected.id}/resolve`, { action, note: note || undefined })
-        setResolveAction(null)
+        await api.post(`/identity-conflicts/${selected.id}/resolve`, {
+          action: "keep_separate",
+          note: note || undefined,
+        })
+        setKeepSeparateOpen(false)
         setSelected(null)
         setRefreshKey((k) => k + 1)
-        flash(action === "ignore" ? "Conflict ignored." : "Conflict marked as resolved.")
+        flash("Conflict resolved — SMS to this phone is now allowed.")
       } catch (err) {
         const msg =
           err?.response?.data?.error === "not_open"
             ? "Conflict is no longer open."
             : err?.response?.data?.error || "Failed to resolve conflict."
+        flash(msg, "err")
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [selected, flash]
+  )
+
+  const handleDeleteOwner = useCallback(
+    async () => {
+      if (!selected || !deleteTarget) return
+      const key = `${deleteTarget.entity_type}:${deleteTarget.entity_id}`
+      setDeletingKey(key)
+      setSubmitting(true)
+      try {
+        await api.post(`/identity-conflicts/${selected.id}/delete-owner`, {
+          entity_type: deleteTarget.entity_type,
+          entity_id: deleteTarget.entity_id,
+        })
+        flash(`Deleted ${ENTITY_TYPE_LABEL[deleteTarget.entity_type] || deleteTarget.entity_type} #${deleteTarget.entity_id}.`)
+        setDeleteTarget(null)
+        // Refresh the open conflict so the deleted owner disappears.
+        try {
+          const res = await api.get(`/identity-conflicts/${selected.id}`)
+          if (res.data?.conflict) {
+            setSelected(res.data.conflict)
+          } else {
+            // Conflict was auto-resolved → close the drawer
+            setSelected(null)
+          }
+        } catch {
+          setSelected(null)
+        }
+        setRefreshKey((k) => k + 1)
+      } catch (err) {
+        const e = err?.response?.data || {}
+        const msg = e.sourceError
+          ? `Cannot delete: ${e.sourceError}`
+          : e.error || "Delete failed."
+        flash(msg, "err")
+        setDeleteTarget(null)
+      } finally {
+        setSubmitting(false)
+        setDeletingKey(null)
+      }
+    },
+    [selected, deleteTarget, flash]
+  )
+
+  const handleCombine = useCallback(
+    async ({ primary, secondaries }) => {
+      if (!selected || !primary || !secondaries || secondaries.length === 0) return
+      setSubmitting(true)
+      try {
+        await api.post(`/identity-conflicts/${selected.id}/combine`, { primary, secondaries })
+        setCombineOpen(false)
+        setSelected(null)
+        setRefreshKey((k) => k + 1)
+        flash(`Combined ${secondaries.length} record(s) into #${primary.entity_id}.`)
+      } catch (err) {
+        const e = err?.response?.data || {}
+        const msg = e.sourceError
+          ? `Combine failed: ${e.sourceError}`
+          : e.error || "Combine failed."
         flash(msg, "err")
       } finally {
         setSubmitting(false)
@@ -873,40 +1123,61 @@ const IdentityConflictsPage = () => {
           </div>
         </SfCard>
 
-        {/* Phase 2 callout */}
+        {/* Available actions cheat-sheet */}
         <SfCard>
           <SfCardHeader
-            title="Coming soon"
-            subtitle="Advanced resolutions land in a future release."
+            title="What you can do"
+            subtitle="Quick reference for the actions available in each conflict drawer."
           />
-          <div className="flex flex-wrap gap-2">
-            <SfButton variant="secondary" size="md" disabled>
-              Merge records · coming soon
-            </SfButton>
-            <SfButton variant="secondary" size="md" disabled>
-              Change owner · coming soon
-            </SfButton>
-          </div>
-          <p className="text-[11.5px] text-[var(--sf-ink-3)] mt-2">
-            Merge and change-owner actions require FK propagation across jobs, communications, and ledger entries.
-            They will land in Phase 2 after operator review of edge cases.
-          </p>
+          <ul className="text-[12px] text-[var(--sf-ink-2)] leading-relaxed pl-4" style={{ listStyle: "disc" }}>
+            <li className="mb-1">
+              <strong>Delete</strong> — red button on each owner card. Removes that source row entirely.
+              The conflict auto-resolves when down to 1 owner.
+            </li>
+            <li className="mb-1">
+              <strong>Combine</strong> — merge ≥ 2 customers (or ≥ 2 leads) into a single primary. All jobs,
+              invoices, properties re-point to the primary; secondaries are deleted. Team-member combine
+              is not supported (the ledger is immutable).
+            </li>
+            <li>
+              <strong>Keep separate</strong> — consent to the collision. Unblocks SMS to this phone.
+            </li>
+          </ul>
         </SfCard>
       </div>
 
-      {/* Drawer + modal */}
+      {/* Drawer + modals */}
       <DetailDrawer
-        open={!!selected && !resolveAction}
+        open={!!selected && !keepSeparateOpen && !combineOpen && !deleteTarget}
         conflict={selected}
         onClose={() => setSelected(null)}
-        onResolve={(c, action) => setResolveAction(action)}
+        onResolve={(_c, action) => {
+          if (action === "keep_separate") setKeepSeparateOpen(true)
+        }}
+        onDeleteOwner={(owner) => setDeleteTarget(owner)}
+        onCombine={() => setCombineOpen(true)}
+        deletingKey={deletingKey}
       />
-      <ResolveModal
-        open={!!resolveAction}
-        action={resolveAction}
+      <KeepSeparateModal
+        open={keepSeparateOpen}
         conflict={selected}
-        onClose={() => setResolveAction(null)}
-        onConfirm={handleResolve}
+        onClose={() => setKeepSeparateOpen(false)}
+        onConfirm={handleKeepSeparate}
+        submitting={submitting}
+      />
+      <DeleteOwnerModal
+        open={!!deleteTarget}
+        conflict={selected}
+        owner={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteOwner}
+        submitting={submitting}
+      />
+      <CombineModal
+        open={combineOpen}
+        conflict={selected}
+        onClose={() => setCombineOpen(false)}
+        onConfirm={handleCombine}
         submitting={submitting}
       />
 
