@@ -432,14 +432,39 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve }) => {
           </SfCard>
 
           {conflict.status === "open" && (
-            <div className="flex items-center gap-2">
-              <SfButton variant="primary" size="md" onClick={() => onResolve(conflict, "keep_separate")} icon={CheckCircle2}>
-                Keep separate
-              </SfButton>
-              <SfButton variant="secondary" size="md" onClick={() => onResolve(conflict, "ignore")} icon={EyeOff}>
-                Ignore
-              </SfButton>
-            </div>
+            <>
+              <SfCard>
+                <SfCardHeader title="How to resolve this" />
+                <ol
+                  className="text-[12px] text-[var(--sf-ink-2)] leading-relaxed pl-4"
+                  style={{ listStyle: "decimal" }}
+                >
+                  <li className="mb-1.5">
+                    <strong>If these are duplicates of the same person</strong> — open each record with{" "}
+                    <em>Open record →</em> and delete the redundant ones. When only one remains, the conflict
+                    auto-resolves.
+                  </li>
+                  <li className="mb-1.5">
+                    <strong>If different people share this phone</strong> (household, shared work line, or
+                    multi-role testing on one device) — click <em>Keep separate</em>. This consents to the
+                    collision and <strong>unblocks SMS</strong> to this phone.
+                  </li>
+                  <li>
+                    <strong>If you'll deal with it later</strong> — click <em>Ignore</em> to hide the warning.
+                    SMS stays blocked until the data is reconciled or you switch to Keep separate.
+                  </li>
+                </ol>
+              </SfCard>
+
+              <div className="flex items-center gap-2">
+                <SfButton variant="primary" size="md" onClick={() => onResolve(conflict, "keep_separate")} icon={CheckCircle2}>
+                  Keep separate
+                </SfButton>
+                <SfButton variant="secondary" size="md" onClick={() => onResolve(conflict, "ignore")} icon={EyeOff}>
+                  Ignore
+                </SfButton>
+              </div>
+            </>
           )}
         </div>
       </aside>
@@ -501,17 +526,45 @@ const ResolveModal = ({ open, action, conflict, onClose, onConfirm, submitting }
           <p className="text-[12.5px] text-[var(--sf-ink-2)] leading-relaxed">
             {isKeepSeparate ? (
               <>
-                Mark this collision as <strong>intentional</strong>. SMS sends to this phone will still be blocked
-                by the recipient-integrity guard until the underlying entities are reconciled or the guard is
-                relaxed.
+                Mark this collision as <strong>intentional</strong>. By confirming, you're stating these owners
+                are expected to share a phone — for example multi-role testing on a single device.
               </>
             ) : (
               <>
-                Hide this conflict from the open list. A new conflict for the same phone will reappear automatically
-                if data changes in the future.
+                Hide this conflict from the open list <strong>without endorsing the collision</strong>. SMS to
+                this phone will continue to be blocked by the recipient-integrity guard. Use this when you plan
+                to deduplicate the data later but don't want to see the warning right now.
               </>
             )}
           </p>
+          {isKeepSeparate && (
+            <div
+              className="mt-3 rounded-md p-2.5 text-[11.5px]"
+              style={{
+                background: "var(--sf-green-soft)",
+                border: "1px solid var(--sf-green-dark)",
+                color: "var(--sf-green-dark)",
+              }}
+            >
+              <strong>This will unblock SMS</strong> to this phone. Subsequent customer-facing or cleaner-facing
+              sends will go through with a <code style={{ fontFamily: "var(--sf-font-mono)", fontSize: 11 }}>
+              [RecipientIntegrityBypass]</code> audit log entry. If owner data changes later, a new conflict
+              will reappear.
+            </div>
+          )}
+          {!isKeepSeparate && (
+            <div
+              className="mt-3 rounded-md p-2.5 text-[11.5px]"
+              style={{
+                background: "var(--sf-panel-soft)",
+                border: "1px solid var(--sf-border-2)",
+                color: "var(--sf-ink-3)",
+              }}
+            >
+              SMS to this phone remains <strong>blocked</strong>. To unblock, delete duplicate records via "Open
+              record →", or use Keep separate to consent to the collision.
+            </div>
+          )}
           <label className="block mt-3 text-[11.5px] font-semibold text-[var(--sf-ink-2)]">
             Note (optional)
           </label>
