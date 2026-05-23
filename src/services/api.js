@@ -72,26 +72,34 @@ api.interceptors.response.use(
         const { status, data } = error.response;
         
         switch (status) {
-          case 401:
-            console.error('Unauthorized - checking if payment context');
-            // Only redirect to login if not in payment context and not already on signin page
-            const isPaymentContext = window.location.pathname.includes('/payment') || 
+          case 401: {
+            // Only redirect on actual SF session failures. SF's auth middleware
+            // emits specific error codes ('Access token required' | 'Token expired').
+            // Any other 401 — including upstream proxied 401s from Sigcore /
+            // OpenPhone / LeadBridge — must NOT clear the session, because doing
+            // so dumps the user back to /signin even though their SF token is fine.
+            const isPaymentContext = window.location.pathname.includes('/payment') ||
                                      window.location.pathname.includes('/public/');
             const isSigninPage = window.location.pathname.includes('/signin');
-            
-            if (!isPaymentContext && !isSigninPage) {
+            const errCode = data?.error;
+            const isSfSessionFailure = errCode === 'Access token required' || errCode === 'Token expired';
+
+            if (isSfSessionFailure && !isPaymentContext && !isSigninPage) {
+              console.warn('SF session expired — clearing tokens and redirecting to /signin', { url: config?.url, errCode });
               localStorage.removeItem('authToken');
               localStorage.removeItem('user');
-              // Redirect to signin page
               window.location.href = '/signin';
+            } else if (isSigninPage) {
+              console.log('Already on signin page — not redirecting');
+            } else if (isPaymentContext) {
+              console.log('Payment context detected — not redirecting to login');
             } else {
-              if (isSigninPage) {
-                console.log('Already on signin page - not redirecting');
-            } else {
-              console.log('Payment context detected - not redirecting to login');
-              }
+              // Non-session 401 (upstream proxy auth failure). Preserve session;
+              // propagate the error so the calling component can surface it.
+              console.warn('Non-session 401 — preserving session, propagating error', { url: config?.url, errCode });
             }
             break;
+          }
           case 403:
             console.error('Access forbidden');
             break;
