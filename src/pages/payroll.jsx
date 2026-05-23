@@ -347,6 +347,10 @@ const Payroll = () => {
   const [payPeriodStart, setPayPeriodStart] = useState('')
   const [payPeriodEnd, setPayPeriodEnd] = useState('')
   const [payNote, setPayNote] = useState('')
+  // When true, scheduled jobs in the period are marked completed before
+  // building the batch — pay-in-advance flow. Matches the "Incl. Scheduled"
+  // toggle on the Payroll preview tab.
+  const [payIncludeScheduled, setPayIncludeScheduled] = useState(false)
 
   // Cash form
   const [cashTeamMember, setCashTeamMember] = useState('')
@@ -617,21 +621,38 @@ const Payroll = () => {
     try {
       if (payTeamMember === 'all') {
         // Single server-side call to create batches for all members
-        const result = await ledgerAPI.createPayoutBatchAll({ periodStart: payPeriodStart, periodEnd: payPeriodEnd, note: payNote || undefined })
+        const result = await ledgerAPI.createPayoutBatchAll({
+          periodStart: payPeriodStart,
+          periodEnd: payPeriodEnd,
+          note: payNote || undefined,
+          includeScheduled: payIncludeScheduled || undefined,
+        })
         const created = result.created?.length || 0
         const skipped = result.skipped || []
+        const advanced = result.scheduled_completed_total || 0
         if (created > 0) {
-          setShowPayoutModal(false); setPayTeamMember(''); setPayPeriodStart(''); setPayPeriodEnd(''); setPayNote('')
-          if (skipped.length > 0) {
-            setTimeout(() => alert(`Created ${created} payouts.\n\nSkipped ${skipped.length}:\n${skipped.map(s => `${s.name}: ${s.reason}`).join('\n')}`), 300)
-          }
+          setShowPayoutModal(false); setPayTeamMember(''); setPayPeriodStart(''); setPayPeriodEnd(''); setPayNote(''); setPayIncludeScheduled(false)
+          const parts = []
+          if (advanced > 0) parts.push(`${advanced} scheduled job${advanced === 1 ? '' : 's'} marked completed.`)
+          if (skipped.length > 0) parts.push(`Skipped ${skipped.length}:\n${skipped.map(s => `${s.name}: ${s.reason}`).join('\n')}`)
+          if (parts.length) setTimeout(() => alert(`Created ${created} payouts.\n\n${parts.join('\n\n')}`), 300)
         } else {
           setModalError(`No payouts created. ${skipped.length} members had no unpaid entries for this period.`)
         }
       } else {
-        await ledgerAPI.createPayoutBatch({ teamMemberId: payTeamMember, periodStart: payPeriodStart, periodEnd: payPeriodEnd, note: payNote || undefined })
+        const result = await ledgerAPI.createPayoutBatch({
+          teamMemberId: payTeamMember,
+          periodStart: payPeriodStart,
+          periodEnd: payPeriodEnd,
+          note: payNote || undefined,
+          includeScheduled: payIncludeScheduled || undefined,
+        })
         setShowPayoutModal(false)
-        setPayTeamMember(''); setPayPeriodStart(''); setPayPeriodEnd(''); setPayNote('')
+        setPayTeamMember(''); setPayPeriodStart(''); setPayPeriodEnd(''); setPayNote(''); setPayIncludeScheduled(false)
+        const advanced = result?.scheduled_completed || 0
+        if (advanced > 0) {
+          setTimeout(() => alert(`Payout created. ${advanced} scheduled job${advanced === 1 ? '' : 's'} marked completed and included.`), 300)
+        }
       }
       fetchBatches(); fetchBalances()
     } catch (err) {
@@ -2238,6 +2259,32 @@ const Payroll = () => {
                 <input type="text" value={payNote} onChange={e => setPayNote(e.target.value)}
                   className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="Optional note" />
               </div>
+
+              {/* Pay-in-advance toggle */}
+              <label
+                className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  payIncludeScheduled
+                    ? 'border-amber-300 bg-amber-50'
+                    : 'border-[var(--sf-border-light)] bg-white hover:bg-[var(--sf-bg-hover)]'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={payIncludeScheduled}
+                  onChange={e => setPayIncludeScheduled(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[var(--sf-text-primary)]">
+                    Include scheduled jobs
+                  </div>
+                  <div className="text-xs text-[var(--sf-text-muted)] mt-0.5">
+                    Marks scheduled jobs in this period as <strong>completed</strong> before
+                    the payout. Use when paying in advance — once batched, those earnings
+                    can&apos;t be reversed by cancelling the job later.
+                  </div>
+                </div>
+              </label>
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button onClick={() => setShowPayoutModal(false)} className="bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
