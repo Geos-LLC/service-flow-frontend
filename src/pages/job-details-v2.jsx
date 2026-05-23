@@ -41,6 +41,7 @@ import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI } from "../ser
 import { formatTime as formatTimeShared } from "../utils/formatTime"
 import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
+import JobExpensesSection from "../components/job-expenses-section"
 import {
   SfCard,
   SfCardHeader,
@@ -358,6 +359,14 @@ const JobDetailsV2 = () => {
     } finally {
       setSavingEdit(false)
     }
+  }
+
+  // Inline-save a single financial field (tip_amount / incentive_amount)
+  // and refresh the job. Used by the FinancialsCard inline editors.
+  const onSaveFinancialField = async (key, value) => {
+    if (!job) return
+    await jobsAPI.update(job.id, { [key]: value })
+    await loadJob()
   }
 
   const onSetLead = async (newLeadId) => {
@@ -808,6 +817,22 @@ const JobDetailsV2 = () => {
                   </div>
                 )}
               </SfCard>
+
+              {/* Financials — tip & incentive inline editors */}
+              <FinancialsCard
+                job={job}
+                invoice={invoice}
+                onSaveField={onSaveFinancialField}
+              />
+
+              {/* Expenses & reimbursements */}
+              <SfCard>
+                <SfCardHeader
+                  title="Expenses & reimbursements"
+                  subtitle="Parking, tolls, supplies — paid by cleaner, company, or customer"
+                />
+                <JobExpensesSection jobId={job.id} teamMembers={teamMembers} />
+              </SfCard>
             </>
           )}
 
@@ -1154,6 +1179,226 @@ const JobDetailsV2 = () => {
         onClose={() => setEditOpen(false)}
         onSave={onSaveEdit}
       />
+    </div>
+  )
+}
+
+// ── Financials card ────────────────────────────────────────
+// Service price (read-only) + Tip + Incentive (inline editable) +
+// Total. Each editor is a click-to-reveal input that PUTs the single
+// field to /api/jobs/:id and bubbles a refresh via onSaveField.
+
+const FinancialsCard = ({ job, invoice, onSaveField }) => {
+  const servicePrice = parseFloat(job?.service_price || 0)
+  const additionalFees = parseFloat(job?.additional_fees || 0)
+  const discount = parseFloat(job?.discount || 0)
+  const tip = parseFloat(job?.tip_amount || 0)
+  const incentive = parseFloat(job?.incentive_amount || 0)
+  const jobTotal = parseFloat(
+    invoice?.total_amount || invoice?.amount || job?.total || job?.total_amount || 0
+  )
+  const grand = (jobTotal || servicePrice + additionalFees - discount) + tip
+
+  return (
+    <SfCard>
+      <SfCardHeader
+        title="Financials"
+        subtitle="Tip and incentive feed payroll. Edit anytime."
+      />
+      <div className="flex flex-col">
+        <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} muted />
+        {additionalFees > 0 && (
+          <FinancialRow label="Additional fees" value={formatMoney(additionalFees)} muted />
+        )}
+        {discount > 0 && (
+          <FinancialRow
+            label="Discount"
+            value={`− ${formatMoney(discount)}`}
+            muted
+            tone="var(--sf-green-dark)"
+          />
+        )}
+        <FinancialEditableRow
+          label="Tip"
+          fieldKey="tip_amount"
+          value={tip}
+          onSave={onSaveField}
+          accent="var(--sf-green-dark)"
+          accentSoft="var(--sf-green-soft)"
+        />
+        <FinancialEditableRow
+          label="Incentive"
+          fieldKey="incentive_amount"
+          value={incentive}
+          onSave={onSaveField}
+          accent="var(--sf-purple)"
+          accentSoft="var(--sf-purple-soft)"
+        />
+        <div
+          className="flex items-center justify-between mt-1 pt-3"
+          style={{ borderTop: "1px solid var(--sf-border-soft)" }}
+        >
+          <span className="text-[13px] font-semibold text-[var(--sf-ink)]">Total</span>
+          <span className="text-[15px] font-bold text-[var(--sf-ink)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {formatMoney(grand)}
+          </span>
+        </div>
+      </div>
+    </SfCard>
+  )
+}
+
+const FinancialRow = ({ label, value, muted, tone }) => (
+  <div className="flex items-center justify-between py-2">
+    <span className="text-[12.5px]" style={{ color: muted ? "var(--sf-ink-3)" : "var(--sf-ink-2)" }}>
+      {label}
+    </span>
+    <span
+      className="text-[13px] font-medium"
+      style={{ color: tone || "var(--sf-ink)", fontVariantNumeric: "tabular-nums" }}
+    >
+      {value}
+    </span>
+  </div>
+)
+
+const FinancialEditableRow = ({ label, fieldKey, value, onSave, accent, accentSoft }) => {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value > 0 ? value.toFixed(2) : "")
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState("")
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(value > 0 ? value.toFixed(2) : "")
+      setErr("")
+      setTimeout(() => inputRef.current?.focus(), 0)
+    }
+  }, [editing, value])
+
+  const cancel = () => {
+    setEditing(false)
+    setErr("")
+  }
+
+  const save = async () => {
+    const next = parseFloat(draft)
+    if (draft !== "" && (Number.isNaN(next) || next < 0)) {
+      setErr("Enter a positive amount or leave blank to clear.")
+      return
+    }
+    setSaving(true)
+    setErr("")
+    try {
+      await onSave(fieldKey, draft === "" ? 0 : next)
+      setEditing(false)
+    } catch (e) {
+      setErr(e?.response?.data?.error || e?.message || "Could not save.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="py-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12.5px] text-[var(--sf-ink-2)]">{label}</span>
+          <div className="flex items-center gap-1.5">
+            <div className="relative">
+              <span
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-[var(--sf-ink-3)]"
+                style={{ pointerEvents: "none" }}
+              >
+                $
+              </span>
+              <input
+                ref={inputRef}
+                type="text"
+                inputMode="decimal"
+                value={draft}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setDraft(v)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") save()
+                  if (e.key === "Escape") cancel()
+                }}
+                placeholder="0.00"
+                style={{
+                  width: 96,
+                  padding: "5px 8px 5px 18px",
+                  fontSize: 12.5,
+                  border: "1px solid var(--sf-border)",
+                  borderRadius: 6,
+                  outline: "none",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="px-2 py-1 rounded-md text-[11px] font-medium text-white disabled:opacity-60"
+              style={{ background: accent || "var(--sf-blue)" }}
+            >
+              {saving ? "…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={cancel}
+              className="px-2 py-1 rounded-md text-[11px] text-[var(--sf-ink-3)] hover:bg-[var(--sf-panel-soft)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        {err && (
+          <div className="text-[11px] text-[var(--sf-red-dark)] mt-1 text-right">{err}</div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between py-2">
+      <span className="text-[12.5px] text-[var(--sf-ink-2)]">{label}</span>
+      {value > 0 ? (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md transition-colors"
+          style={{
+            color: accent || "var(--sf-ink)",
+            background: accentSoft || "transparent",
+            fontSize: 13,
+            fontWeight: 600,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {formatMoney(value)}
+          <Pencil size={11} style={{ opacity: 0.6 }} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[12px] font-medium transition-colors"
+          style={{ color: accent || "var(--sf-blue-dark)" }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = accentSoft || "var(--sf-panel-soft)"
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent"
+          }}
+        >
+          <Plus size={12} />
+          Add {label.toLowerCase()}
+        </button>
+      )}
     </div>
   )
 }
