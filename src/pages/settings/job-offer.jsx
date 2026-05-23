@@ -1,47 +1,25 @@
 "use client"
 
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft } from "lucide-react"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
-const JobOffer = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const navigate = useNavigate()
-
-  return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings/client-team-notifications")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Client & Team Notifications</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Job Offer</h1>
-            <span className="bg-orange-100 text-orange-600 text-sm px-3 py-1 rounded-md">
-              Team Notification Template
-            </span>
-          </div>
-        </div>
-        <div className="flex-1 overflow-auto p-6">
-          <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-8 text-center">
-            <h2 className="text-xl font-semibold text-[var(--sf-text-primary)] mb-4">Job Offer Notifications</h2>
-            <p className="text-[var(--sf-text-secondary)] mb-4">
-              Configure notifications sent to service providers when a new job is offered to them.
-            </p>
-            <p className="text-sm text-[var(--sf-text-muted)]">
-              Template configuration interface would go here...
-            </p>
-          </div>
-        </div>
-      </div>
+const JobOffer = () => (
+  <SettingsRailLayout
+    title="Job offer"
+    section="Communications"
+    subtitle="Notification sent to service providers when a new job is offered to them"
+  >
+    <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-8 text-center">
+      <h2 className="text-xl font-semibold text-[var(--sf-text-primary)] mb-4">
+        Job offer notifications
+      </h2>
+      <p className="text-[var(--sf-text-secondary)] mb-4">
+        Configure notifications sent to service providers when a new job is offered.
+      </p>
+      <p className="text-sm text-[var(--sf-text-muted)]">
+        Template configuration interface coming soon.
+      </p>
     </div>
-  )
-}
+  </SettingsRailLayout>
+)
 
-export default JobOffer 
+export default JobOffer

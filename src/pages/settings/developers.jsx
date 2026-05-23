@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 import { ChevronLeft, Link2, Trash2, AlertTriangle, Calendar, Users, UserCheck, MapPin, Briefcase, RefreshCw, CheckCircle2 } from "lucide-react"
 import api, { jobsAPI, customersAPI, teamAPI, territoriesAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
 import Notification, { useNotification } from "../../components/notification"
 
 const Developers = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
   const { user } = useAuth()
   const { notification, showNotification, hideNotification } = useNotification()
@@ -217,28 +216,12 @@ const Developers = () => {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Developers</h1>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-6xl mx-auto p-6 space-y-12">
+    <SettingsRailLayout
+      title="Developers"
+      section="Integrations"
+      subtitle="Webhooks, API tokens, audit log"
+    >
+      <div className="space-y-12">
             {/* Webhooks Section */}
             <div>
               <h2 className="text-xl font-semibold text-[var(--sf-text-primary)] mb-4">Webhooks</h2>
@@ -568,8 +551,6 @@ const Developers = () => {
               )}
             </div>
           </div>
-        </div>
-      </div>
 
       {/* Delete Confirmation Modals */}
       {/* Delete All Customers Modal */}
@@ -871,7 +852,7 @@ const Developers = () => {
         onClose={hideNotification}
         duration={5000}
       />
-    </div>
+    </SettingsRailLayout>
   )
 }
 

@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import NotificationTestButton from "../../components/NotificationTestButton"
-import { ChevronLeft, Mail, MessageSquare, Check, X } from "lucide-react"
+import { Mail, MessageSquare, Check, X } from "lucide-react"
 import { notificationTemplatesAPI, notificationSettingsAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
 const AppointmentConfirmation = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -143,27 +142,7 @@ const AppointmentConfirmation = () => {
   };
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings/client-team-notifications")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Client & Team Notifications</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Appointment Confirmation</h1>
-            <span className="bg-[var(--sf-bg-page)] text-[var(--sf-text-secondary)] text-sm px-3 py-1 rounded-md">
-              Customer Notification Template
-            </span>
-          </div>
-        </div>
+    <SettingsRailLayout title="Appointment confirmation" section="Communications" subtitle="Sent to the customer when a job is scheduled">
 
         {/* Message */}
         {message.text && (
@@ -182,8 +161,6 @@ const AppointmentConfirmation = () => {
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-7xl mx-auto p-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Settings Panel */}
               <div className="space-y-6">
@@ -481,11 +458,8 @@ const AppointmentConfirmation = () => {
               >
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+              </div>
+            </SettingsRailLayout>
   )
 }
 

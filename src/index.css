@@ -36,6 +36,83 @@
   --sf-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
 
   --sf-radius: 10px;
+
+  /* ── Service Blue redesign tokens (Wave 1) ───────────────────
+     Supplement the legacy --sf-* vars above. Used by the new
+     Sidebar, Topbar, Spotlight, and screen rebuilds. */
+  --sf-panel: #FFFFFF;
+  --sf-panel-alt: #F8FAFC;
+  --sf-panel-soft: #F1F5F9;
+
+  --sf-ink: #0F172A;
+  --sf-ink-2: #475569;
+  --sf-ink-3: #94A3B8;
+  --sf-ink-4: #CBD5E1;
+
+  --sf-border-2: #E5E7EB;
+  --sf-border-soft: #EEF1F5;
+
+  --sf-blue: #2563EB;
+  --sf-blue-dark: #1E40AF;
+  --sf-blue-soft: #EEF4FF;
+  --sf-blue-soft-2: #DBEAFE;
+
+  --sf-green: #16A34A;
+  --sf-green-dark: #15803D;
+  --sf-green-soft: #ECFDF5;
+
+  --sf-amber: #D97706;
+  --sf-amber-dark: #B45309;
+  --sf-amber-soft: #FEF3C7;
+
+  --sf-red: #DC2626;
+  --sf-red-dark: #B91C1C;
+  --sf-red-soft: #FEE2E2;
+
+  --sf-purple: #7C3AED;
+  --sf-purple-soft: #F3E8FF;
+
+  --sf-teal: #0891B2;
+  --sf-teal-soft: #CFFAFE;
+
+  --sf-radius-sm: 6px;
+  --sf-radius-lg: 14px;
+
+  --sf-shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
+  --sf-shadow-m: 0 4px 12px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+  --sf-shadow-l: 0 12px 32px rgba(15,23,42,.10), 0 4px 12px rgba(15,23,42,.06);
+
+  /* Typography */
+  --sf-font-ui: 'Inter', 'Montserrat', system-ui, -apple-system, sans-serif;
+  --sf-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Team colors — used by schedule blocks, team avatars, route map */
+  --sf-team-a: #2563EB;
+  --sf-team-b: #16A34A;
+  --sf-team-c: #D97706;
+  --sf-team-d: #7C3AED;
+  --sf-team-e: #0891B2;
+}
+
+/* Tabular numerals helper for money, counts, dates, codes */
+.sf-tabular { font-variant-numeric: tabular-nums; }
+.sf-mono { font-family: var(--sf-font-mono); font-variant-numeric: tabular-nums; }
+
+/* Schedule-timeline blocks need to override the global button
+   border-radius so the right edge can square off where the overtime
+   extension joins. The global rule below uses !important, so we match
+   with !important and rely on stylesheet order to win. */
+.sf-timeline-block {
+  border-radius: 5px !important;
+}
+.sf-timeline-block.has-overtime {
+  border-radius: 5px 0 0 5px !important;
+}
+
+/* Pulse used by the "in progress" status indicator on timeline blocks. */
+@keyframes sfPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .55; transform: scale(.78); }
 }
 
 /* ══════════════════════════════════════════════════

@@ -1,15 +1,12 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft, Check, AlertCircle, RefreshCw, Unplug, Copy, ExternalLink } from "lucide-react"
+import { Check, AlertCircle, RefreshCw, Unplug, Copy, ExternalLink } from "lucide-react"
 import api from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const ZenbookerSettings = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const navigate = useNavigate()
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState('disconnected')
@@ -134,35 +131,21 @@ const ZenbookerSettings = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          </div>
+      <SettingsPageLayout title="Zenbooker">
+        <div className="flex items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
-      </div>
+      </SettingsPageLayout>
     )
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button onClick={() => navigate("/settings")}
-              style={{ background: 'none', border: 'none', boxShadow: 'none', padding: '4px', borderRadius: '6px' }}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]">
-              <ChevronLeft className="w-5 h-5" /><span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Zenbooker Integration</h1>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-3xl mx-auto p-6 space-y-6">
+    <SettingsPageLayout
+      title="Zenbooker"
+      subtitle="Sync jobs, customers, and team from Zenbooker in real-time"
+      maxWidth={800}
+    >
+      <div className="space-y-6">
             {/* Message */}
             {message.text && (
               <div className={`rounded-lg p-4 ${message.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
@@ -384,10 +367,8 @@ const ZenbookerSettings = () => {
                 Disconnecting preserves all synced data in Service Flow. You can reconnect anytime — existing records will be matched by their Zenbooker ID without duplication.
               </p>
             </div>
-          </div>
-        </div>
       </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

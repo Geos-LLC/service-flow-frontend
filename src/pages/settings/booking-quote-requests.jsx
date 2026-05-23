@@ -1,14 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import LoadingButton from "../../components/loading-button"
 import Notification from "../../components/notification"
-import { ChevronLeft, Calendar, Clock, MapPin, FileText } from "lucide-react"
+import { Calendar, Clock, MapPin, FileText } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const BookingQuoteRequests = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [notification, setNotification] = useState(null)
   const [settings, setSettings] = useState({
@@ -28,7 +26,6 @@ const BookingQuoteRequests = () => {
       "An instant price quote is not available for this service. Please request a quote, and we will send you a detailed estimate that you can book.",
   })
 
-  const navigate = useNavigate()
 
   useEffect(() => {
     const savedSettings = localStorage.getItem("service-flow_booking_quote_requests")
@@ -79,38 +76,22 @@ const BookingQuoteRequests = () => {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {notification && (
-          <Notification type={notification.type} message={notification.message} onClose={() => setNotification(null)} />
-        )}
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate("/settings")}
-                className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-              >
-                <ChevronLeft className="w-5 h-5" />
-                <span className="text-sm">Settings</span>
-              </button>
-              <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Booking & Quote Requests</h1>
-            </div>
-            <LoadingButton
-              onClick={handleSave}
-              loading={loading}
-              className="px-4 py-2 bg-[var(--sf-blue-500)] text-white rounded-lg hover:bg-[var(--sf-blue-600)]"
-            >
-              Save Changes
-            </LoadingButton>
-          </div>
-        </div>
-
+    <SettingsPageLayout
+      title="Booking & quote requests"
+      subtitle="Configure how customers submit booking and quote requests"
+      actions={
+        <LoadingButton
+          onClick={handleSave}
+          loading={loading}
+          className="px-4 py-2 bg-[var(--sf-blue-500)] text-white rounded-lg hover:bg-[var(--sf-blue-600)]"
+        >
+          Save Changes
+        </LoadingButton>
+      }
+    >
+      {notification && (
+        <Notification type={notification.type} message={notification.message} onClose={() => setNotification(null)} />
+      )}
         {/* Content */}
         <div className="flex-1 overflow-auto">
           <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -383,8 +364,7 @@ const BookingQuoteRequests = () => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

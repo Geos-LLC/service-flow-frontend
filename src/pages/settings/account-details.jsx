@@ -1,1106 +1,1118 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import PageLayout from "../../components/PageLayout"
-import Card from "../../components/Card"
-import Button from "../../components/Button"
-import Input from "../../components/Input"
-import { Camera, Eye, EyeOff, Check, X, Trash2, Download, FileSpreadsheet, Calendar, AlertTriangle } from "lucide-react"
-import { userProfileAPI, authAPI, teamAPI, jobsAPI, customersAPI, invoicesAPI, sheetsAPI } from "../../services/api"
+import {
+  Shield, Briefcase, Calendar, Sparkles,
+  Mail, Phone, Globe, Camera, Check, X, ChevronRight,
+  Truck, Archive, User as UserIcon, Smartphone,
+  CreditCard, Banknote, FileText, Download, AlertTriangle,
+  Monitor, Tablet, LogOut, Loader2, ExternalLink,
+} from "lucide-react"
+import { userProfileAPI, authAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
-import Sidebar from "../../components/sidebar"
-import { isWorker } from "../../utils/roleUtils"
+import { getUserRole } from "../../utils/roleUtils"
+import SettingsRailLayout from "../../components/settings-rail-layout"
+import { SfCard, SfButton, SfTag, SfAvatar, sfInitials } from "../../components/sf-primitives"
+
+/**
+ * Your account — role-aware design per ADDON_your_account_role_aware.md.
+ *
+ * One page, four variants (Owner / Manager / Scheduler / Cleaner).
+ * Sections render conditionally on `effectiveRole`. The Preview-as
+ * switcher at top lets owners flip into other roles for QA — for
+ * other users it stays hidden and the page renders for their actual
+ * role.
+ */
+
+// ── Role meta + permission matrix ─────────────────────────
+
+const ROLE_META = {
+  owner: {
+    label: "Owner",
+    tagline: "Full access",
+    color: "var(--sf-purple)",
+    bg: "var(--sf-purple-soft)",
+    icon: Shield,
+  },
+  manager: {
+    label: "Manager",
+    tagline: "Ops + finance · no billing",
+    color: "var(--sf-blue)",
+    bg: "var(--sf-blue-soft)",
+    icon: Briefcase,
+  },
+  scheduler: {
+    label: "Scheduler",
+    tagline: "Schedule + messaging only",
+    color: "var(--sf-teal, #0E7490)",
+    bg: "var(--sf-teal-soft, #ECFEFF)",
+    icon: Calendar,
+  },
+  cleaner: {
+    label: "Cleaner",
+    tagline: "Field app only",
+    color: "var(--sf-green-dark)",
+    bg: "var(--sf-green-soft)",
+    icon: Sparkles,
+  },
+}
+
+// Normalise the codebase's role token ('worker') into the spec's ('cleaner')
+const normaliseRole = (role) => (role === "worker" ? "cleaner" : role)
+
+const PERMISSIONS = [
+  ["Manage jobs & schedule",   true,        true,        true,            false],
+  ["View customer details",    true,        true,        true,            "limited:own jobs only"],
+  ["Send invoices",            true,        true,        false,           false],
+  ["Process payroll",          true,        true,        false,           false],
+  ["Manage team & roles",      true,        "limited:below your seniority", false, false],
+  ["Edit services & pricing",  true,        true,        false,           false],
+  ["Manage integrations",      true,        false,       false,           false],
+  ["Billing & subscription",   true,        false,       false,           false],
+  ["View analytics",           true,        true,        "limited",       false],
+  ["Delete data",              true,        false,       false,           false],
+]
+const PERM_COL = { owner: 1, manager: 2, scheduler: 3, cleaner: 4 }
+
+const NOTIFICATIONS = [
+  { event: "New booking received",       roles: ["owner", "manager", "scheduler"],          defaults: { inApp: true, email: true } },
+  { event: "Job assigned to you",        roles: ["owner", "manager", "scheduler", "cleaner"], defaults: { inApp: true, push: true } },
+  { event: "Job rescheduled",            roles: ["owner", "manager", "scheduler", "cleaner"], defaults: { inApp: true, email: true, push: true } },
+  { event: "Job running late",           roles: ["owner", "manager", "scheduler"],          defaults: { inApp: true, sms: true } },
+  { event: "Customer cancelled",         roles: ["owner", "manager", "scheduler", "cleaner"], defaults: { inApp: true, email: true } },
+  { event: "Payment received",           roles: ["owner", "manager"],                       defaults: { inApp: true, email: true } },
+  { event: "Tip received",               roles: ["cleaner"],                                defaults: { push: true } },
+  { event: "Invoice overdue",            roles: ["owner", "manager"],                       defaults: { email: true } },
+  { event: "New lead from website",      roles: ["owner", "manager", "scheduler"],          defaults: { inApp: true, email: true, sms: true } },
+  { event: "New review · 4★ or below",   roles: ["owner", "manager"],                       defaults: { inApp: true, email: true } },
+  { event: "You received a 5★ review",   roles: ["cleaner"],                                defaults: { inApp: true, push: true } },
+  { event: "Time-off request",           roles: ["owner", "manager"],                       defaults: { inApp: true, email: true } },
+  { event: "Time-off approved / denied", roles: ["cleaner"],                                defaults: { inApp: true, push: true } },
+  { event: "Pay stub available",         roles: ["cleaner"],                                defaults: { email: true, push: true } },
+  { event: "Weekly summary",             roles: ["owner", "manager"],                       defaults: { email: true } },
+  { event: "Product updates",            roles: ["owner", "manager", "scheduler", "cleaner"], defaults: { email: true } },
+]
+
+const CONNECTED_PROVIDERS_BY_ROLE = {
+  owner:     ["google", "apple", "microsoft", "slack"],
+  manager:   ["google", "apple", "microsoft", "slack"],
+  scheduler: ["google", "apple", "slack"],
+  cleaner:   ["google", "apple"],
+}
+
+const PROVIDER_META = {
+  google:    { label: "Google",    icon: Globe },
+  apple:     { label: "Apple",     icon: Sparkles },
+  microsoft: { label: "Microsoft", icon: Briefcase },
+  slack:     { label: "Slack",     icon: Smartphone },
+}
+
+// ── Page ──────────────────────────────────────────────────
 
 const AccountDetails = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
+  const { user: authUser } = useAuth()
+  const actualRole = useMemo(() => normaliseRole(getUserRole(authUser)) || "manager", [authUser])
+  const canPreviewOtherRoles = actualRole === "owner"
+
+  const [previewRole, setPreviewRole] = useState(null)
+  const effectiveRole = previewRole || actualRole
+  const meta = ROLE_META[effectiveRole] || ROLE_META.manager
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [showEmailModal, setShowEmailModal] = useState(false)
-  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [exportProgress, setExportProgress] = useState('')
-  const [message, setMessage] = useState({ type: '', text: '' })
-  
-  const [formData, setFormData] = useState({
-    fullName: "",
-    businessName: "",
-    phone: "",
+  const [message, setMessage] = useState(null)
+  const [profile, setProfile] = useState({
+    firstName: "",
+    lastName: "",
     email: "",
-    emailNotifications: true,
-    smsNotifications: false,
-    profilePicture: null
+    phone: "",
+    pronouns: "",
+    jobTitle: "",
+    timezone: "America/New_York",
+    locale: "en-US",
+    profilePicture: "",
+    emailVerified: true,
+    phoneVerified: false,
   })
+  const [initial, setInitial] = useState(profile)
+  const [dirty, setDirty] = useState(false)
 
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: ""
-  })
-
-  const [emailData, setEmailData] = useState({
-    newEmail: "",
-    password: ""
-  })
-
-  const [showPasswords, setShowPasswords] = useState({
-    current: false,
-    new: false,
-    confirm: false
-  })
-
-  const [showEmailPassword, setShowEmailPassword] = useState(false)
-
-  // Get current user
-  const currentUser = authAPI.getCurrentUser()
-  const { updateUserProfile, refreshUserProfile } = useAuth()
+  // Notifications state — initial values pulled from the per-role
+  // defaults. Persistence lands later (would need a new endpoint).
+  const [notifPrefs, setNotifPrefs] = useState({})
+  useEffect(() => {
+    const next = {}
+    NOTIFICATIONS.forEach((n) => {
+      next[n.event] = {
+        inApp: !!n.defaults.inApp,
+        email: !!n.defaults.email,
+        push:  !!n.defaults.push,
+        sms:   !!n.defaults.sms,
+      }
+    })
+    setNotifPrefs(next)
+  }, [])
 
   useEffect(() => {
-    let isMounted = true;
-    
-    console.log('AccountDetails useEffect running, currentUser:', currentUser);
-    
-    if (currentUser) {
-      console.log('Loading user profile for user:', currentUser.id);
-      // Add a timeout to prevent infinite loading
-      const timeoutId = setTimeout(() => {
-        if (isMounted && loading) {
-          console.log('Request timed out, setting default data');
-          setLoading(false);
-          setMessage({ 
-            type: 'error', 
-            text: 'Request timed out. Please check your connection and try again.' 
-          });
-                  // Set default data
-          setFormData({
-            fullName: currentUser.firstName ? `${currentUser.firstName} ${currentUser.lastName || ''}` : 'User',
-            phone: "",
-            email: currentUser.email || "",
-            emailNotifications: true,
-            smsNotifications: false,
-            profilePicture: null
-          });
-        }
-      }, 20000); // 20 second timeout
-
-      loadUserProfile().finally(() => {
-        clearTimeout(timeoutId);
-      });
-    } else {
-      console.log('No current user, redirecting to signin');
-      navigate('/signin')
-    }
-
-    return () => {
-      console.log('AccountDetails useEffect cleanup');
-      isMounted = false;
-    };
-  }, []) // Remove currentUser from dependency array to prevent infinite re-renders
-
-  const loadUserProfile = async () => {
-    try {
-      console.log('loadUserProfile called');
+    if (!authUser?.id) return
+    ;(async () => {
       setLoading(true)
-      const user = authAPI.getCurrentUser() // Get fresh user data
-      if (!user) {
-        console.log('No user found in loadUserProfile');
-        navigate('/signin')
-        return
-      }
-      
-      console.log('Fetching profile for user:', user.id, 'teamMemberId:', user.teamMemberId);
-      const profile = await userProfileAPI.getProfile(user.id)
-      console.log('Profile loaded:', profile);
-      
-      // Handle both account owners and team members
-      const fullName = profile.firstName || profile.lastName 
-        ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
-        : user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.firstName || 'User';
-      
-      setFormData({
-        fullName: fullName,
-        businessName: profile.businessName || profile.business_name || "",
-        phone: profile.phone || "",
-        email: profile.email,
-        emailNotifications: profile.emailNotifications || false,
-        smsNotifications: profile.smsNotifications || false,
-        profilePicture: profile.profilePicture
-      })
-    } catch (error) {
-      console.error('Error loading profile:', error)
-      // If it's a database schema error, show a helpful message
-      if (error.response?.data?.error?.includes('Unknown column')) {
-        setMessage({ 
-          type: 'error', 
-          text: 'Database schema needs to be updated. Please run the migration script.' 
-        })
-        // Set default data so the page doesn't keep loading
-        const user = authAPI.getCurrentUser()
-        setFormData({
-          fullName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'User',
-          businessName: "",
-          phone: "",
-          email: user?.email || "",
-          emailNotifications: true,
-          smsNotifications: false,
-          profilePicture: null
-        })
-      } else {
-        setMessage({ type: 'error', text: 'Failed to load profile data' })
-        // Set default data so the page doesn't keep loading
-        const user = authAPI.getCurrentUser()
-        setFormData({
-          fullName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'User',
-          businessName: "",
-          phone: "",
-          email: user?.email || "",
-          emailNotifications: true,
-          smsNotifications: false,
-          profilePicture: null
-        })
-      }
-    } finally {
-      console.log('loadUserProfile finally block, setting loading to false');
-      setLoading(false)
-    }
-  }
-
-  const handleInputChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }))
-  }
-
-  const handleToggle = (field) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: !prev[field]
-    }))
-  }
-
-  const handleSaveProfile = async () => {
-    try {
-      setSaving(true)
-      const user = authAPI.getCurrentUser()
-      if (!user) {
-        navigate('/signin')
-        return
-      }
-      
-      const [firstName, ...lastNameParts] = formData.fullName.split(' ')
-      const lastName = lastNameParts.join(' ') || ''
-      
-      // If user is a team member, use team member API
-      if (user.teamMemberId) {
-        const result = await teamAPI.update(user.teamMemberId, {
-          firstName,
-          lastName,
-          phone: formData.phone,
-          email: formData.email // Team members can update their email
-        })
-        
-        // Update the user data in AuthContext and localStorage
-        const updatedUser = {
-          ...user,
-          firstName,
-          lastName,
-          phone: formData.phone,
-          email: formData.email
-        }
-        
-        // Update localStorage
-        localStorage.setItem('user', JSON.stringify(updatedUser))
-        
-        // Update AuthContext
-        updateUserProfile(updatedUser)
-      } else {
-        // Account owner update
-        const result = await userProfileAPI.updateProfile({
-          userId: user.id,
-          firstName,
-          lastName,
-          businessName: formData.businessName,
-          phone: formData.phone,
-          emailNotifications: formData.emailNotifications,
-          smsNotifications: formData.smsNotifications
-        })
-        
-        // Update the user data in AuthContext and localStorage
-        const updatedUser = {
-          ...user,
-          firstName,
-          lastName,
-          businessName: formData.businessName,
-          business_name: formData.businessName,
-          phone: formData.phone,
-          emailNotifications: formData.emailNotifications,
-          smsNotifications: formData.smsNotifications
-        }
-        
-        // Update localStorage
-        localStorage.setItem('user', JSON.stringify(updatedUser))
-        
-        // Update AuthContext
-        updateUserProfile(updatedUser)
-      }
-      
-      // Refresh user profile to ensure all data is synced
       try {
-        await refreshUserProfile()
-        console.log('🔍 Profile refreshed after update')
-      } catch (error) {
-        console.error('Error refreshing profile:', error)
+        const data = await userProfileAPI.getProfile(authUser.id)
+        const next = {
+          firstName: data.firstName || data.first_name || "",
+          lastName:  data.lastName || data.last_name || "",
+          email:     data.email || "",
+          phone:     data.phone || "",
+          pronouns:  data.pronouns || "",
+          jobTitle:  data.jobTitle || data.title || "",
+          timezone:  data.timezone || "America/New_York",
+          locale:    data.locale || "en-US",
+          profilePicture: data.profilePicture || data.profile_picture || "",
+          emailVerified: data.emailVerified !== false,
+          phoneVerified: !!data.phoneVerified,
+        }
+        setProfile(next)
+        setInitial(next)
+        setDirty(false)
+      } catch (e) {
+        setMessage({ type: "error", text: "Couldn't load your profile" })
+      } finally {
+        setLoading(false)
       }
-      
-      setMessage({ type: 'success', text: 'Profile updated successfully!' })
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
-    } catch (error) {
-      console.error('Error updating profile:', error)
-      setMessage({ type: 'error', text: error.response?.data?.error || 'Failed to update profile' })
-    } finally {
-      setSaving(false)
-    }
+    })()
+  }, [authUser?.id])
+
+  const update = (field, value) => {
+    setProfile((p) => ({ ...p, [field]: value }))
+    setDirty(true)
   }
-
-  const handlePasswordChange = async () => {
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setMessage({ type: 'error', text: 'New passwords do not match' })
-      return
-    }
-
-    if (passwordData.newPassword.length < 6) {
-      setMessage({ type: 'error', text: 'Password must be at least 6 characters' })
-      return
-    }
-
+  const handleDiscard = () => {
+    setProfile(initial)
+    setDirty(false)
+    setMessage(null)
+  }
+  const handleSave = async () => {
+    setSaving(true)
+    setMessage(null)
     try {
-      setSaving(true)
-      const user = authAPI.getCurrentUser()
-      if (!user) {
-        navigate('/signin')
-        return
-      }
-      
-      await userProfileAPI.updatePassword({
-        userId: user.id,
-        currentPassword: passwordData.currentPassword,
-        newPassword: passwordData.newPassword
+      await userProfileAPI.updateProfile({
+        userId: authUser.id,
+        firstName: profile.firstName,
+        lastName:  profile.lastName,
+        email:     profile.email,
+        phone:     profile.phone,
+        pronouns:  profile.pronouns,
+        jobTitle:  profile.jobTitle,
+        timezone:  profile.timezone,
+        locale:    profile.locale,
       })
-      
-      setMessage({ type: 'success', text: 'Password updated successfully!' })
-      setShowPasswordModal(false)
-      setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" })
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
-    } catch (error) {
-      console.error('Error updating password:', error)
-      setMessage({ type: 'error', text: error.response?.data?.error || 'Failed to update password' })
+      setInitial(profile)
+      setDirty(false)
+      setMessage({ type: "success", text: "Saved" })
+      setTimeout(() => setMessage(null), 2500)
+    } catch (e) {
+      setMessage({ type: "error", text: e?.response?.data?.error || "Failed to save" })
     } finally {
       setSaving(false)
     }
   }
 
-  const handleEmailChange = async () => {
-    if (!emailData.newEmail.includes('@')) {
-      setMessage({ type: 'error', text: 'Please enter a valid email address' })
-      return
-    }
-
-    try {
-      setSaving(true)
-      const user = authAPI.getCurrentUser()
-      if (!user) {
-        navigate('/signin')
-        return
-      }
-      
-      await userProfileAPI.updateEmail({
-        userId: user.id,
-        newEmail: emailData.newEmail,
-        password: emailData.password
-      })
-      
-      setMessage({ type: 'success', text: 'Email updated successfully!' })
-      setShowEmailModal(false)
-      setEmailData({ newEmail: "", password: "" })
-      setFormData(prev => ({ ...prev, email: emailData.newEmail }))
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
-    } catch (error) {
-      console.error('Error updating email:', error)
-      setMessage({ type: 'error', text: error.response?.data?.error || 'Failed to update email' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleProfilePictureUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setMessage({ type: 'error', text: 'Please select an image file' });
-      return;
-    }
-
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'File size must be less than 5MB' });
-      return;
-    }
-
-    try {
-      setSaving(true);
-      const user = authAPI.getCurrentUser();
-      if (!user) {
-        navigate('/signin');
-        return;
-      }
-
-      // Use teamMemberId if it's a team member, otherwise use user.id
-      const userIdToUse = user.teamMemberId ? user.teamMemberId : user.id;
-      const isTeamMember = !!user.teamMemberId;
-      
-      console.log('🔍 Uploading profile picture for:', isTeamMember ? 'team member' : 'account owner', userIdToUse);
-      const result = await userProfileAPI.updateProfilePicture(userIdToUse, file, isTeamMember);
-      
-      setFormData(prev => ({
-        ...prev,
-        profilePicture: result.profilePicture
-      }));
-      
-      // Update the user profile in AuthContext
-      const updatedProfile = {
-        ...currentUser,
-        profilePicture: result.profilePicture
-      };
-      updateUserProfile(updatedProfile);
-      
-      setMessage({ type: 'success', text: 'Profile picture updated successfully!' });
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    } catch (error) {
-      console.error('Error uploading profile picture:', error);
-      setMessage({ type: 'error', text: error.message || 'Failed to upload profile picture' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSignOut = () => {
+  const onSignOut = () => {
     authAPI.signout()
-    navigate('/signin')
+    navigate("/signin")
   }
 
-  // Check if user is authenticated
-  if (!currentUser) {
-    return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-4 text-[var(--sf-text-secondary)]">Redirecting to sign in...</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const isCleaner = effectiveRole === "cleaner"
+  const isOwner = effectiveRole === "owner"
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-4 text-[var(--sf-text-secondary)]">Loading profile...</p>
-            </div>
-          </div>
+      <SettingsRailLayout title="Your account" section="Account">
+        <div className="flex items-center justify-center py-16">
+          <Loader2 size={24} className="text-[var(--sf-ink-3)] animate-spin" />
         </div>
-      </div>
+      </SettingsRailLayout>
     )
   }
 
-  // Determine back navigation based on user type
-  const handleBack = () => {
-    const user = authAPI.getCurrentUser()
-    if (isWorker(user) && user?.teamMemberId) {
-      // Workers should go to availability page
-      navigate("/availability")
-    } else {
-      // Account owners/managers go to settings
-      navigate("/settings")
-    }
-  }
-
   return (
-    <PageLayout
-      title="Account Details"
-      subtitle="Manage your account settings and preferences"
-      showBackButton={true}
-      onBack={handleBack}
-      sidebarOpen={sidebarOpen}
-      setSidebarOpen={setSidebarOpen}
-      maxWidth="max-w-4xl"
+    <SettingsRailLayout
+      title="Your account"
+      section="Account"
+      subtitle="Profile, notifications, sessions, and personal data"
+      onSave={dirty ? handleSave : undefined}
+      onDiscard={dirty ? handleDiscard : undefined}
+      saving={saving}
     >
-        {/* Message */}
-        {message.text && (
-        <div className={`mb-6 p-4 rounded-lg ${message.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-            <div className="flex items-center">
-              {message.type === 'success' ? (
-              <Check className="w-5 h-5 text-green-500 mr-2" />
-              ) : (
-              <X className="w-5 h-5 text-red-500 mr-2" />
-              )}
-            <span className={`text-sm font-medium ${message.type === 'success' ? 'text-green-800' : 'text-red-800'}`}>
-                {message.text}
-              </span>
-            </div>
-          </div>
+      {message && (
+        <div
+          className="mb-4 rounded-md px-3 py-2 text-[12.5px] font-semibold inline-flex items-center gap-2"
+          style={{
+            background: message.type === "success" ? "var(--sf-green-soft)" : "var(--sf-red-soft)",
+            color:      message.type === "success" ? "var(--sf-green-dark)" : "var(--sf-red-dark)",
+            border: `1px solid ${
+              message.type === "success" ? "rgba(22,163,74,.25)" : "rgba(220,38,38,.25)"
+            }`,
+          }}
+        >
+          {message.type === "success" ? <Check size={13} /> : <X size={13} />}
+          {message.text}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-4">
+        {canPreviewOtherRoles && (
+          <PreviewSwitcher
+            current={effectiveRole}
+            isPreviewing={!!previewRole}
+            onChange={(r) => setPreviewRole(r === actualRole ? null : r)}
+          />
         )}
 
-      <Card>
-              {/* Profile Picture */}
-              <div className="flex items-center space-x-4 mb-8">
-                <div className="relative w-20 h-20 flex-shrink-0">
-                  {formData.profilePicture ? (
-                    <img 
-                      src={formData.profilePicture} 
-                      alt="Profile" 
-                      className="w-20 h-20 rounded-lg object-cover"
-                      onError={(e) => {
-                        console.error('Failed to load profile picture:', formData.profilePicture);
-                        e.target.style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <div className="w-20 h-20 bg-[var(--sf-blue-500)] rounded-lg flex items-center justify-center">
-                      <span className="text-white font-medium text-2xl">
-                        {formData.fullName.split(' ').map(n => n[0]).join('').toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                  {saving && (
-                    <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col space-y-2">
-                  <label className="flex items-center space-x-2 text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium cursor-pointer">
-                    <Camera className="w-4 h-4" />
-                    <span>{formData.profilePicture ? 'Change Profile Picture' : 'Add Profile Picture'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleProfilePictureUpload}
-                      className="hidden"
-                      disabled={saving}
-                    />
-                  </label>
-                  {formData.profilePicture && (
-                    <button 
-                      onClick={async () => {
-                        try {
-                          setSaving(true);
-                          // Use teamMemberId if it's a team member, otherwise use user.id
-                          const userIdToUse = currentUser.teamMemberId ? currentUser.teamMemberId : currentUser.id;
-                          const isTeamMember = !!currentUser.teamMemberId;
-                          await userProfileAPI.removeProfilePicture(userIdToUse, isTeamMember);
-                          
-                          setFormData(prev => ({ ...prev, profilePicture: null }));
-                          
-                          // Update the user profile in AuthContext
-                          const updatedProfile = {
-                            ...currentUser,
-                            profilePicture: null
-                          };
-                          updateUserProfile(updatedProfile);
-                          
-                          setMessage({ type: 'success', text: 'Profile picture removed' });
-                          setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                        } catch (error) {
-                          console.error('Error removing profile picture:', error);
-                          setMessage({ type: 'error', text: 'Failed to remove profile picture' });
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                      className="text-red-600 hover:text-red-700 text-sm"
-                      disabled={saving}
-                    >
-                      Remove Picture
-                    </button>
-                  )}
-                </div>
-              </div>
+        <IdentityCard profile={profile} update={update} meta={meta} />
 
-              {/* Form Fields */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <Input
-                  label="Full Name"
-                    type="text"
-                    value={formData.fullName}
-                    onChange={(e) => handleInputChange('fullName', e.target.value)}
-                />
-                
-                {/* Only show Company Name for account owners */}
-                {!currentUser?.teamMemberId && (
-                  <Input
-                    label="Company Name"
-                    type="text"
-                    value={formData.businessName}
-                    onChange={(e) => handleInputChange('businessName', e.target.value)}
-                    placeholder="Your Company Name"
-                  />
-                )}
-                
-                <Input
-                  label="Phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => handleInputChange('phone', e.target.value)}
-                    placeholder="Mobile Phone Number"
-                />
-              </div>
+        <LoginContactCard profile={profile} update={update} />
 
-              {/* Email */}
-              <div className="mb-8">
-                {currentUser?.teamMemberId ? (
-                  // Team members can edit email directly
-                  <Input
-                    label="Email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
-                    placeholder="your.email@example.com"
-                  />
-                ) : (
-                  // Account owners use modal to change email
-                  <>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-[var(--sf-text-primary)]">
-                        Email
-                      </label>
-                      <button 
-                        onClick={() => setShowEmailModal(true)}
-                        className="text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium text-sm"
-                      >
-                        Change Email
-                      </button>
-                    </div>
-                    <div className="text-[var(--sf-text-primary)]">
-                      {formData.email}
-                    </div>
-                  </>
-                )}
-              </div>
+        {isCleaner && <PayBankingCard />}
+        {isCleaner && <VehicleGearCard />}
+        {isCleaner && <SkillsCard />}
 
-              {/* Password */}
-              <div className="mb-8">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h3 className="text-sm font-medium text-[var(--sf-text-primary)]">Password</h3>
-                    <p className="text-sm text-[var(--sf-text-muted)]">Change the password you use to login to your account</p>
-                  </div>
-                  <button 
-                    onClick={() => setShowPasswordModal(true)}
-                    className="text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium text-sm"
-                  >
-                    Change Password
-                  </button>
-                </div>
-              </div>
+        <NotificationsCard
+          role={effectiveRole}
+          prefs={notifPrefs}
+          setPrefs={setNotifPrefs}
+        />
 
-              {/* Notification Preferences - Only for account owners */}
-              {!currentUser?.teamMemberId && (
-              <div>
-                <h3 className="text-lg font-medium text-[var(--sf-text-primary)] mb-2">NOTIFICATION PREFERENCES</h3>
-                <p className="text-[var(--sf-text-secondary)] mb-6">How would you like to be notified when you are assigned to a job?</p>
+        <PermissionsCard role={effectiveRole} isOwner={isOwner} isCleaner={isCleaner} />
 
-                <div className="space-y-6">
-                  {/* Email Notifications */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 bg-[var(--sf-bg-page)] rounded flex items-center justify-center">
-                        <span className="text-sm">📧</span>
-                      </div>
-                      <span className="text-[var(--sf-text-primary)] font-medium">Emails</span>
-                    </div>
-                    <button
-                      onClick={() => handleToggle('emailNotifications')}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        formData.emailNotifications ? 'bg-green-500' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          formData.emailNotifications ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
+        <ConnectedAccountsCard role={effectiveRole} />
 
-                  {/* SMS Notifications */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 bg-[var(--sf-bg-page)] rounded flex items-center justify-center">
-                        <span className="text-sm">💬</span>
-                      </div>
-                      <span className="text-[var(--sf-text-primary)] font-medium">Text Messages (SMS)</span>
-                    </div>
-                    <button
-                      onClick={() => handleToggle('smsNotifications')}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        formData.smsNotifications ? 'bg-green-500' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          formData.smsNotifications ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              )}
+        <SessionsCard isCleaner={isCleaner} />
 
-              {/* Save Button */}
-              <div className="mt-8 pt-6 border-t border-[var(--sf-border-light)]">
-                <Button
-                  onClick={handleSaveProfile}
-                  loading={saving}
-                  disabled={saving}
-                >
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
-
-              {/* Sign Out Button */}
-              <div className="mt-6">
-                <Button 
-                  variant="ghost"
-                  onClick={handleSignOut}
-                  className="text-red-600 hover:text-red-700"
-                >
-                  Sign Out
-                </Button>
-              </div>
-
-              {/* Delete Account Section */}
-              {!currentUser?.teamMemberId && (
-                <div className="mt-8 pt-8 border-t border-red-200">
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-                    <div className="flex items-start space-x-3 mb-4">
-                      <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-red-900 mb-2">Delete Account</h3>
-                        <p className="text-sm text-red-800 mb-4">
-                          Once you delete your account, there is no going back. This will permanently delete:
-                        </p>
-                        <ul className="text-sm text-red-800 list-disc list-inside space-y-1 mb-4">
-                          <li>All your jobs and job history</li>
-                          <li>All customer information</li>
-                          <li>All invoices and payment records</li>
-                          <li>All team members and their data</li>
-                          <li>All settings and preferences</li>
-                          <li>All calendar and Google Sheets integrations</li>
-                        </ul>
-                        <p className="text-sm font-medium text-red-900 mb-4">
-                          We recommend exporting your data before deleting your account.
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      onClick={() => setShowDeleteAccountModal(true)}
-                      className="text-red-600 hover:text-red-700 border border-red-300 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete Account
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </Card>
-
-      {/* Password Change Modal */}
-      {showPasswordModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-4">Change Password</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--sf-text-primary)] mb-2">
-                  Current Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.current ? "text" : "password"}
-                    value={passwordData.currentPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
-                    className="w-full border border-[var(--sf-border-light)] rounded-md px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] focus:border-[var(--sf-blue-500)]"
-                  />
-                  <button
-                    onClick={() => setShowPasswords(prev => ({ ...prev, current: !prev.current }))}
-                    className="absolute right-3 top-2.5 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)]"
-                  >
-                    {showPasswords.current ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--sf-text-primary)] mb-2">
-                  New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.new ? "text" : "password"}
-                    value={passwordData.newPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
-                    className="w-full border border-[var(--sf-border-light)] rounded-md px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] focus:border-[var(--sf-blue-500)]"
-                  />
-                  <button
-                    onClick={() => setShowPasswords(prev => ({ ...prev, new: !prev.new }))}
-                    className="absolute right-3 top-2.5 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)]"
-                  >
-                    {showPasswords.new ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--sf-text-primary)] mb-2">
-                  Confirm New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.confirm ? "text" : "password"}
-                    value={passwordData.confirmPassword}
-                    onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    className="w-full border border-[var(--sf-border-light)] rounded-md px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] focus:border-[var(--sf-blue-500)]"
-                  />
-                  <button
-                    onClick={() => setShowPasswords(prev => ({ ...prev, confirm: !prev.confirm }))}
-                    className="absolute right-3 top-2.5 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)]"
-                  >
-                    {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowPasswordModal(false)}
-                className="flex-1 px-4 py-2 border border-[var(--sf-border-light)] rounded-md text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-page)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePasswordChange}
-                disabled={saving}
-                className="flex-1 px-4 py-2 bg-[var(--sf-blue-500)] text-white rounded-md hover:bg-[var(--sf-blue-600)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Updating...' : 'Update Password'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Account Modal */}
-      {showDeleteAccountModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start space-x-3 mb-6">
-              <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="text-xl font-semibold text-red-900 mb-2">Delete Your Account</h3>
-                <p className="text-sm text-[var(--sf-text-primary)] mb-4">
-                  This action cannot be undone. All your data will be permanently deleted.
-                </p>
-              </div>
-            </div>
-
-            {/* Export Options */}
-            <div className="mb-6 p-4 bg-[var(--sf-blue-50)] border border-blue-200 rounded-lg">
-              <h4 className="text-sm font-semibold text-blue-900 mb-3">Save Your Data Before Deleting</h4>
-              <p className="text-xs text-blue-800 mb-4">
-                We strongly recommend exporting your data before deleting your account. Choose one or more options:
-              </p>
-              
-              <div className="space-y-3">
-                {/* CSV Export */}
-                <button
-                  onClick={async () => {
-                    setIsExporting(true)
-                    setExportProgress('Exporting jobs to CSV...')
-                    try {
-                      const csvData = await jobsAPI.export({})
-                      const blob = new Blob([csvData], { type: 'text/csv' })
-                      const url = window.URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href = url
-                      a.download = `jobs_export_${new Date().toISOString().split('T')[0]}.csv`
-                      document.body.appendChild(a)
-                      a.click()
-                      window.URL.revokeObjectURL(url)
-                      document.body.removeChild(a)
-                      
-                      setExportProgress('Exporting customers to CSV...')
-                      const customersCsv = await customersAPI.export('csv')
-                      const blob2 = new Blob([customersCsv], { type: 'text/csv' })
-                      const url2 = window.URL.createObjectURL(blob2)
-                      const a2 = document.createElement('a')
-                      a2.href = url2
-                      a2.download = `customers_export_${new Date().toISOString().split('T')[0]}.csv`
-                      document.body.appendChild(a2)
-                      a2.click()
-                      window.URL.revokeObjectURL(url2)
-                      document.body.removeChild(a2)
-                      
-                      setMessage({ type: 'success', text: 'Data exported to CSV files successfully!' })
-                      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
-                    } catch (error) {
-                      console.error('Export error:', error)
-                      setMessage({ type: 'error', text: 'Failed to export data. Please try again.' })
-                    } finally {
-                      setIsExporting(false)
-                      setExportProgress('')
-                    }
-                  }}
-                  disabled={isExporting || isDeleting}
-                  className="w-full flex items-center justify-between p-3 bg-white border border-[var(--sf-border-light)] rounded-lg hover:bg-[var(--sf-bg-page)] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center space-x-3">
-                    <Download className="w-5 h-5 text-[var(--sf-blue-500)]" />
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-[var(--sf-text-primary)]">Export as CSV</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">Download jobs and customers as CSV files</div>
-                    </div>
-                  </div>
-                </button>
-
-                {/* Google Sheets Export */}
-                <button
-                  onClick={async () => {
-                    setIsExporting(true)
-                    setExportProgress('Exporting to Google Sheets...')
-                    try {
-                      const user = authAPI.getCurrentUser()
-                      await sheetsAPI.exportJobs(user.id)
-                      setExportProgress('Exporting customers to Google Sheets...')
-                      await sheetsAPI.exportCustomers(user.id)
-                      setMessage({ type: 'success', text: 'Data exported to Google Sheets successfully!' })
-                      setTimeout(() => setMessage({ type: '', text: '' }), 3000)
-                    } catch (error) {
-                      console.error('Google Sheets export error:', error)
-                      if (error.response?.status === 401 || error.message?.includes('Google')) {
-                        setMessage({ 
-                          type: 'error', 
-                          text: 'Please connect your Google account in Settings > Google Sheets to export data.' 
-                        })
-                      } else {
-                        setMessage({ type: 'error', text: 'Failed to export to Google Sheets. Please try again.' })
-                      }
-                    } finally {
-                      setIsExporting(false)
-                      setExportProgress('')
-                    }
-                  }}
-                  disabled={isExporting || isDeleting}
-                  className="w-full flex items-center justify-between p-3 bg-white border border-[var(--sf-border-light)] rounded-lg hover:bg-[var(--sf-bg-page)] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center space-x-3">
-                    <FileSpreadsheet className="w-5 h-5 text-green-600" />
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-[var(--sf-text-primary)]">Sync with Google Sheets</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">Export data to a new Google Spreadsheet</div>
-                    </div>
-                  </div>
-                </button>
-
-                {/* Calendar Sync Note */}
-                <div className="p-3 bg-[var(--sf-bg-page)] border border-[var(--sf-border-light)] rounded-lg">
-                  <div className="flex items-start space-x-3">
-                    <Calendar className="w-5 h-5 text-[var(--sf-text-secondary)] flex-shrink-0 mt-0.5" />
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-[var(--sf-text-primary)]">Google Calendar</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">
-                        If you have calendar sync enabled, your events are already in your Google Calendar and will remain there after account deletion.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {exportProgress && (
-                <div className="mt-4 p-3 bg-blue-100 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">{exportProgress}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Delete Confirmation */}
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm font-medium text-red-900 mb-3">
-                To confirm deletion, type <strong>DELETE</strong> in the box below:
-              </p>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="Type DELETE to confirm"
-                className="w-full border border-red-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                disabled={isDeleting || isExporting}
-              />
-            </div>
-
-            <div className="flex space-x-3">
-              <button
-                onClick={() => {
-                  setShowDeleteAccountModal(false)
-                  setDeleteConfirmText('')
-                  setExportProgress('')
-                }}
-                disabled={isDeleting || isExporting}
-                className="flex-1 px-4 py-2 border border-[var(--sf-border-light)] rounded-md text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-page)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  if (deleteConfirmText !== 'DELETE') {
-                    setMessage({ type: 'error', text: 'Please type DELETE to confirm' })
-                    return
-                  }
-
-                  setIsDeleting(true)
-                  try {
-                    const user = authAPI.getCurrentUser()
-                    if (!user) {
-                      navigate('/signin')
-                      return
-                    }
-
-                    // Call delete account API
-                    const response = await authAPI.deleteAccount(user.id)
-                    
-                    // Clear local storage
-                    localStorage.removeItem('authToken')
-                    localStorage.removeItem('user')
-                    
-                    // Show success message briefly
-                    setMessage({ type: 'success', text: 'Account deleted successfully' })
-                    
-                    // Redirect to signin after a short delay
-                    setTimeout(() => {
-                      navigate('/signin')
-                    }, 2000)
-                  } catch (error) {
-                    console.error('Error deleting account:', error)
-                    setMessage({ 
-                      type: 'error', 
-                      text: error.response?.data?.error || 'Failed to delete account. Please try again.' 
-                    })
-                    setIsDeleting(false)
-                  }
-                }}
-                disabled={isDeleting || isExporting || deleteConfirmText !== 'DELETE'}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-              >
-                {isDeleting ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>Deleting Account...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4" />
-                    <span>Permanently Delete Account</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Email Change Modal */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-4">Change Email</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--sf-text-primary)] mb-2">
-                  New Email Address
-                </label>
-                <input
-                  type="email"
-                  value={emailData.newEmail}
-                  onChange={(e) => setEmailData(prev => ({ ...prev, newEmail: e.target.value }))}
-                  className="w-full border border-[var(--sf-border-light)] rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] focus:border-[var(--sf-blue-500)]"
-                  placeholder="Enter new email address"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--sf-text-primary)] mb-2">
-                  Current Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showEmailPassword ? "text" : "password"}
-                    value={emailData.password}
-                    onChange={(e) => setEmailData(prev => ({ ...prev, password: e.target.value }))}
-                    className="w-full border border-[var(--sf-border-light)] rounded-md px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] focus:border-[var(--sf-blue-500)]"
-                    placeholder="Enter your current password"
-                  />
-                  <button
-                    onClick={() => setShowEmailPassword(!showEmailPassword)}
-                    className="absolute right-3 top-2.5 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)]"
-                  >
-                    {showEmailPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowEmailModal(false)}
-                className="flex-1 px-4 py-2 border border-[var(--sf-border-light)] rounded-md text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-page)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleEmailChange}
-                disabled={saving}
-                className="flex-1 px-4 py-2 bg-[var(--sf-blue-500)] text-white rounded-md hover:bg-[var(--sf-blue-600)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Updating...' : 'Update Email'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-          </PageLayout>
+        <DangerZoneCard isOwner={isOwner} onSignOut={onSignOut} />
+      </div>
+    </SettingsRailLayout>
   )
 }
+
+// ── Preview switcher ──────────────────────────────────────
+
+const PreviewSwitcher = ({ current, isPreviewing, onChange }) => {
+  const roles = ["owner", "manager", "scheduler", "cleaner"]
+  const idx = roles.indexOf(current) + 1
+  return (
+    <div
+      className="rounded-[10px]"
+      style={{
+        padding: "10px 14px",
+        background: "var(--sf-panel-alt)",
+        border: "1.5px dashed var(--sf-border-soft)",
+      }}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        <span
+          className="text-[10.5px] font-bold uppercase text-[var(--sf-ink-3)]"
+          style={{ letterSpacing: ".06em" }}
+        >
+          👁 Preview as
+        </span>
+        <div className="flex" style={{ background: "var(--sf-panel)", borderRadius: 6, padding: 2 }}>
+          {roles.map((r) => {
+            const m = ROLE_META[r]
+            const Icon = m.icon
+            const active = r === current
+            return (
+              <button
+                key={r}
+                onClick={() => onChange(r)}
+                style={{
+                  padding: "5px 9px",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  background: active ? m.bg : "transparent",
+                  color: active ? m.color : "var(--sf-ink-2)",
+                  border: "none",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  fontFamily: "var(--sf-font-ui)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Icon size={12} />
+                {m.label}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex-1" />
+        <span className="text-[11px] text-[var(--sf-ink-3)] italic">
+          Role {idx}/4 · sections shown vary by permissions
+          {isPreviewing && " · previewing"}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ── Identity ──────────────────────────────────────────────
+
+const IdentityCard = ({ profile, update, meta }) => {
+  const inputRef = useRef(null)
+  const displayName = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || "—"
+  return (
+    <SfCard padding={0}>
+      <CardHeader title="Identity" />
+      <div className="px-5 pb-5 flex items-start gap-5 flex-wrap">
+        <div className="flex flex-col items-center gap-2 flex-shrink-0">
+          {profile.profilePicture ? (
+            <img
+              src={profile.profilePicture}
+              alt="Profile"
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                objectFit: "cover",
+                border: `2px solid ${meta.color}30`,
+              }}
+            />
+          ) : (
+            <SfAvatar
+              initials={sfInitials(displayName)}
+              color={meta.color}
+              size={64}
+              style={{ fontSize: 22 }}
+            />
+          )}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => inputRef.current?.click()}
+              className="text-[11.5px] font-semibold text-[var(--sf-blue-dark)]"
+              style={{ background: "transparent", border: "none", cursor: "pointer" }}
+            >
+              Upload
+            </button>
+            {profile.profilePicture && (
+              <button
+                onClick={() => update("profilePicture", "")}
+                className="text-[11.5px] font-semibold text-[var(--sf-red-dark)]"
+                style={{ background: "transparent", border: "none", cursor: "pointer" }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) {
+                const reader = new FileReader()
+                reader.onload = (ev) => update("profilePicture", ev.target.result)
+                reader.readAsDataURL(f)
+              }
+              if (e.target) e.target.value = ""
+            }}
+          />
+          <div className="text-[10px] text-[var(--sf-ink-3)] text-center" style={{ maxWidth: 140 }}>
+            Or use the photo from your Gravatar
+          </div>
+        </div>
+        <div className="flex-1 min-w-[280px] flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="First name">
+              <TextInput value={profile.firstName} onChange={(v) => update("firstName", v)} autoComplete="given-name" />
+            </Field>
+            <Field label="Last name">
+              <TextInput value={profile.lastName} onChange={(v) => update("lastName", v)} autoComplete="family-name" />
+            </Field>
+          </div>
+          <Field label="Pronouns" hint="Optional · shown next to your name in team views">
+            <TextInput value={profile.pronouns} onChange={(v) => update("pronouns", v)} placeholder="e.g. she/her" />
+          </Field>
+          <Field label="Job title">
+            <TextInput
+              value={profile.jobTitle}
+              onChange={(v) => update("jobTitle", v)}
+              placeholder="e.g. Operations Manager"
+              autoComplete="organization-title"
+            />
+          </Field>
+        </div>
+      </div>
+    </SfCard>
+  )
+}
+
+// ── Login & contact ───────────────────────────────────────
+
+const LoginContactCard = ({ profile, update }) => (
+  <SfCard padding={0}>
+    <CardHeader title="Login & contact" />
+    <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <Field label="Email">
+        <div className="flex items-center gap-2">
+          <TextInput
+            value={profile.email}
+            onChange={(v) => update("email", v)}
+            icon={Mail}
+            type="email"
+            autoComplete="email"
+          />
+          {profile.emailVerified ? (
+            <SfTag color="var(--sf-green-dark)" bg="var(--sf-green-soft)">Verified</SfTag>
+          ) : (
+            <SfTag color="var(--sf-amber-dark)" bg="var(--sf-amber-soft)">Unverified</SfTag>
+          )}
+        </div>
+      </Field>
+      <Field label="Mobile">
+        <div className="flex items-center gap-2">
+          <TextInput
+            value={profile.phone}
+            onChange={(v) => update("phone", v)}
+            icon={Phone}
+            type="tel"
+            autoComplete="tel"
+            inputMode="tel"
+          />
+          {profile.phoneVerified ? (
+            <SfTag color="var(--sf-green-dark)" bg="var(--sf-green-soft)">Verified</SfTag>
+          ) : (
+            <SfTag color="var(--sf-ink-3)" bg="var(--sf-panel-soft)">Unverified</SfTag>
+          )}
+        </div>
+      </Field>
+      <Field label="Time zone">
+        <SelectInput
+          value={profile.timezone}
+          onChange={(v) => update("timezone", v)}
+          options={[
+            "America/New_York", "America/Chicago", "America/Denver",
+            "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu",
+          ]}
+        />
+      </Field>
+      <Field label="Locale & language">
+        <SelectInput
+          value={profile.locale}
+          onChange={(v) => update("locale", v)}
+          options={["en-US · English (US)", "en-GB · English (UK)", "es-MX · Español (México)", "fr-CA · Français (Canada)"]}
+        />
+      </Field>
+    </div>
+  </SfCard>
+)
+
+// ── Cleaner: Pay & banking ────────────────────────────────
+
+const PayBankingCard = () => (
+  <SfCard padding={0}>
+    <div
+      className="flex items-center"
+      style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+    >
+      <div className="text-[13.5px] font-semibold text-[var(--sf-ink)] flex-1">Pay & banking</div>
+      <SfTag color="var(--sf-green-dark)" bg="var(--sf-green-soft)">Direct deposit active</SfTag>
+    </div>
+    <div className="px-5 pb-5 pt-4 flex flex-col gap-3">
+      <Field label="Direct deposit account">
+        <div className="flex items-center gap-2">
+          <TextInput value="Chase Bank · Checking ····8421" onChange={() => {}} icon={Banknote} />
+          <SfButton variant="secondary" size="sm">Update</SfButton>
+        </div>
+      </Field>
+      <Field label="W-9 / W-4 on file">
+        <div className="flex items-center gap-2">
+          <SfTag color="var(--sf-green-dark)" bg="var(--sf-green-soft)">
+            <Check size={10} className="inline-block mr-0.5" /> Verified Jan 12, 2026
+          </SfTag>
+          <SfButton variant="ghost" size="sm" icon={Download}>Download</SfButton>
+        </div>
+      </Field>
+      <Field label="Hourly rate" hint="Set by your manager">
+        <TextInput value="$24.00 / hr" onChange={() => {}} icon={CreditCard} />
+      </Field>
+      <Field label="Tip distribution">
+        <SelectInput
+          value="Even split with teammate"
+          onChange={() => {}}
+          options={[
+            "Even split with teammate",
+            "Lead gets 60%",
+            "I keep my own",
+          ]}
+        />
+      </Field>
+      <Field label="Pay stubs">
+        <SfButton variant="secondary" size="sm" icon={FileText}>View all (24)</SfButton>
+      </Field>
+    </div>
+  </SfCard>
+)
+
+// ── Cleaner: Vehicle & gear ───────────────────────────────
+
+const VehicleGearCard = () => {
+  const items = [
+    { eyebrow: "Vehicle",          value: "Sparkle Van #3",   sub: "License 7-XYZ-921 · Toyota Sienna", icon: Truck,     bg: "var(--sf-blue-soft)",    color: "var(--sf-blue-dark)" },
+    { eyebrow: "Supply locker",    value: "Locker 12",        sub: "Brooklyn HQ · last restocked 5/10", icon: Archive,   bg: "var(--sf-amber-soft)",   color: "var(--sf-amber-dark)" },
+    { eyebrow: "Uniform size",     value: "Women's M",         sub: "Last issued Jan 2026",              icon: UserIcon,  bg: "var(--sf-purple-soft)",  color: "var(--sf-purple)" },
+    { eyebrow: "Phone allowance",  value: "$30 / mo",          sub: "Reimbursed with payroll",           icon: Smartphone, bg: "var(--sf-green-soft)",  color: "var(--sf-green-dark)" },
+  ]
+  return (
+    <SfCard padding={0}>
+      <CardHeader title="Vehicle & gear" />
+      <div className="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {items.map((it) => {
+          const Icon = it.icon
+          return (
+            <div
+              key={it.eyebrow}
+              className="rounded-md flex gap-3 items-start"
+              style={{
+                padding: "12px 14px",
+                background: "var(--sf-panel)",
+                border: "1px solid var(--sf-border-soft)",
+              }}
+            >
+              <div
+                className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                style={{ background: it.bg, color: it.color }}
+              >
+                <Icon size={16} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div
+                  className="text-[10px] font-bold uppercase text-[var(--sf-ink-3)]"
+                  style={{ letterSpacing: ".06em" }}
+                >
+                  {it.eyebrow}
+                </div>
+                <div className="text-[13.5px] font-bold text-[var(--sf-ink)] mt-0.5">{it.value}</div>
+                <div className="text-[11px] text-[var(--sf-ink-3)] mt-px">{it.sub}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </SfCard>
+  )
+}
+
+// ── Cleaner: Skills & certifications ──────────────────────
+
+const SkillsCard = () => {
+  const skills = [
+    { label: "Standard Clean",      color: "var(--sf-green)",       certified: true },
+    { label: "Deep Clean",           color: "var(--sf-blue)",        certified: true },
+    { label: "Move-in / Move-out",   color: "var(--sf-purple)",      certified: true },
+    { label: "Eco-friendly only",    color: "var(--sf-green-dark)",  certified: true },
+    { label: "Commercial",           color: "var(--sf-amber-dark)",  certified: true },
+    { label: "Window detailing",     color: "var(--sf-teal, #0E7490)", certified: true },
+    { label: "Post-construction",    color: "var(--sf-ink-3)",       certified: false },
+    { label: "Pet hair specialist",  color: "var(--sf-purple)",      certified: true },
+  ]
+  const training = [
+    { name: "OSHA Bloodborne Pathogens", date: "2026-03-14", trainer: "ServSafe", score: "98%" },
+    { name: "Eco-cleaning Certification", date: "2026-02-02", trainer: "Green Seal", score: "Pass" },
+    { name: "Customer Service Basics",   date: "2025-11-09", trainer: "Internal",   score: "Pass" },
+  ]
+  return (
+    <SfCard padding={0}>
+      <CardHeader title="Skills & certifications" />
+      <div className="px-5 pb-5">
+        <div className="flex flex-wrap gap-1.5 mb-5">
+          {skills.map((s) => (
+            <span
+              key={s.label}
+              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold rounded-full"
+              style={{
+                padding: "4px 10px",
+                background: s.certified ? `${s.color}1a` : "transparent",
+                color: s.certified ? s.color : "var(--sf-ink-3)",
+                border: s.certified ? `1px solid ${s.color}40` : "1px dashed var(--sf-border-soft)",
+                fontFamily: "var(--sf-font-ui)",
+              }}
+            >
+              {s.certified ? <Check size={11} strokeWidth={2.5} /> : null}
+              {s.label}
+            </span>
+          ))}
+        </div>
+        <div
+          className="text-[10.5px] font-bold uppercase text-[var(--sf-ink-3)] mb-2"
+          style={{ letterSpacing: ".06em" }}
+        >
+          Training history
+        </div>
+        <div className="divide-y divide-[var(--sf-border-soft)]">
+          {training.map((t) => (
+            <div key={t.name} className="flex items-center gap-2.5 py-2.5">
+              <Check size={13} className="text-[var(--sf-green)] flex-shrink-0" strokeWidth={2.5} />
+              <div className="min-w-0 flex-1">
+                <span className="text-[12.5px] font-semibold text-[var(--sf-ink)]">{t.name}</span>
+                <span
+                  className="text-[11px] text-[var(--sf-ink-3)] ml-2"
+                  style={{ fontFamily: "var(--sf-font-mono)" }}
+                >
+                  {t.date}
+                </span>
+                <span className="text-[11px] text-[var(--sf-ink-3)] ml-2">by {t.trainer}</span>
+              </div>
+              <SfTag color="var(--sf-ink-2)" bg="var(--sf-panel-alt)">{t.score}</SfTag>
+            </div>
+          ))}
+        </div>
+      </div>
+    </SfCard>
+  )
+}
+
+// ── Notifications ─────────────────────────────────────────
+
+const NotificationsCard = ({ role, prefs, setPrefs }) => {
+  const channels = [
+    { key: "inApp",  label: "In-app" },
+    { key: "email",  label: "Email"  },
+    { key: "push",   label: "Push"   },
+    { key: "sms",    label: "SMS"    },
+  ]
+  const visible = NOTIFICATIONS.filter((n) => n.roles.includes(role))
+  const toggle = (event, key) =>
+    setPrefs((p) => ({
+      ...p,
+      [event]: { ...(p[event] || {}), [key]: !p[event]?.[key] },
+    }))
+  return (
+    <SfCard padding={0}>
+      <CardHeader
+        title="Notification preferences"
+        subtitle="Decide which events reach you, and on which channels"
+      />
+      <div className="overflow-x-auto">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "var(--sf-panel-alt)", borderBottom: "1px solid var(--sf-border-soft)" }}>
+              <th
+                className="text-left text-[10.5px] font-bold uppercase text-[var(--sf-ink-3)]"
+                style={{ padding: "8px 18px", letterSpacing: ".06em" }}
+              >
+                Event
+              </th>
+              {channels.map((c) => (
+                <th
+                  key={c.key}
+                  className="text-center text-[10.5px] font-bold uppercase text-[var(--sf-ink-3)]"
+                  style={{ padding: "8px 12px", letterSpacing: ".06em", width: 76 }}
+                >
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((n, i) => (
+              <tr
+                key={n.event}
+                style={{
+                  borderBottom:
+                    i < visible.length - 1 ? "1px solid var(--sf-border-soft)" : "none",
+                }}
+              >
+                <td className="text-[12.5px] text-[var(--sf-ink)]" style={{ padding: "10px 18px" }}>
+                  {n.event}
+                </td>
+                {channels.map((c) => (
+                  <td key={c.key} style={{ padding: "8px 12px", textAlign: "center" }}>
+                    <Switch
+                      on={!!prefs[n.event]?.[c.key]}
+                      onChange={() => toggle(n.event, c.key)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div
+        className="text-[11px] text-[var(--sf-ink-3)]"
+        style={{ padding: "10px 18px", borderTop: "1px solid var(--sf-border-soft)" }}
+      >
+        Quiet hours: {role === "cleaner" ? "outside shift hours" : "9pm – 7am"}
+      </div>
+    </SfCard>
+  )
+}
+
+// ── Role & permissions ────────────────────────────────────
+
+const PermissionsCard = ({ role, isOwner, isCleaner }) => {
+  const meta = ROLE_META[role] || ROLE_META.manager
+  const col = PERM_COL[role]
+  const footerCopy = isOwner
+    ? "As the owner you have all permissions by default."
+    : isCleaner
+    ? "Permissions are managed by your owner or manager. Contact your manager to request changes."
+    : "Permissions are set by the workspace owner. Contact the owner for changes."
+  return (
+    <SfCard padding={0}>
+      <CardHeader title="Role & permissions" />
+      <div className="px-5 pb-5">
+        <div
+          className="rounded-md flex items-center gap-3 mb-4"
+          style={{
+            padding: "12px 14px",
+            background: meta.bg,
+            border: `1px solid ${meta.color}30`,
+          }}
+        >
+          <div
+            className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+            style={{ background: meta.color, color: "#fff" }}
+          >
+            <meta.icon size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-bold" style={{ color: meta.color }}>{meta.label}</div>
+            <div className="text-[11.5px] text-[var(--sf-ink-2)] mt-px">{meta.tagline}</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+          {PERMISSIONS.map(([label, ...row]) => {
+            const value = row[col - 1]
+            return <PermissionRow key={label} label={label} value={value} />
+          })}
+        </div>
+        <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-4 italic">
+          {footerCopy}
+        </div>
+      </div>
+    </SfCard>
+  )
+}
+
+const PermissionRow = ({ label, value }) => {
+  const isLimited = typeof value === "string" && value.startsWith("limited")
+  const note = isLimited ? value.split(":")[1]?.trim() : null
+  let dot, text, fadedText = false
+  if (value === true) {
+    dot = <Check size={11} className="text-[var(--sf-green-dark)]" strokeWidth={3} />
+    text = label
+  } else if (isLimited) {
+    dot = <span style={{ color: "var(--sf-amber-dark)", fontWeight: 800, fontSize: 13 }}>~</span>
+    text = label
+  } else {
+    dot = <X size={11} className="text-[var(--sf-ink-3)]" strokeWidth={3} />
+    text = label
+    fadedText = true
+  }
+  return (
+    <div
+      className="flex items-center gap-2 py-2"
+      style={{ borderBottom: "1px solid var(--sf-border-soft)" }}
+    >
+      <span
+        className="w-5 h-5 rounded-full inline-flex items-center justify-center flex-shrink-0"
+        style={{
+          background:
+            value === true
+              ? "var(--sf-green-soft)"
+              : isLimited
+              ? "var(--sf-amber-soft)"
+              : "var(--sf-panel-soft)",
+        }}
+      >
+        {dot}
+      </span>
+      <span
+        className={`text-[12.5px] ${fadedText ? "line-through text-[var(--sf-ink-3)]" : "text-[var(--sf-ink-2)]"}`}
+      >
+        {text}
+      </span>
+      {isLimited && note && (
+        <SfTag color="var(--sf-amber-dark)" bg="var(--sf-amber-soft)">Limited · {note}</SfTag>
+      )}
+    </div>
+  )
+}
+
+// ── Connected accounts ────────────────────────────────────
+
+const ConnectedAccountsCard = ({ role }) => {
+  const providers = CONNECTED_PROVIDERS_BY_ROLE[role] || []
+  return (
+    <SfCard padding={0}>
+      <CardHeader title="Connected accounts" subtitle="Sign in with your existing account" />
+      <div className="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {providers.map((p) => {
+          const meta = PROVIDER_META[p]
+          const Icon = meta.icon
+          return (
+            <div
+              key={p}
+              className="flex items-center gap-3 rounded-md"
+              style={{
+                padding: "10px 14px",
+                background: "var(--sf-panel)",
+                border: "1px solid var(--sf-border-soft)",
+              }}
+            >
+              <div
+                className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0"
+                style={{ background: "var(--sf-panel-alt)", color: "var(--sf-ink-2)" }}
+              >
+                <Icon size={15} />
+              </div>
+              <div className="text-[13px] font-semibold text-[var(--sf-ink)] flex-1">
+                {meta.label}
+              </div>
+              <button
+                className="text-[11.5px] font-semibold text-[var(--sf-blue-dark)]"
+                style={{ background: "transparent", border: "none", cursor: "pointer" }}
+              >
+                Connect
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </SfCard>
+  )
+}
+
+// ── Active sessions ───────────────────────────────────────
+
+const SessionsCard = ({ isCleaner }) => {
+  const officeSessions = [
+    { device: "MacBook · Chrome",   loc: "Brooklyn, NY · Current",   icon: Monitor,   current: true },
+    { device: "iPhone · Mobile app", loc: "Brooklyn, NY · 2 hrs ago", icon: Smartphone },
+    { device: "iPad · Safari",      loc: "Manhattan, NY · 1 day ago", icon: Tablet },
+    { device: "Windows PC · Edge",  loc: "Queens HQ · 3 days ago",   icon: Monitor },
+  ]
+  const cleanerSessions = [
+    { device: "iPhone · Field App", loc: "Brooklyn, NY · Current",  icon: Smartphone, current: true },
+    { device: "iPad mini · van mount", loc: "Sparkle Van #3 · 1 hr ago", icon: Tablet },
+  ]
+  const sessions = isCleaner ? cleanerSessions : officeSessions
+  return (
+    <SfCard padding={0}>
+      <CardHeader title="Active sessions" subtitle="Sign out anywhere you don't recognize" />
+      <div>
+        {sessions.map((s, i) => {
+          const Icon = s.icon
+          return (
+            <div
+              key={s.device}
+              className="flex items-center gap-3"
+              style={{
+                padding: "12px 18px",
+                borderBottom:
+                  i < sessions.length - 1 ? "1px solid var(--sf-border-soft)" : "none",
+              }}
+            >
+              <div
+                className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                style={{ background: "var(--sf-panel-alt)", color: "var(--sf-ink-2)" }}
+              >
+                <Icon size={16} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[12.5px] font-semibold text-[var(--sf-ink)] inline-flex items-center gap-1.5">
+                  {s.device}
+                  {s.current && (
+                    <SfTag color="var(--sf-green-dark)" bg="var(--sf-green-soft)">Current</SfTag>
+                  )}
+                </div>
+                <div className="text-[11px] text-[var(--sf-ink-3)] mt-px">{s.loc}</div>
+              </div>
+              {!s.current && (
+                <SfButton variant="ghost" size="sm" icon={LogOut}>
+                  Sign out
+                </SfButton>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </SfCard>
+  )
+}
+
+// ── Danger zone ───────────────────────────────────────────
+
+const DangerZoneCard = ({ isOwner, onSignOut }) => (
+  <SfCard
+    padding={0}
+    style={{ border: "1px solid rgba(220,38,38,.25)", background: "rgba(254,242,242,.5)" }}
+  >
+    <div
+      className="flex items-center gap-2"
+      style={{ padding: "14px 18px", borderBottom: "1px solid rgba(220,38,38,.18)" }}
+    >
+      <AlertTriangle size={15} className="text-[var(--sf-red-dark)]" />
+      <span className="text-[13.5px] font-bold text-[var(--sf-red-dark)]">Personal danger zone</span>
+    </div>
+    <DangerRow
+      title="Export your data"
+      desc="Download a copy of everything attached to your account (profile, jobs, messages, files)"
+      action={<SfButton variant="secondary" size="sm" icon={Download}>Request export</SfButton>}
+    />
+    <DangerRow
+      title="Leave workspace"
+      desc={isOwner ? "Owners must transfer ownership before leaving" : "Remove yourself from this workspace"}
+      action={
+        isOwner ? (
+          <SfButton variant="secondary" size="sm" disabled>Transfer first…</SfButton>
+        ) : (
+          <SfButton variant="secondary" size="sm" icon={LogOut} onClick={onSignOut}>
+            Leave workspace…
+          </SfButton>
+        )
+      }
+    />
+    <DangerRow
+      title="Delete account"
+      desc="Permanently delete your account. This cannot be undone."
+      action={
+        <button
+          onClick={() => window.location.href = "mailto:support@service-flow.pro?subject=Delete account"}
+          className="inline-flex items-center gap-1.5"
+          style={{
+            padding: "6px 14px",
+            fontSize: 12.5,
+            fontWeight: 600,
+            background: "var(--sf-red)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontFamily: "var(--sf-font-ui)",
+          }}
+        >
+          <ExternalLink size={12} />
+          Email support
+        </button>
+      }
+      isLast
+    />
+  </SfCard>
+)
+
+const DangerRow = ({ title, desc, action, isLast }) => (
+  <div
+    className="flex items-center gap-4 flex-wrap"
+    style={{
+      padding: "14px 18px",
+      borderBottom: isLast ? "none" : "1px solid rgba(220,38,38,.12)",
+    }}
+  >
+    <div className="min-w-0 flex-1">
+      <div className="text-[13px] font-semibold text-[var(--sf-ink)]">{title}</div>
+      <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">{desc}</div>
+    </div>
+    {action}
+  </div>
+)
+
+// ── Primitives ────────────────────────────────────────────
+
+const CardHeader = ({ title, subtitle }) => (
+  <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}>
+    <div className="text-[13.5px] font-semibold text-[var(--sf-ink)]">{title}</div>
+    {subtitle && <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">{subtitle}</div>}
+  </div>
+)
+
+const Field = ({ label, hint, children }) => (
+  <div>
+    <div className="text-[12.5px] font-semibold text-[var(--sf-ink-2)] mb-1">{label}</div>
+    {hint && <div className="text-[11px] text-[var(--sf-ink-3)] mb-1.5">{hint}</div>}
+    {children}
+  </div>
+)
+
+const TextInput = ({ value, onChange, placeholder, icon: Icon, type = "text", autoComplete, inputMode }) => (
+  <div
+    className="flex items-center gap-2 rounded-md bg-[var(--sf-panel)] flex-1"
+    style={{ padding: "6px 10px", border: "1px solid var(--sf-border-soft)" }}
+  >
+    {Icon && <Icon size={14} className="text-[var(--sf-ink-3)] flex-shrink-0" />}
+    <input
+      type={type}
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+      inputMode={inputMode}
+      className="flex-1 bg-transparent border-none outline-none text-[13px] text-[var(--sf-ink)]"
+      style={{ padding: 0, boxShadow: "none", fontFamily: "var(--sf-font-ui)" }}
+    />
+  </div>
+)
+
+const SelectInput = ({ value, onChange, options }) => (
+  <div
+    className="flex items-center rounded-md bg-[var(--sf-panel)]"
+    style={{ padding: "2px 10px", border: "1px solid var(--sf-border-soft)" }}
+  >
+    <select
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      className="flex-1 bg-transparent border-none outline-none text-[13px] text-[var(--sf-ink)]"
+      style={{ padding: "6px 0", boxShadow: "none", fontFamily: "var(--sf-font-ui)", appearance: "none" }}
+    >
+      {options.map((opt) => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  </div>
+)
+
+const Switch = ({ on, onChange }) => (
+  <button
+    type="button"
+    onClick={onChange}
+    aria-pressed={on}
+    style={{
+      width: 32,
+      height: 18,
+      borderRadius: 999,
+      border: "none",
+      padding: 0,
+      background: on ? "var(--sf-blue)" : "#cbd5e1",
+      cursor: "pointer",
+      position: "relative",
+      transition: "background .15s",
+    }}
+  >
+    <span
+      style={{
+        position: "absolute",
+        top: 2,
+        left: on ? 16 : 2,
+        width: 14,
+        height: 14,
+        background: "#fff",
+        borderRadius: 7,
+        boxShadow: "0 1px 2px rgba(15,23,42,.18)",
+        transition: "left .15s",
+      }}
+    />
+  </button>
+)
+
+// Suppress ChevronRight unused warning
+// eslint-disable-next-line no-unused-vars
+const _suppressUnused = ChevronRight
 
 export default AccountDetails

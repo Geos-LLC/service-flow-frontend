@@ -1,14 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import LoadingButton from "../../components/loading-button"
 import Notification from "../../components/notification"
-import { ChevronLeft, Smartphone, QrCode, Palette, Bell, Users, Copy, Check } from "lucide-react"
+import { Smartphone, QrCode, Palette, Bell, Users, Copy, Check } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const FieldApp = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [notification, setNotification] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -25,7 +23,6 @@ const FieldApp = () => {
     },
   })
 
-  const navigate = useNavigate()
 
   useEffect(() => {
     const savedSettings = localStorage.getItem("service-flow_field_app")
@@ -96,44 +93,27 @@ const FieldApp = () => {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {notification && (
-          <Notification type={notification.type} message={notification.message} onClose={() => setNotification(null)} />
-        )}
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate("/settings")}
-                className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-              >
-                <ChevronLeft className="w-5 h-5" />
-                <span className="text-sm">Settings</span>
-              </button>
-              <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Field App</h1>
-            </div>
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <span className="text-[var(--sf-text-secondary)]">Installed by</span>
-                <span className="font-semibold text-[var(--sf-blue-500)]">{settings.installedTeammates} teammates</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-[var(--sf-text-secondary)]">Notifications enabled by</span>
-                <span className="font-semibold text-[var(--sf-blue-500)]">{settings.notificationsEnabled} teammates</span>
-              </div>
-            </div>
+    <SettingsPageLayout
+      title="Field app"
+      subtitle="Customize the mobile web app for service providers"
+      maxWidth={1200}
+      actions={
+        <div className="flex items-center space-x-4 text-sm">
+          <div className="flex items-center space-x-2">
+            <span className="text-[var(--sf-text-secondary)]">Installed by</span>
+            <span className="font-semibold text-[var(--sf-blue-500)]">{settings.installedTeammates} teammates</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="text-[var(--sf-text-secondary)]">Notifications enabled by</span>
+            <span className="font-semibold text-[var(--sf-blue-500)]">{settings.notificationsEnabled} teammates</span>
           </div>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-6xl mx-auto p-6 space-y-8">
+      }
+    >
+      {notification && (
+        <Notification type={notification.type} message={notification.message} onClose={() => setNotification(null)} />
+      )}
+      <div className="space-y-6">
             {/* App Access Section */}
             <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-6">
               <div className="flex items-center space-x-3 mb-6">
@@ -408,9 +388,7 @@ const FieldApp = () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

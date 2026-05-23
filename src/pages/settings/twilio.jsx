@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Phone, CheckCircle, AlertCircle, ExternalLink, ChevronLeft } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Phone, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
 import TwilioAPISetup from '../../components/TwilioAPISetup';
 import DefaultPhoneSelector from '../../components/DefaultPhoneSelector';
-import Sidebar from '../../components/sidebar';
+import SettingsPageLayout from '../../components/settings-page-layout';
 
 const TwilioSettings = () => {
   const [error, setError] = useState('');
   const [searchParams] = useSearchParams();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const navigate = useNavigate();
 
   useEffect(() => {
     // Handle OAuth callback
     const connected = searchParams.get('connected');
     const errorParam = searchParams.get('error');
-    
+
     if (connected === 'true') {
       setError('');
     } else if (errorParam) {
@@ -24,35 +22,10 @@ const TwilioSettings = () => {
   }, [searchParams]);
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-        
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <div className="flex items-center space-x-3">
-              <Phone className="w-6 h-6 text-[var(--sf-blue-500)]" />
-              <h1 className="text-2xl font-bold text-[var(--sf-text-primary)]">SMS Notification Settings</h1>
-            </div>
-          </div>
-          <p className="text-[var(--sf-text-secondary)] mt-2">
-            Configure SMS notifications by connecting your Twilio account. This allows you to send automated SMS messages to customers for job confirmations, reminders, and updates.
-          </p>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto p-6">
-
+    <SettingsPageLayout
+      title="SMS notifications"
+      subtitle="Configure Twilio to send automated SMS messages to customers"
+    >
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center space-x-2">
@@ -147,11 +120,8 @@ const TwilioSettings = () => {
             </a>
           </div>
         </div>
-        </div>
       </div>
-    </div>
-    </div>
-    </div>
+    </SettingsPageLayout>
   );
 };
 

@@ -1,37 +1,15 @@
 "use client"
 
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft, Plus } from "lucide-react"
+import { Plus } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const TaxesFees = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const navigate = useNavigate()
-
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Taxes & Fees</h1>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="flex">
+    <SettingsPageLayout
+      title="Taxes & fees"
+      subtitle="Manage tax rates, fees, and adjustment rules for your services"
+    >
+      <div className="flex">
             {/* Left Panel */}
             <div className="flex-1 p-6 space-y-8">
               {/* Tax Rates */}
@@ -134,9 +112,7 @@ const TaxesFees = () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

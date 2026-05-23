@@ -1,16 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import { notificationEmailAPI } from "../../services/api"
 import {
-  ChevronLeft, Mail, Check, X, Loader2, Send, Shield, AlertCircle
+  Mail, Check, X, Loader2, Send, Shield, AlertCircle
 } from "lucide-react"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
 const NotificationEmail = () => {
-  const navigate = useNavigate()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -122,25 +119,20 @@ const NotificationEmail = () => {
   const status = statusLabel()
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)]">
-      <div>
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4 sticky top-0 z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button onClick={() => navigate("/settings")} className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]">
-                <ChevronLeft className="w-5 h-5" /><span className="text-sm">Settings</span>
-              </button>
-              <h1 className="text-xl font-semibold text-[var(--sf-text-primary)]">Notification Email</h1>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${status.color}`}>{status.text}</span>
-            </div>
-          </div>
-        </div>
-
+    <SettingsRailLayout
+      title="Notification email"
+      section="Communications"
+      subtitle="SendGrid configuration for outbound system emails"
+      actions={
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${status.color}`}>
+          {status.text}
+        </span>
+      }
+    >
         {loading ? (
           <div className="flex items-center justify-center p-20"><Loader2 size={32} className="animate-spin text-[var(--sf-text-muted)]" /></div>
         ) : (
-          <div className="p-6 max-w-2xl space-y-6">
+          <div className="max-w-2xl space-y-6">
 
             {/* Info banner */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
@@ -284,8 +276,7 @@ const NotificationEmail = () => {
 
           </div>
         )}
-      </div>
-    </div>
+    </SettingsRailLayout>
   )
 }
 

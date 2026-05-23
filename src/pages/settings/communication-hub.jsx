@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 import { openPhoneAPI, leadbridgeAPI, whatsappAPI, communicationsAPI, territoriesAPI, locationsAPI, leadAutomationAPI, connectedEmailAPI } from "../../services/api"
 import {
   ChevronLeft, Phone, PhoneCall, Star, ThumbsUp, Mail,
@@ -105,7 +105,6 @@ function SelectControl({ label, helpText, value, onChange, options }) {
 
 const CommunicationHub = () => {
   const navigate = useNavigate()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Connection state
@@ -366,29 +365,17 @@ const CommunicationHub = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)]">
-      <div>
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4 sticky top-0 z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button onClick={() => navigate("/settings")} className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]">
-                <ChevronLeft className="w-5 h-5" /><span className="text-sm">Settings</span>
-              </button>
-              <h1 className="text-xl font-semibold text-[var(--sf-text-primary)]">Communication Hub</h1>
-            </div>
-            {hasChanges && (
-              <button onClick={handleSavePrefs} className="px-4 py-2 bg-[var(--sf-blue-500)] text-white text-sm font-medium rounded-lg hover:bg-[var(--sf-blue-600)]">
-                Save Changes
-              </button>
-            )}
-          </div>
-        </div>
-
+    <SettingsRailLayout
+      title="Communication hub"
+      section="Communications"
+      subtitle="Connect SMS, Yelp, Thumbtack, WhatsApp, Email and control conversation sync"
+      onSave={hasChanges ? handleSavePrefs : undefined}
+      saving={false}
+    >
         {loading ? (
           <div className="flex items-center justify-center p-20"><Loader2 size={32} className="animate-spin text-[var(--sf-text-muted)]" /></div>
         ) : (
-        <div className="p-6 space-y-8">
+        <div className="space-y-8">
 
           {/* ═══ Section 1: Connected Providers ═══ */}
           <section>
@@ -825,7 +812,6 @@ const CommunicationHub = () => {
 
         </div>
         )}
-      </div>
 
       {/* OpenPhone Connect Modal */}
       {showConnectModal && (
@@ -915,7 +901,7 @@ const CommunicationHub = () => {
           </div>
         </div>
       )}
-    </div>
+    </SettingsRailLayout>
   )
 }
 

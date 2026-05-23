@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../components/sidebar"
 import { GripVertical, Wrench, Plus, AlertCircle, AlertTriangle, Loader2, Trash2, X, Copy, Edit, Eye, EyeOff } from "lucide-react"
 import SimpleCreateServiceModal from "../components/simple-create-service-modal"
 import ServiceTemplatesModal from "../components/service-templates-modal"
@@ -13,12 +12,11 @@ import { normalizeAPIResponse, handleAPIError } from "../utils/dataHandler"
 import { safeDecodeText } from "../utils/htmlUtils"
 import useServiceSettings from "../components/use-service-settings"
 import MobileHeader from "../components/mobile-header"
+import { SfCard, SfButton, SfPageHeader } from "../components/sf-primitives"
 
 const ServiceFlowServices = () => {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-
   // Use persistent settings for categories enabled state
   const {
     settings: { categoriesEnabled },
@@ -589,111 +587,98 @@ const ServiceFlowServices = () => {
   );
 
   return (
-    <div style={{fontFamily: 'Montserrat', fontWeight: 500}} className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-   
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Mobile Header */}
-        <MobileHeader pageTitle="Services" />
+    <div
+      className="min-h-screen bg-[var(--sf-bg-page)]"
+      style={{ fontFamily: "var(--sf-font-ui)" }}
+    >
+      <MobileHeader pageTitle="Services" />
 
-        {/* Desktop Header */}
-        <div className="hidden lg:flex bg-white border-b border-[var(--sf-border-light)] px-5 lg:px-40 xl:px-44 2xl:px-48 py-4 items-center justify-between">
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Services</h1>
-            <div className="flex items-center space-x-2">
-              {services.length > 0 && (
-                <button
-                  onClick={() => setShowDeleteAllConfirm(true)}
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center space-x-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Delete All</span>
-                </button>
-              )}
-            <button
-              onClick={() => setCreateModalOpen(true)}
-              className="bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)] transition-colors flex items-center space-x-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Service</span>
-            </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Header Content */}
-        <div className="lg:hidden bg-white border-b border-[var(--sf-border-light)] px-4 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold text-[var(--sf-text-primary)]">Services</h1>
-            <div className="flex items-center space-x-2">
-              {services.length > 0 && (
-                <button
-                  onClick={() => setShowDeleteAllConfirm(true)}
-                  className="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center space-x-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Delete All</span>
-                </button>
-              )}
-            <button
-              onClick={() => setCreateModalOpen(true)}
-              className="bg-[var(--sf-blue-500)] text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-[var(--sf-blue-600)] transition-colors flex items-center space-x-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Service</span>
-            </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Content Area */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="px-5 lg:px-40 xl:px-44 2xl:px-48 py-4 sm:py-6 lg:py-8">
-            <div className="max-w-7xl mx-auto">
-            {/* Auth Loading */}
-            {authLoading ? (
-              <div className="p-8 text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-[var(--sf-blue-500)] mx-auto mb-4" />
-                <p className="text-[var(--sf-text-secondary)]">Loading...</p>
-              </div>
-            ) : (
-              <>
-            {/* Error Display */}
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-center space-x-2">
-                  <AlertCircle className="w-5 h-5 text-red-500" />
-                  <p className="text-red-700">{error}</p>
-                </div>
-                <button
-                  onClick={handleRetry}
-                  className="mt-2 text-red-600 hover:text-red-700 text-sm font-medium"
-                >
-                  Try again
-                </button>
-              </div>
+      <SfPageHeader
+        eyebrow="Sales & marketing"
+        title="Services catalog"
+        subtitle={
+          services.length === 0
+            ? "Manage the services you offer to customers"
+            : `${services.length} service${services.length === 1 ? "" : "s"} · ${categories.length} categor${categories.length === 1 ? "y" : "ies"}`
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            {services.length > 0 && (
+              <SfButton
+                variant="ghost"
+                size="md"
+                icon={Trash2}
+                onClick={() => setShowDeleteAllConfirm(true)}
+                style={{ color: "var(--sf-red-dark)" }}
+              >
+                Delete all
+              </SfButton>
             )}
+            <SfButton variant="primary" size="md" icon={Plus} onClick={() => setCreateModalOpen(true)}>
+              Add service
+            </SfButton>
+          </div>
+        }
+      />
 
-            {/* Services List */}
-            <div className="bg-white rounded-lg border border-[var(--sf-border-light)] shadow-sm mb-6">
-              {loading ? (
-                <div className="p-8 text-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-[var(--sf-blue-500)] mx-auto mb-4" />
-                  <p className="text-[var(--sf-text-secondary)]">Loading services...</p>
-                </div>
-              ) : services.length === 0 ? (
-                <div className="p-8 text-center">
-                  <Wrench className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-[var(--sf-text-primary)] mb-2">No services yet</h3>
-                  <p className="text-[var(--sf-text-muted)] mb-4">Create your first service to get started</p>
-                  <button
-                    onClick={() => setCreateModalOpen(true)}
-                    className="bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)] transition-colors"
-                  >
-                    Create Service
-                  </button>
-                </div>
-              ) : (
+      <main className="px-4 sm:px-6 lg:px-8 py-5">
+        <div className="max-w-6xl mx-auto">
+          {/* Auth Loading */}
+          {authLoading ? (
+            <div className="py-16 text-center">
+              <Loader2 className="w-8 h-8 animate-spin text-[var(--sf-blue-dark)] mx-auto mb-3" />
+              <p className="text-[12.5px] text-[var(--sf-ink-3)]">Loading…</p>
+            </div>
+          ) : (
+            <>
+              {error && (
+                <SfCard
+                  padding={"12px 16px"}
+                  className="mb-4"
+                  style={{
+                    background: "var(--sf-red-soft)",
+                    border: "1px solid rgba(220,38,38,.25)",
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={16} className="text-[var(--sf-red-dark)]" />
+                    <span className="text-[12.5px] text-[var(--sf-red-dark)] font-semibold">{error}</span>
+                    <button
+                      onClick={handleRetry}
+                      className="ml-auto text-[12px] font-semibold text-[var(--sf-red-dark)] underline"
+                      style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </SfCard>
+              )}
+
+              <SfCard padding={0} className="mb-4">
+                {loading ? (
+                  <div className="py-16 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-[var(--sf-blue-dark)] mx-auto mb-3" />
+                    <p className="text-[12.5px] text-[var(--sf-ink-3)]">Loading services…</p>
+                  </div>
+                ) : services.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <div
+                      className="w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3"
+                      style={{ background: "var(--sf-blue-soft)", color: "var(--sf-blue-dark)" }}
+                    >
+                      <Wrench size={22} />
+                    </div>
+                    <h3 className="text-[14px] font-semibold text-[var(--sf-ink)] mb-1">
+                      No services yet
+                    </h3>
+                    <p className="text-[12.5px] text-[var(--sf-ink-3)] mb-4 max-w-sm mx-auto">
+                      Create your first service so customers can book it online and the team can run jobs against it.
+                    </p>
+                    <SfButton variant="primary" size="md" icon={Plus} onClick={() => setCreateModalOpen(true)}>
+                      Create your first service
+                    </SfButton>
+                  </div>
+                ) : (
                 <div>
                   {categoriesEnabled ? (() => {
                     const categorizedServices = services.filter(s => {
@@ -790,72 +775,83 @@ const ServiceFlowServices = () => {
                   )}
                 </div>
               )}
-            </div>
+            </SfCard>
 
             {/* Service Categories */}
-            <div className="bg-white rounded-lg border border-[var(--sf-border-light)] shadow-sm p-6">
-              <div className="flex items-start justify-between gap-4">
+            <SfCard padding={0}>
+              <div
+                className="flex items-start justify-between gap-4"
+                style={{ padding: "16px 18px" }}
+              >
                 <div className="flex-1">
-                  <h3 className="text-base font-semibold text-[var(--sf-text-primary)] mb-1">Service categories</h3>
-                  <p className="text-sm text-[var(--sf-text-secondary)]">
-                    Service categories allow you to organize your services into groups for your booking page.{" "}
-                    <button className="text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium">Learn more</button>
-                  </p>
+                  <div className="text-[13.5px] font-semibold text-[var(--sf-ink)]">
+                    Service categories
+                  </div>
+                  <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+                    Organize your services into groups for the booking page
+                  </div>
                 </div>
-                <div className="flex-shrink-0">
-                  <button
-                    onClick={async () => {
-                      const newCategoriesEnabled = !categoriesEnabled
-                      updateServiceSettings({ categoriesEnabled: newCategoriesEnabled })
-                      try {
-                        await saveServiceSettings({ categoriesEnabled: newCategoriesEnabled })
-                      } catch (error) {}
+                <button
+                  onClick={async () => {
+                    const newCategoriesEnabled = !categoriesEnabled
+                    updateServiceSettings({ categoriesEnabled: newCategoriesEnabled })
+                    try {
+                      await saveServiceSettings({ categoriesEnabled: newCategoriesEnabled })
+                    } catch (error) {}
+                  }}
+                  aria-pressed={categoriesEnabled}
+                  style={{
+                    width: 36, height: 20, borderRadius: 999, border: "none", padding: 0,
+                    background: categoriesEnabled ? "var(--sf-blue)" : "#cbd5e1",
+                    cursor: "pointer", position: "relative", flexShrink: 0,
+                    transition: "background .15s",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute", top: 2,
+                      left: categoriesEnabled ? 18 : 2,
+                      width: 16, height: 16, background: "#fff", borderRadius: 8,
+                      boxShadow: "0 1px 2px rgba(15,23,42,.18)",
+                      transition: "left .15s",
                     }}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      categoriesEnabled ? "bg-[var(--sf-blue-500)]" : "bg-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        categoriesEnabled ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
+                  />
+                </button>
               </div>
               {categoriesEnabled && (
-                <div className="space-y-4 mt-6">
+                <div
+                  style={{
+                    padding: "12px 18px 16px",
+                    borderTop: "1px solid var(--sf-border-soft)",
+                    background: "var(--sf-panel-alt)",
+                  }}
+                >
                   <div className="flex items-center justify-between">
-                    <h4 className="font-medium text-[var(--sf-text-primary)]">Categories</h4>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={fixCategoryMapping}
-                        className="bg-yellow-600 text-white px-3 py-1 rounded text-sm hover:bg-yellow-700"
-                        title="Debug category mapping issues"
-                      >
-                        Debug Categories
-                      </button>
-                      <button
-                        onClick={autoFixCategoryMapping}
-                        className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                        title="Auto-fix category mapping for cleaning services"
-                      >
-                        Auto-Fix Cleaning
-                      </button>
-                      <button
+                    <span className="text-[12px] font-bold uppercase text-[var(--sf-ink-3)]" style={{ letterSpacing: ".06em" }}>
+                      Categories
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <SfButton variant="ghost" size="sm" onClick={fixCategoryMapping}>
+                        Debug
+                      </SfButton>
+                      <SfButton variant="ghost" size="sm" onClick={autoFixCategoryMapping}>
+                        Auto-fix
+                      </SfButton>
+                      <SfButton
+                        variant="secondary"
+                        size="sm"
+                        icon={Plus}
                         onClick={() => setShowAddCategoryModal(true)}
-                        className="bg-[var(--sf-blue-500)] text-white px-3 py-1 rounded text-sm hover:bg-[var(--sf-blue-600)]"
                       >
-                        Add Category
-                      </button>
+                        Add category
+                      </SfButton>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </SfCard>
               </>
             )}
-            </div>
           </div>
         </main>
 
@@ -1270,7 +1266,6 @@ const ServiceFlowServices = () => {
           </div>
         </div>
       )}
-      </div>
     </div>
   )
 }

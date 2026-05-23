@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft, Check, AlertCircle } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
+import { Check, AlertCircle } from "lucide-react"
 import { paymentMethodsAPI } from "../../services/api"
 import api from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
@@ -19,8 +18,6 @@ const DAYS_OF_WEEK = [
 ]
 
 const PayoutSettings = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const navigate = useNavigate()
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -84,39 +81,22 @@ const PayoutSettings = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-2 text-[var(--sf-text-secondary)]">Loading payout settings...</p>
-            </div>
+      <SettingsPageLayout title="Payouts">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-2 text-[var(--sf-text-secondary)]">Loading payout settings…</p>
           </div>
         </div>
-      </div>
+      </SettingsPageLayout>
     )
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-              style={{ background: 'none', border: 'none', boxShadow: 'none', padding: '4px', borderRadius: '6px' }}
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Payout Settings</h1>
-          </div>
-        </div>
+    <SettingsPageLayout
+      title="Payouts"
+      subtitle="Configure payout frequency, pay period, payout method, and auto-payout"
+    >
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
@@ -278,8 +258,7 @@ const PayoutSettings = () => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

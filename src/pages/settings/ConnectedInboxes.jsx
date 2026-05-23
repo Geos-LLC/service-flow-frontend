@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Mail, Plus, RefreshCw, Trash2, CheckCircle2, AlertCircle, Clock, Zap, ChevronDown } from 'lucide-react'
 import { connectedEmailAPI } from '../../services/api'
+import SettingsRailLayout from '../../components/settings-rail-layout'
 
 const PROVIDERS = [
   { key: 'gmail', label: 'Gmail', description: 'Connect a Google / Gmail mailbox', color: 'bg-red-50 text-red-700' },
@@ -201,15 +202,12 @@ export default function ConnectedInboxes() {
   const byProvider = (p) => accounts.filter(a => a.provider === p && a.status !== 'disconnected')
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)] p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-[var(--sf-text-primary)]">Connected Inboxes</h1>
-          <p className="text-sm text-[var(--sf-text-muted)] mt-1">
-            Connect Gmail or Outlook to read and reply to email conversations in the Communications Hub.
-            This is separate from Notification Email (SendGrid) used for system messages.
-          </p>
-        </div>
+    <SettingsRailLayout
+      title="Connected inboxes"
+      section="Communications"
+      subtitle="Connect Gmail or Outlook for two-way email in the Communications Hub"
+    >
+      <div className="max-w-3xl">
 
         {flash && (
           <div className={`mb-4 p-3 rounded-lg text-sm ${params.get('error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
@@ -382,6 +380,6 @@ export default function ConnectedInboxes() {
 
         {loading && <div className="text-sm text-[var(--sf-text-muted)] mt-4">Loading…</div>}
       </div>
-    </div>
+    </SettingsRailLayout>
   )
 }

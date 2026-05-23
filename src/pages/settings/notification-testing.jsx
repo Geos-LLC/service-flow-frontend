@@ -1,58 +1,27 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bell, ChevronLeft, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import NotificationTesting from '../../components/NotificationTesting';
-import Sidebar from '../../components/sidebar';
+import SettingsRailLayout from '../../components/settings-rail-layout';
 
 const NotificationTestingSettings = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const [error] = useState('');
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-        
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings/client-team-notifications")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Client & Team Notifications</span>
-            </button>
-            <div className="flex items-center space-x-3">
-              <Bell className="w-6 h-6 text-[var(--sf-blue-500)]" />
-              <h1 className="text-2xl font-bold text-[var(--sf-text-primary)]">Notification Testing</h1>
-            </div>
-          </div>
-          <p className="text-[var(--sf-text-secondary)] mt-2">
-            Test your email and SMS notifications to ensure they're working correctly. 
-            Send test messages to verify your notification setup and team member communications.
-          </p>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto p-6">
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-center space-x-2">
-                  <AlertCircle className="w-5 h-5 text-red-600" />
-                  <span className="text-red-600">{error}</span>
-                </div>
-              </div>
-            )}
-
-            <NotificationTesting />
+    <SettingsRailLayout
+      title="Notification testing"
+      section="Communications"
+      subtitle="Send test messages to verify your email and SMS setup"
+    >
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <span className="text-red-600">{error}</span>
           </div>
         </div>
-      </div>
-    </div>
+      )}
+      <NotificationTesting />
+    </SettingsRailLayout>
   );
 };
 

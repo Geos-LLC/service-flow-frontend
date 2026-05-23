@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import NotificationTestButton from "../../components/NotificationTestButton"
-import { ChevronLeft, Mail, MessageSquare, Check, X } from "lucide-react"
+import { Mail, MessageSquare, Check, X } from "lucide-react"
 import { notificationTemplatesAPI, notificationSettingsAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
 const AppointmentReminder = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -143,46 +142,10 @@ const AppointmentReminder = () => {
   };
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          {/* Message */}
-          {message.text && (
-            <div className={`px-6 py-3 ${message.type === 'success' ? 'bg-green-50 border-l-4 border-green-400' : 'bg-red-50 border-l-4 border-red-400'}`}>
-              <div className="flex items-center">
-                {message.type === 'success' ? (
-                  <Check className="w-5 h-5 text-green-400 mr-2" />
-                ) : (
-                  <X className="w-5 h-5 text-red-400 mr-2" />
-                )}
-                <span className={`text-sm ${message.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                  {message.text}
-                </span>
-              </div>
-            </div>
-          )}
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings/client-team-notifications")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Client & Team Notifications</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Appointment Reminder</h1>
-            <span className="bg-[var(--sf-bg-page)] text-[var(--sf-text-secondary)] text-sm px-3 py-1 rounded-md">
-              Customer Notification Template
-            </span>
-          </div>
-        </div>
+    <SettingsRailLayout title="Appointment reminder" section="Communications" subtitle="Reminder before a scheduled job">
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-7xl mx-auto p-6">
+        
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Settings Panel */}
               <div className="space-y-6">
@@ -516,11 +479,8 @@ const AppointmentReminder = () => {
               >
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+              </div>
+            </SettingsRailLayout>
   )
 }
 

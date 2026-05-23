@@ -72,26 +72,34 @@ api.interceptors.response.use(
         const { status, data } = error.response;
         
         switch (status) {
-          case 401:
-            console.error('Unauthorized - checking if payment context');
-            // Only redirect to login if not in payment context and not already on signin page
-            const isPaymentContext = window.location.pathname.includes('/payment') || 
+          case 401: {
+            // Only redirect on actual SF session failures. SF's auth middleware
+            // emits specific error codes ('Access token required' | 'Token expired').
+            // Any other 401 — including upstream proxied 401s from Sigcore /
+            // OpenPhone / LeadBridge — must NOT clear the session, because doing
+            // so dumps the user back to /signin even though their SF token is fine.
+            const isPaymentContext = window.location.pathname.includes('/payment') ||
                                      window.location.pathname.includes('/public/');
             const isSigninPage = window.location.pathname.includes('/signin');
-            
-            if (!isPaymentContext && !isSigninPage) {
+            const errCode = data?.error;
+            const isSfSessionFailure = errCode === 'Access token required' || errCode === 'Token expired';
+
+            if (isSfSessionFailure && !isPaymentContext && !isSigninPage) {
+              console.warn('SF session expired — clearing tokens and redirecting to /signin', { url: config?.url, errCode });
               localStorage.removeItem('authToken');
               localStorage.removeItem('user');
-              // Redirect to signin page
               window.location.href = '/signin';
+            } else if (isSigninPage) {
+              console.log('Already on signin page — not redirecting');
+            } else if (isPaymentContext) {
+              console.log('Payment context detected — not redirecting to login');
             } else {
-              if (isSigninPage) {
-                console.log('Already on signin page - not redirecting');
-            } else {
-              console.log('Payment context detected - not redirecting to login');
-              }
+              // Non-session 401 (upstream proxy auth failure). Preserve session;
+              // propagate the error so the calling component can surface it.
+              console.warn('Non-session 401 — preserving session, propagating error', { url: config?.url, errCode });
             }
             break;
+          }
           case 403:
             console.error('Access forbidden');
             break;
@@ -1561,7 +1569,17 @@ export const billingAPI = {
     } catch (error) {
       throw error;
     }
-  }
+  },
+
+  getInvoices: async () => {
+    const response = await api.get('/user/billing/invoices');
+    return response.data; // { invoices: [...] }
+  },
+
+  getUsage: async () => {
+    const response = await api.get('/user/billing/usage');
+    return response.data; // { activeTeams, jobsThisMonth, smsSent, storageBytes, apiCalls, periodStart, periodEnd }
+  },
 };
 
 // Payment settings API functions
@@ -1686,7 +1704,15 @@ export const businessDetailsAPI = {
     } catch (error) {
       throw error;
     }
-  }
+  },
+  uploadLogo: async (file) => {
+    const form = new FormData();
+    form.append('logo', file);
+    const response = await api.post('/upload-logo', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data; // { url }
+  },
 };
 
 // Territory Management API functions
@@ -2969,6 +2995,41 @@ export const communicationsAPI = {
   sendMessage: async (id, data) => { const r = await api.post(`/communications/conversations/${id}/send`, data); return r.data; },
   updateConversation: async (id, data) => { const r = await api.patch(`/communications/conversations/${id}`, data); return r.data; },
   savePreferences: async (prefs) => { const r = await api.put('/communications/settings/preferences', prefs); return r.data; },
+};
+
+// Customer files — per-customer photo / document library backing
+// the Files tab on the customer detail page. Storage is Supabase
+// (job-attachments bucket); this API just wraps the metadata CRUD.
+export const customerFilesAPI = {
+  list: async (customerId) => {
+    const r = await api.get(`/customers/${customerId}/files`);
+    return r.data;
+  },
+  upload: async (customerId, files, { jobId } = {}) => {
+    const form = new FormData();
+    (Array.isArray(files) ? files : [files]).forEach((f) => form.append('files', f));
+    if (jobId) form.append('jobId', String(jobId));
+    const r = await api.post(`/customers/${customerId}/files`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return r.data;
+  },
+  remove: async (customerId, fileId) => {
+    const r = await api.delete(`/customers/${customerId}/files/${fileId}`);
+    return r.data;
+  },
+};
+
+// Property data lookup via RentCast (server-side). Given a parsed
+// address, returns bedrooms / bathrooms / squareFeet / yearBuilt /
+// propertyType / estimatedValue / estimatedRent / lotSize / lastSale*
+// / assessedValue. Endpoint is /api/zillow/property for legacy naming
+// reasons — the upstream provider is RentCast, not Zillow.
+export const propertyDataAPI = {
+  lookup: async ({ address, street, city, state, zipCode }) => {
+    const r = await api.post('/zillow/property', { address, street, city, state, zipCode });
+    return r.data;
+  },
 };
 
 // Connected Email (Gmail/Outlook OAuth) — System 2 mailbox integration for Communications Hub.

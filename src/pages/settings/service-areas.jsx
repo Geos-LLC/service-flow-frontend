@@ -2,15 +2,14 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import TerritoryMap from "../../components/territory-map"
-import { ChevronLeft, MapPin, Check, X } from "lucide-react"
+import { MapPin, Check, X } from "lucide-react"
 import { serviceAreasAPI } from "../../services/api"
 import { GOOGLE_MAPS_API_KEY } from "../../config/maps"
 import { useAuth } from "../../context/AuthContext"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const ServiceAreas = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -127,40 +126,23 @@ const ServiceAreas = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-4 text-[var(--sf-text-secondary)]">Loading service areas settings...</p>
-            </div>
+      <SettingsPageLayout title="Service areas">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-[var(--sf-text-secondary)]">Loading service areas…</p>
           </div>
         </div>
-      </div>
+      </SettingsPageLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)] flex">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Service Areas</h1>
-          </div>
-        </div>
-
+    <SettingsPageLayout
+      title="Service areas"
+      subtitle="Customize the geographic areas you service"
+      maxWidth={1200}
+    >
         {/* Message */}
         {message.text && (
           <div className={`px-6 py-3 ${message.type === 'success' ? 'bg-green-50 border-l-4 border-green-400' : 'bg-red-50 border-l-4 border-red-400'}`}>
@@ -178,8 +160,7 @@ const ServiceAreas = () => {
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-5xl mx-auto p-6">
+          <div>
             {/* Enforce Service Area Toggle */}
             <div className="bg-[var(--sf-bg-page)] rounded-lg p-4 mb-8">
               <div className="flex items-center justify-between">
@@ -277,8 +258,6 @@ const ServiceAreas = () => {
               )}
             </div>
           </div>
-        </div>
-      </div>
 
       {/* Edit Territory Modal */}
       {showEditModal && editingTerritory && (
@@ -386,7 +365,7 @@ const ServiceAreas = () => {
           </div>
         </div>
       )}
-    </div>
+    </SettingsPageLayout>
   )
 }
 

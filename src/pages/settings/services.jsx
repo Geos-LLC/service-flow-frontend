@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft, Plus, Edit, Trash2, Settings, Tag, Clock, DollarSign } from "lucide-react"
+import { Plus, Edit, Trash2, Settings, Tag, Clock, DollarSign } from "lucide-react"
 import { servicesAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
 import CategoryManagement from "../../components/category-management"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
 const ServicesSettings = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -101,43 +100,24 @@ const ServicesSettings = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-4 text-[var(--sf-text-secondary)]">Loading services settings...</p>
-            </div>
+      <SettingsRailLayout title="Services catalog" section="Services & pricing">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-[var(--sf-text-secondary)]">Loading services settings…</p>
           </div>
         </div>
-      </div>
+      </SettingsRailLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)] flex">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span>Back to Settings</span>
-            </button>
-          </div>
-          <h1 className="text-2xl font-bold text-[var(--sf-text-primary)] mt-2">Services Settings</h1>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-4xl mx-auto p-6">
+    <SettingsRailLayout
+      title="Services catalog"
+      section="Services & pricing"
+      subtitle="Manage services and categories"
+    >
+      <div>
             {/* Message */}
             {message.text && (
               <div className={`mb-6 p-4 rounded-lg ${
@@ -319,9 +299,7 @@ const ServicesSettings = () => {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+        </SettingsRailLayout>
   )
 }
 

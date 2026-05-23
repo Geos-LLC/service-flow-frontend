@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import CalendarSyncSettings from "../../components/CalendarSyncSettings"
-import { ChevronLeft, Calendar, CheckCircle, AlertCircle } from "lucide-react"
+import { CheckCircle, AlertCircle } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const CalendarSyncing = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [oauthMessage, setOauthMessage] = useState(null)
@@ -46,28 +45,11 @@ const CalendarSyncing = () => {
   }, [searchParams, navigate]);
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Calendar Syncing</h1>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-4xl mx-auto p-6 space-y-8">
+    <SettingsPageLayout
+      title="Calendar syncing"
+      subtitle="Sync your ServiceFlow schedule to external calendar apps"
+    >
+      <div className="space-y-6">
             {/* OAuth Callback Messages */}
             {oauthMessage && (
               <div className={`p-4 rounded-lg border ${
@@ -98,12 +80,10 @@ const CalendarSyncing = () => {
               </div>
             )}
 
-            {/* Google Calendar Sync Settings */}
-            <CalendarSyncSettings />
-          </div>
-        </div>
+        {/* Google Calendar Sync Settings */}
+        <CalendarSyncSettings />
       </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

@@ -2,42 +2,20 @@
 
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import NotificationTestButton from "../../components/NotificationTestButton"
-import { ChevronLeft, Mail } from "lucide-react"
+import { Mail } from "lucide-react"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
 const ContactCustomer = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [enableEmail, setEnableEmail] = useState(true)
   const [showLogo, setShowLogo] = useState(false)
   const navigate = useNavigate()
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings/client-team-notifications")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Client & Team Notifications</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Contact Customer</h1>
-            <span className="bg-[var(--sf-bg-page)] text-[var(--sf-text-secondary)] text-sm px-3 py-1 rounded-md">
-              Customer Notification Template
-            </span>
-          </div>
-        </div>
+    <SettingsRailLayout title="Contact customer" section="Communications" subtitle="Generic customer outreach template">
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-7xl mx-auto p-6">
+        
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Settings Panel */}
               <div className="space-y-6">
@@ -217,11 +195,8 @@ const ContactCustomer = () => {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+              </div>
+            </SettingsRailLayout>
   )
 }
 

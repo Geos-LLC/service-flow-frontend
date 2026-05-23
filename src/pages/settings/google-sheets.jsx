@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { FileSpreadsheet, CheckCircle, AlertCircle, Download, Upload, ArrowLeft } from 'lucide-react';
+import { CheckCircle, AlertCircle, Download, Upload } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import SheetsExport from '../../components/SheetsExport';
 import GoogleSheetsImport from '../../components/GoogleSheetsImport';
 import { authAPI } from '../../services/api';
 import api from '../../services/api';
+import SettingsPageLayout from '../../components/settings-page-layout';
 
 const GoogleSheetsSettings = () => {
   const { user, refreshUserProfile } = useAuth();
@@ -101,26 +102,11 @@ const GoogleSheetsSettings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)]">
-      <div className="max-w-6xl mx-auto p-6">
-        {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate('/settings')}
-            className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] mb-4"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Settings</span>
-          </button>
-          <div className="flex items-center space-x-3 mb-2">
-            <FileSpreadsheet className="w-8 h-8 text-green-600" />
-            <h1 className="text-3xl font-bold text-[var(--sf-text-primary)]">Google Sheets Integration</h1>
-          </div>
-          <p className="text-[var(--sf-text-secondary)]">
-            Export your data to Google Sheets or import data from existing spreadsheets.
-          </p>
-        </div>
-
+    <SettingsPageLayout
+      title="Google Sheets"
+      subtitle="Export data to Google Sheets and import from existing spreadsheets"
+      maxWidth={1200}
+    >
         {/* Connection Status */}
         <div className="bg-white rounded-lg shadow-sm border border-[var(--sf-border-light)] p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -420,8 +406,7 @@ const GoogleSheetsSettings = () => {
             </p>
           </div>
         </div>
-      </div>
-    </div>
+    </SettingsPageLayout>
   );
 };
 

@@ -50,12 +50,16 @@ const StatusProgressBar = ({ currentStatus, onStatusChange, statusHistory, isRea
   const normalizedStatus = normalizeStatus(currentStatus)
   const currentIndex = statusMap[normalizedStatus] ?? 0;
 
-  // Map progress bar keys to backend status values
+  // Map progress bar keys to backend status values.
+  // Clicking a chevron sets the job to THAT status (identity mapping).
+  // The earlier "advance from here" mapping (scheduled→confirmed,
+  // en_route→in-progress, etc.) was off-by-one — clicking "En Route"
+  // would jump the job to "Started".
   const mapProgressBarKeyToBackendStatus = (key) => {
     const mapping = {
-      'scheduled': 'confirmed', // Maps to en_route in backend
-      'en_route': 'in-progress', // Maps to started in backend
-      'started': 'completed', // Maps to complete in backend
+      'scheduled': 'scheduled',
+      'en_route': 'en_route',
+      'started': 'in-progress', // backend canonical spelling for Started
       'completed': 'completed',
       'paid': 'paid'
     }

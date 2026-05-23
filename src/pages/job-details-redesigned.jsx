@@ -141,6 +141,8 @@ const JobDetails = () => {
   const [showConvertToRecurringModal, setShowConvertToRecurringModal] = useState(false)
   const [showEditRecurringModal, setShowEditRecurringModal] = useState(false)
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
+  const [showMobileMoreActions, setShowMobileMoreActions] = useState(false)
+  const mobileMoreActionsRef = useRef(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showSendInvoiceModal, setShowSendInvoiceModal] = useState(false)
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false)
@@ -566,6 +568,9 @@ const JobDetails = () => {
         if (editingField === 'territory') {
           setEditingField(null)
         }
+      }
+      if (mobileMoreActionsRef.current && !mobileMoreActionsRef.current.contains(event.target)) {
+        setShowMobileMoreActions(false)
       }
     }
 
@@ -2288,22 +2293,76 @@ const JobDetails = () => {
             </button>
           </div>
           
-          {/* Action Buttons */}
+          {/* Action Buttons — team-member PWA. Primary button advances the
+              forward status flow (En Route → Start → Complete). More Actions
+              dropdown contains real actions (view info, cancel). The status
+              progress bar below is read-only context so a team-lead can see
+              where the job is in its lifecycle. */}
           <div className="flex space-x-3">
-            {canMarkJobStatus(user) && (
+            {canMarkJobStatus(user) && (() => {
+              const s = String(job?.status || '').toLowerCase().trim()
+              let next = null
+              if (!s || s === 'pending' || s === 'scheduled') next = { status: 'en_route', label: 'En Route' }
+              else if (s === 'confirmed' || s === 'en_route' || s === 'enroute') next = { status: 'in-progress', label: 'Start' }
+              else if (s === 'in-progress' || s === 'in_progress' || s === 'started') next = { status: 'completed', label: 'Complete' }
+              if (!next) return null
+              return (
+                <button
+                  onClick={() => handleStatusUpdate(next.status)}
+                  disabled={loading}
+                  className="flex-1 bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium text-sm disabled:opacity-60"
+                >
+                  {next.label}
+                </button>
+              )
+            })()}
+            <div className="relative flex-1" ref={mobileMoreActionsRef}>
               <button
-                onClick={() => handleStatusChange('en_route')}
-                className="flex-1 bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium text-sm"
+                onClick={() => setShowMobileMoreActions(prev => !prev)}
+                className="w-full bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]"
               >
-                En Route
+                More Actions
               </button>
-            )}
-            <button
-              onClick={() => setShowMobileSidebar(true)}
-              className="flex-1 bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]"
-            >
-              More Actions
-            </button>
+              {showMobileMoreActions && (
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-[var(--sf-border-light)] z-30 overflow-hidden">
+                  <button
+                    onClick={() => { setShowMobileMoreActions(false); setShowMobileSidebar(true) }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-[var(--sf-bg-page)] text-sm font-medium text-[var(--sf-text-primary)]"
+                  >
+                    View Job Info
+                  </button>
+                  {canRescheduleJobs(user) && job?.status !== 'cancelled' && (
+                    <button
+                      onClick={() => { setShowMobileMoreActions(false); setShowRescheduleModal(true) }}
+                      className="w-full text-left px-4 py-2.5 hover:bg-[var(--sf-bg-page)] text-sm font-medium text-[var(--sf-text-primary)] border-t border-[var(--sf-border-light)]"
+                    >
+                      Reschedule
+                    </button>
+                  )}
+                  {canMarkJobStatus(user) && job?.status !== 'cancelled' && job?.status !== 'completed' && (
+                    <button
+                      onClick={() => { setShowMobileMoreActions(false); setShowCancelModal(true) }}
+                      className="w-full text-left px-4 py-2.5 hover:bg-[var(--sf-bg-page)] text-sm font-medium text-red-600 border-t border-[var(--sf-border-light)]"
+                    >
+                      Cancel Job
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Status Progress Bar — read-only on PWA; no hover timing here (web only) */}
+          <div className="mt-3 -mx-1 overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div className="min-w-[440px] px-1">
+              <StatusProgressBar
+                currentStatus={job?.status || 'scheduled'}
+                onStatusChange={handleStatusUpdate}
+                statusHistory={undefined}
+                jobCreatedAt={job?.created_at}
+                invoiceStatus={job?.invoice_status}
+              />
+            </div>
           </div>
         </div>
 

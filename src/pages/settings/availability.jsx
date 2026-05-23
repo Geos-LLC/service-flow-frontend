@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
-import { ChevronLeft, MapPin, ChevronRight, Check, X, Calendar, Trash2 } from "lucide-react"
+import { MapPin, ChevronRight, Check, X, Calendar, Trash2, Edit, Plus, Clock } from "lucide-react"
 import TimeslotTemplateModal from "../../components/timeslot-template-modal"
 import DateOverrideModal from "../../components/date-override-modal"
 import { availabilityAPI, teamAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
 import { isWorker } from "../../utils/roleUtils"
+import SettingsRailLayout from "../../components/settings-rail-layout"
+import { SfCard, SfButton, SfTag } from "../../components/sf-primitives"
 
 const Availability = () => {
   const [isTimeslotTemplateModalOpen, setIsTimeslotTemplateModalOpen] = useState(false)
@@ -540,38 +542,23 @@ const Availability = () => {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center min-h-screen bg-[var(--sf-bg-page)]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-[var(--sf-text-secondary)]">Loading availability settings...</p>
+      <SettingsRailLayout title="Availability" section="Operations">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-[var(--sf-text-secondary)]">Loading availability…</p>
+          </div>
         </div>
-      </div>
+      </SettingsRailLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)]">
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => {
-                // For workers, go to availability page instead of settings
-                if (isWorker(user) && user?.teamMemberId) {
-                  navigate("/availability")
-                } else {
-                  navigate("/settings")
-                }
-              }}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">{isWorker(user) && user?.teamMemberId ? "Availability" : "Settings"}</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Availability</h1>
-          </div>
-        </div>
-
+    <SettingsRailLayout
+      title="Availability"
+      section="Operations"
+      subtitle="Business hours, time-slot templates, and date overrides"
+    >
         {/* Message */}
         {message.text && (
           <div className={`px-6 py-3 ${message.type === 'success' ? 'bg-green-50 border-l-4 border-green-400' : 'bg-red-50 border-l-4 border-red-400'}`}>
@@ -588,239 +575,367 @@ const Availability = () => {
         </div>
         )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-6xl mx-auto p-6 space-y-8">
-            {/* Hours of Operation */}
-            <div className="bg-[var(--sf-bg-page)] rounded-lg p-6">
-              <h2 className="text-xl font-semibold text-[var(--sf-text-primary)]">Hours of Operation</h2>
-              <p className="text-[var(--sf-text-secondary)] mt-2 mb-4">
-                This section allows you to set your typical business hours for your locations. Business hours affect the
-                time slots that customers can book online.
-              </p>
-
-              {!showBusinessHoursEditor ? (
-                <div className="space-y-3">
-                  {Object.entries(availabilityData.businessHours).map(([day, hours]) => (
-                    <div key={day} className="flex items-center justify-between p-3 bg-white rounded-lg border border-[var(--sf-border-light)]">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${hours.enabled ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                        <span className="font-medium capitalize">{day}</span>
-                      </div>
-                      <div className="text-sm text-[var(--sf-text-secondary)]">
-                        {hours.enabled ? `${hours.start} - ${hours.end}` : 'Closed'}
-                      </div>
-                    </div>
-                  ))}
-                  <button 
-                    onClick={() => setShowBusinessHoursEditor(true)}
-                    className="w-full bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)]"
+      <div className="flex flex-col gap-4">
+        {/* Hours of operation */}
+        <SfCard padding={0}>
+          <div
+            className="flex items-center"
+            style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-semibold text-[var(--sf-ink)]">
+                Hours of operation
+              </div>
+              <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+                The time slots that customers can book online
+              </div>
+            </div>
+            {!showBusinessHoursEditor && (
+              <SfButton
+                variant="secondary"
+                size="sm"
+                icon={Edit}
+                onClick={() => setShowBusinessHoursEditor(true)}
+              >
+                Edit hours
+              </SfButton>
+            )}
+          </div>
+          <div className="px-5 py-4">
+            <div className="flex flex-col gap-1">
+              {Object.entries(availabilityData.businessHours).map(([day, hours]) => (
+                <div
+                  key={day}
+                  className="flex items-center gap-3 flex-wrap"
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    background: showBusinessHoursEditor
+                      ? "var(--sf-panel-alt)"
+                      : "transparent",
+                  }}
+                >
+                  {showBusinessHoursEditor ? (
+                    <DaySwitch
+                      on={hours.enabled}
+                      onChange={() =>
+                        handleBusinessHoursChange(day, "enabled", !hours.enabled)
+                      }
+                    />
+                  ) : (
+                    <span
+                      className="inline-block rounded-full"
+                      style={{
+                        width: 8,
+                        height: 8,
+                        background: hours.enabled ? "var(--sf-green)" : "var(--sf-ink-4)",
+                      }}
+                    />
+                  )}
+                  <span
+                    className="text-[13px] font-semibold capitalize"
+                    style={{
+                      color: hours.enabled ? "var(--sf-ink)" : "var(--sf-ink-3)",
+                      width: 100,
+                    }}
                   >
-                    Edit Business Hours
-                  </button>
+                    {day}
+                  </span>
+                  {showBusinessHoursEditor && hours.enabled ? (
+                    <div className="inline-flex items-center gap-1.5">
+                      <input
+                        type="time"
+                        value={hours.start}
+                        onChange={(e) =>
+                          handleBusinessHoursChange(day, "start", e.target.value)
+                        }
+                        className="rounded-md text-[12.5px] text-[var(--sf-ink)]"
+                        style={{
+                          padding: "5px 8px",
+                          border: "1px solid var(--sf-border-soft)",
+                          background: "var(--sf-panel)",
+                          fontFamily: "var(--sf-font-ui)",
+                        }}
+                      />
+                      <span className="text-[12px] text-[var(--sf-ink-3)]">to</span>
+                      <input
+                        type="time"
+                        value={hours.end}
+                        onChange={(e) =>
+                          handleBusinessHoursChange(day, "end", e.target.value)
+                        }
+                        className="rounded-md text-[12.5px] text-[var(--sf-ink)]"
+                        style={{
+                          padding: "5px 8px",
+                          border: "1px solid var(--sf-border-soft)",
+                          background: "var(--sf-panel)",
+                          fontFamily: "var(--sf-font-ui)",
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <span
+                      className="text-[12.5px]"
+                      style={{
+                        color: hours.enabled ? "var(--sf-ink-2)" : "var(--sf-ink-3)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {hours.enabled ? `${hours.start} – ${hours.end}` : "Closed"}
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {Object.entries(availabilityData.businessHours).map(([day, hours]) => (
-                    <div key={day} className="flex items-center justify-between p-4 bg-white rounded-lg border border-[var(--sf-border-light)]">
-                      <div className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
-                          checked={hours.enabled}
-                          onChange={(e) => handleBusinessHoursChange(day, 'enabled', e.target.checked)}
-                          className="w-4 h-4 text-[var(--sf-blue-500)] rounded focus:ring-[var(--sf-blue-500)]"
-                        />
-                        <span className="font-medium capitalize">{day}</span>
-                      </div>
-                      {hours.enabled && (
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="time"
-                            value={hours.start}
-                            onChange={(e) => handleBusinessHoursChange(day, 'start', e.target.value)}
-                            className="border border-[var(--sf-border-light)] rounded px-2 py-1 text-sm"
-                          />
-                          <span>to</span>
-                          <input
-                            type="time"
-                            value={hours.end}
-                            onChange={(e) => handleBusinessHoursChange(day, 'end', e.target.value)}
-                            className="border border-[var(--sf-border-light)] rounded px-2 py-1 text-sm"
-                          />
-                        </div>
+              ))}
+            </div>
+            {showBusinessHoursEditor && (
+              <div className="flex items-center gap-2 mt-4 pt-4" style={{ borderTop: "1px solid var(--sf-border-soft)" }}>
+                <SfButton
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowBusinessHoursEditor(false)}
+                >
+                  Cancel
+                </SfButton>
+                <div className="flex-1" />
+                <SfButton
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveBusinessHours}
+                  disabled={saving}
+                >
+                  {saving ? "Saving…" : "Save hours"}
+                </SfButton>
+              </div>
+            )}
+          </div>
+        </SfCard>
+
+        {/* Date overrides */}
+        <SfCard padding={0}>
+          <div
+            className="flex items-center flex-wrap gap-2"
+            style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-semibold text-[var(--sf-ink)]">
+                Date overrides
+              </div>
+              <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+                Holidays, vacations, or one-off changes to your regular hours
+              </div>
+            </div>
+            <SfButton
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={() => {
+                setEditingOverrideIndex(null)
+                setShowDateOverrideModal(true)
+              }}
+            >
+              Add override
+            </SfButton>
+          </div>
+          {availabilityData.dateOverrides.length === 0 ? (
+            <div className="py-10 text-center">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-2"
+                style={{ background: "var(--sf-panel-soft)", color: "var(--sf-ink-3)" }}
+              >
+                <Calendar size={20} />
+              </div>
+              <div className="text-[12.5px] text-[var(--sf-ink-3)]">No date overrides set</div>
+            </div>
+          ) : (
+            availabilityData.dateOverrides.map((override, index) => {
+              const dt = new Date(override.date + "T00:00:00")
+              const dateLabel = dt.toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+              return (
+                <div
+                  key={index}
+                  className="flex items-center gap-3 flex-wrap"
+                  style={{
+                    padding: "12px 18px",
+                    borderBottom:
+                      index < availabilityData.dateOverrides.length - 1
+                        ? "1px solid var(--sf-border-soft)"
+                        : "none",
+                  }}
+                >
+                  <span
+                    className="inline-block rounded-full flex-shrink-0"
+                    style={{
+                      width: 8,
+                      height: 8,
+                      background: override.available ? "var(--sf-green)" : "var(--sf-red)",
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-[var(--sf-ink)] inline-flex items-center gap-1.5 flex-wrap">
+                      {dateLabel}
+                      {override.label && (
+                        <SfTag color="var(--sf-ink-2)" bg="var(--sf-panel-alt)">
+                          {override.label}
+                        </SfTag>
                       )}
                     </div>
-                  ))}
-                  <div className="flex space-x-3">
-                    <button 
-                      onClick={handleSaveBusinessHours}
-                      disabled={saving}
-                      className="flex-1 bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)] disabled:opacity-50"
+                    <div
+                      className="text-[11.5px] mt-0.5"
+                      style={{
+                        color: override.available
+                          ? "var(--sf-green-dark)"
+                          : "var(--sf-red-dark)",
+                      }}
                     >
-                      {saving ? 'Saving...' : 'Save Hours'}
-                    </button>
-                    <button 
-                      onClick={() => setShowBusinessHoursEditor(false)}
-                      className="flex-1 bg-gray-300 text-[var(--sf-text-primary)] px-4 py-2 rounded-lg font-medium hover:bg-gray-400"
+                      {override.available
+                        ? override.hours?.length > 0
+                          ? override.hours.map((h) => `${h.start} – ${h.end}`).join(", ")
+                          : "Custom hours (regular)"
+                        : "Unavailable"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <SfButton
+                      variant="ghost"
+                      size="sm"
+                      icon={Edit}
+                      onClick={() => {
+                        setEditingOverrideIndex(index)
+                        setShowDateOverrideModal(true)
+                      }}
                     >
-                      Cancel
+                      Edit
+                    </SfButton>
+                    <button
+                      onClick={() => handleDeleteDateOverride(index)}
+                      aria-label="Delete override"
+                      className="text-[var(--sf-ink-3)] hover:text-[var(--sf-red-dark)]"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        padding: 6,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
+              )
+            })
+          )}
+        </SfCard>
 
-            {/* Date Overrides */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-xl font-semibold text-[var(--sf-text-primary)]">Date Overrides</h2>
-                  <p className="text-[var(--sf-text-secondary)] mt-1">
-                    Set specific dates as unavailable (vacations, holidays) or override your regular hours for certain days.
-                  </p>
-                </div>
+        {/* Timeslot templates */}
+        <SfCard padding={0}>
+          <div
+            className="flex items-center flex-wrap gap-2"
+            style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-semibold text-[var(--sf-ink)]">
+                Timeslot templates
               </div>
-
-              {availabilityData.dateOverrides.length === 0 ? (
-                <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-8 text-center">
-                  <Calendar className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                  <p className="text-[var(--sf-text-muted)] mb-4">No date overrides set</p>
-                  <button
-                    onClick={() => { setEditingOverrideIndex(null); setShowDateOverrideModal(true) }}
-                    className="bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)]"
+              <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+                Override default hours, timeslot settings, and driving time for specific services
+              </div>
+            </div>
+            <SfButton
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={() => {
+                setEditingTemplateIndex(null)
+                setIsTimeslotTemplateModalOpen(true)
+              }}
+            >
+              New template
+            </SfButton>
+          </div>
+          {availabilityData.timeslotTemplates.length === 0 ? (
+            <div className="py-10 text-center">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-2"
+                style={{ background: "var(--sf-panel-soft)", color: "var(--sf-ink-3)" }}
+              >
+                <Clock size={20} />
+              </div>
+              <div className="text-[12.5px] text-[var(--sf-ink-3)]">
+                No timeslot templates yet
+              </div>
+            </div>
+          ) : (
+            availabilityData.timeslotTemplates.map((template, index) => (
+              <div
+                key={index}
+                className="flex items-center gap-3 flex-wrap"
+                style={{
+                  padding: "12px 18px",
+                  borderBottom:
+                    index < availabilityData.timeslotTemplates.length - 1
+                      ? "1px solid var(--sf-border-soft)"
+                      : "none",
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-[var(--sf-ink)]">
+                    {template.name || `Template ${index + 1}`}
+                  </div>
+                  {template.description && (
+                    <div className="text-[11.5px] text-[var(--sf-ink-2)] mt-0.5">
+                      {template.description}
+                    </div>
+                  )}
+                  <div className="text-[11px] text-[var(--sf-ink-3)] mt-1 inline-flex items-center gap-3 flex-wrap">
+                    <span>{template.timeslotType || "Arrival windows"}</span>
+                    {template.arrivalWindowLength && (
+                      <span>
+                        {template.arrivalWindowLength >= 60
+                          ? `${template.arrivalWindowLength / 60}h`
+                          : `${template.arrivalWindowLength}m`}{" "}
+                        window
+                      </span>
+                    )}
+                    {template.drivingTime > 0 && (
+                      <span className="text-[var(--sf-amber-dark)]">
+                        {template.drivingTime} min interval
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <SfButton
+                    variant="ghost"
+                    size="sm"
+                    icon={Edit}
+                    onClick={() => handleEditTemplate(index)}
                   >
-                    Add Date Override
+                    Edit
+                  </SfButton>
+                  <button
+                    onClick={() => handleDeleteTimeslotTemplate(index)}
+                    aria-label="Delete template"
+                    className="text-[var(--sf-ink-3)] hover:text-[var(--sf-red-dark)]"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      padding: 6,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
-              ) : (
-                <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-[var(--sf-text-primary)]">Date Overrides</h3>
-                    <button
-                      onClick={() => { setEditingOverrideIndex(null); setShowDateOverrideModal(true) }}
-                      className="bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)]"
-                    >
-                      Add Override
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    {availabilityData.dateOverrides.map((override, index) => (
-                      <div key={index} className="flex items-center justify-between p-4 border border-[var(--sf-border-light)] rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${override.available ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                          <div>
-                            <p className="font-medium text-[var(--sf-text-primary)]">
-                              {new Date(override.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                            </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              {override.label && (
-                                <span className="text-xs bg-[var(--sf-bg-page)] text-[var(--sf-text-secondary)] px-2 py-0.5 rounded">{override.label}</span>
-                              )}
-                              <span className={`text-xs ${override.available ? 'text-green-600' : 'text-red-600'}`}>
-                                {override.available
-                                  ? (override.hours?.length > 0
-                                    ? override.hours.map(h => `${h.start} - ${h.end}`).join(', ')
-                                    : 'Custom hours (regular)')
-                                  : 'Unavailable'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => { setEditingOverrideIndex(index); setShowDateOverrideModal(true) }}
-                            className="text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] text-sm font-medium"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteDateOverride(index)}
-                            className="text-red-500 hover:text-red-700 p-1"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Timeslot Templates - for both account owners and team members (team members save to their own availability) */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-xl font-semibold text-[var(--sf-text-primary)]">Timeslot Templates</h2>
-                  <p className="text-[var(--sf-text-secondary)] mt-1">
-                    Override your default hours of operation, timeslot settings, and driving time for specific services.
-                  </p>
-                </div>
               </div>
-
-              {availabilityData.timeslotTemplates.length === 0 ? (
-              <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-8 text-center">
-                <p className="text-[var(--sf-text-muted)] mb-4">No timeslot templates created yet</p>
-                <button
-                  onClick={() => { setEditingTemplateIndex(null); setIsTimeslotTemplateModalOpen(true) }}
-                  className="bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)]"
-                >
-                  New Timeslot Template
-                </button>
-              </div>
-              ) : (
-                <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-[var(--sf-text-primary)]">Timeslot Templates</h3>
-                    <button
-                      onClick={() => { setEditingTemplateIndex(null); setIsTimeslotTemplateModalOpen(true) }}
-                      className="bg-[var(--sf-blue-500)] text-white px-4 py-2 rounded-lg font-medium hover:bg-[var(--sf-blue-600)]"
-                    >
-                      New Template
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    {availabilityData.timeslotTemplates.map((template, index) => (
-                      <div key={index} className="flex items-center justify-between p-4 border border-[var(--sf-border-light)] rounded-lg">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-[var(--sf-text-primary)]">
-                            {template.name || `Template ${index + 1}`}
-                          </h4>
-                          {template.description && (
-                            <p className="text-sm text-[var(--sf-text-secondary)]">{template.description}</p>
-                          )}
-                          <div className="flex items-center gap-3 mt-1 text-xs text-[var(--sf-text-muted)]">
-                            <span>{template.timeslotType || 'Arrival windows'}</span>
-                            {template.arrivalWindowLength && (
-                              <span>{template.arrivalWindowLength >= 60 ? `${template.arrivalWindowLength / 60}h` : `${template.arrivalWindowLength}m`} window</span>
-                            )}
-                            {(template.drivingTime > 0) && (
-                              <span className="text-amber-600">{template.drivingTime} min interval</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={() => handleEditTemplate(index)}
-                            className="text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] text-sm font-medium"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTimeslotTemplate(index)}
-                            className="text-red-600 hover:text-red-700 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+            ))
+          )}
+        </SfCard>
+      </div>
 
       <TimeslotTemplateModal
         isOpen={isTimeslotTemplateModalOpen}
@@ -835,8 +950,42 @@ const Availability = () => {
         onSave={handleSaveDateOverride}
         existingOverride={editingOverrideIndex !== null ? availabilityData.dateOverrides[editingOverrideIndex] : null}
       />
-    </div>
+    </SettingsRailLayout>
   )
 }
+
+const DaySwitch = ({ on, onChange }) => (
+  <button
+    type="button"
+    onClick={onChange}
+    aria-pressed={on}
+    style={{
+      width: 32,
+      height: 18,
+      borderRadius: 999,
+      border: "none",
+      padding: 0,
+      background: on ? "var(--sf-blue)" : "#cbd5e1",
+      cursor: "pointer",
+      position: "relative",
+      transition: "background .15s",
+      flexShrink: 0,
+    }}
+  >
+    <span
+      style={{
+        position: "absolute",
+        top: 2,
+        left: on ? 16 : 2,
+        width: 14,
+        height: 14,
+        background: "#fff",
+        borderRadius: 7,
+        boxShadow: "0 1px 2px rgba(15,23,42,.18)",
+        transition: "left .15s",
+      }}
+    />
+  </button>
+)
 
 export default Availability

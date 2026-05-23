@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import { notificationEmailAPI } from "../../services/api"
-import { ChevronLeft, ChevronRight, Mail, Shield, Send, Check, X, Loader2 } from "lucide-react"
+import { ChevronRight, Mail, Shield, Send, Check, X, Loader2 } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 function EmailDeliverySettings() {
   const [loading, setLoading] = useState(true)
@@ -140,7 +140,6 @@ function EmailDeliverySettings() {
 }
 
 const ClientTeamNotifications = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const navigate = useNavigate()
 
   const customerNotifications = [
@@ -267,28 +266,12 @@ const ClientTeamNotifications = () => {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Client & Team Notifications</h1>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-6xl mx-auto p-6 space-y-8">
+    <SettingsPageLayout
+      title="Client & team notifications"
+      subtitle="Edit the emails and text messages sent to clients and team members"
+      maxWidth={1100}
+    >
+      <div className="space-y-8">
             {/* Customer Notifications */}
             <div>
               <div className="mb-6">
@@ -353,10 +336,8 @@ const ClientTeamNotifications = () => {
 
             {/* Email Delivery Settings */}
             <EmailDeliverySettings />
-          </div>
-        </div>
       </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 

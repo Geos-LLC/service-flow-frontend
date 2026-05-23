@@ -3,24 +3,25 @@ import App from "./App"
 import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from "react-router-dom"
 import { AuthProvider } from "./context/AuthContext"
 import { TimeFormatProvider } from "./context/TimeFormatContext"
+import { LocationProvider } from "./context/LocationContext"
 import ProtectedRoute from "./components/ProtectedRoute"
 import RoleProtectedRoute from "./components/RoleProtectedRoute"
 import SignupForm from "./pages/Signup"
 import SignInForm from "./pages/Signin"
-import ServiceFlowDashboard from "./pages/dashboard-redesigned"
+import ServiceFlowDashboard from "./pages/dashboard-v2"
 import ServiceFlowRequests from "./pages/Request"
-import ServiceFlowSchedule from "./pages/schedule-redesigned"
-import ServiceFlowJobs from "./pages/jobs"
+import ServiceFlowSchedule from "./pages/schedule-v2"
+import ServiceFlowJobs from "./pages/jobs-v2"
 import WorkerAvailability from "./pages/worker-availability"
 import EditSingleDateAvailability from "./pages/edit-single-date-availability"
 import AvailableJobs from "./pages/available-jobs"
-import JobDetails from "./pages/job-details-redesigned"
+import JobDetails from "./pages/job-details-v2"
 import ServiceFlowEstimates from "./pages/serviceflow-estimates"
 import ServiceFlowRecurring from "./pages/serviceflow-recurring"
 import ServiceFlowPayments from "./pages/serviceflow-payments"
 import ServiceFlowInvoices from "./pages/serviceflow-invoices"
-import ServiceFlowCustomers from "./pages/serviceflow-customers"
-import CustomerDetails from "./pages/customer-details"
+import ServiceFlowCustomers from "./pages/customers-v2"
+import CustomerDetails from "./pages/customer-details-v2"
 import InvoiceDetails from "./pages/invoice-details"
 import InvoiceEdit from "./pages/invoice-edit"
 import ServiceFlowTeam from "./pages/serviceflow-team"
@@ -32,7 +33,7 @@ import TerritoryDetails from "./pages/territory-details"
 import Analytics from "./pages/analytics"
 import ServiceFlowOnlineBooking from "./pages/serviceflow-online-booking"
 import ServiceFlowWebsiteEmbed from "./pages/serviceflow-website-embed"
-import ServiceFlowSettings from "./pages/serviceflow-settings"
+import ServiceFlowSettings from "./pages/serviceflow-settings-v2"
 import TeamMemberDetails from "./pages/team-member-details"
 import TeamAvailabilityCalendar from "./pages/team-availability-calendar"
 import UnifiedCalendar from "./pages/unified-calendar"
@@ -68,6 +69,7 @@ import PaymentsSettings from "./pages/settings/payments"
 import PayoutSettings from "./pages/settings/payout-settings"
 import Invoicing from "./pages/settings/invoicing"
 import ZenbookerSettings from "./pages/settings/zenbooker"
+import IdentityConflictsPage from "./pages/settings/identity-conflicts"
 import ServiceAreas from "./pages/settings/service-areas"
 import BookingQuoteRequests from "./pages/settings/booking-quote-requests"
 import FieldApp from "./pages/settings/field-app"
@@ -75,6 +77,7 @@ import CreateJobPage from "./pages/createjob"
 import ServiceFlowEstimatePage from "./pages/bookableestimate"
 import BrandingSettings from "./pages/settings/branding"
 import AccountDetails from "./pages/settings/account-details"
+import BusinessProfile from "./pages/settings/business-profile"
 import BillingSettings from "./pages/settings/billing"
 import TwilioSettings from "./pages/settings/twilio"
 import StripeConnectSettings from "./pages/settings/stripe-connect"
@@ -109,7 +112,7 @@ import DropdownMultiselectDemo from "./pages/dropdown-multiselect-demo"
 import ImportDataPage from "./pages/import-data"
 import ImportJobsPage from "./pages/import-jobs"
 import LeadsPipeline from "./pages/leads-pipeline"
-import Communications from "./pages/communications"
+import Communications from "./pages/communications-v2"
 import ConnectedInboxes from "./pages/settings/ConnectedInboxes"
 import LandingPageLegacy from "./pages/LandingPage"
 import Notifications from "./pages/notifications"
@@ -140,6 +143,7 @@ const root = ReactDOM.createRoot(document.getElementById("root"))
 root.render(
   <BrowserRouter style={{fontFamily: 'Montserrat', fontWeight: 500}}>
     <AuthProvider>
+      <LocationProvider>
       <TimeFormatProvider>
       <CategoryProvider>
         <TeamMemberAuthProvider>
@@ -193,6 +197,7 @@ root.render(
       {/* Settings Routes */}
       <Route path="/settings" element={<ServiceFlowSettings />} />
       <Route path="/settings/account" element={<AccountDetails />} />
+      <Route path="/settings/business-profile" element={<BusinessProfile />} />
       <Route path="/settings/billing" element={<BillingSettings />} />
       <Route path="/settings/twilio" element={<TwilioSettings />} />
       <Route path="/settings/sms-settings" element={<TwilioSettings />} />
@@ -238,6 +243,7 @@ root.render(
       <Route path="/settings/payout-settings" element={<PayoutSettings />} />
       <Route path="/settings/invoicing" element={<Invoicing />} />
       <Route path="/settings/zenbooker" element={<ZenbookerSettings />} />
+      <Route path="/settings/identity-conflicts" element={<IdentityConflictsPage />} />
       <Route path="/settings/service-areas" element={<ServiceAreas />} />
       <Route path="/settings/booking-quote-requests" element={<BookingQuoteRequests />} />
       <Route path="/settings/field-app" element={<FieldApp />} />
@@ -279,6 +285,7 @@ root.render(
         </TeamMemberAuthProvider>
       </CategoryProvider>
       </TimeFormatProvider>
+      </LocationProvider>
     </AuthProvider>
   </BrowserRouter>,
 )

@@ -1,14 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft, HelpCircle, Calendar } from "lucide-react"
+import { useParams } from "react-router-dom"
+import { HelpCircle, Calendar } from "lucide-react"
+import SettingsRailLayout from "../../components/settings-rail-layout"
 
 const LocationAvailability = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [viewMode, setViewMode] = useState("list")
-  const navigate = useNavigate()
   const { location } = useParams()
 
   const weeklyHours = [
@@ -22,28 +20,12 @@ const LocationAvailability = () => {
   ]
 
   return (
-    <div className="min-h-screen bg-[var(--sf-bg-page)] flex">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings/availability")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Availability</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">{location}</h1>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-6xl mx-auto p-6">
+    <SettingsRailLayout
+      title={location}
+      section="Operations"
+      subtitle="Hours of operation for this location"
+    >
+      <div>
             {/* Hours of Operation */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
@@ -120,9 +102,7 @@ const LocationAvailability = () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+        </SettingsRailLayout>
   )
 }
 

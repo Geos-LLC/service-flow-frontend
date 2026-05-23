@@ -1,14 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
 import CreateSkillTagModal from "../../components/create-skill-tag-modal"
-import { ChevronLeft } from "lucide-react"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const JobAssignment = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const navigate = useNavigate()
   const [isSkillTagModalOpen, setIsSkillTagModalOpen] = useState(false)
   const [skillTags, setSkillTags] = useState([])
   const [settings, setSettings] = useState({
@@ -25,28 +21,11 @@ const JobAssignment = () => {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Job Assignment</h1>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-4xl mx-auto p-6 space-y-8">
+    <SettingsPageLayout
+      title="Job assignment"
+      subtitle="Configure assignment and dispatch options for your service providers"
+    >
+      <div className="space-y-6">
             {/* Skill Tags */}
             <div>
               <h2 className="text-xl font-semibold text-[var(--sf-text-primary)] mb-4">Skill Tags</h2>
@@ -279,8 +258,6 @@ const JobAssignment = () => {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
       </div>
 
       <CreateSkillTagModal
@@ -288,7 +265,7 @@ const JobAssignment = () => {
         onClose={() => setIsSkillTagModalOpen(false)}
         onSave={handleSaveSkillTag}
       />
-    </div>
+    </SettingsPageLayout>
   )
 }
 

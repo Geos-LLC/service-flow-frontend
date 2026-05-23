@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import Sidebar from "../../components/sidebar"
-import { ChevronLeft, Check, X } from "lucide-react"
+import { Check, X } from "lucide-react"
 import { brandingAPI } from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
+import SettingsPageLayout from "../../components/settings-page-layout"
 
 const BrandingSettings = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(false) // Start with false, not true
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -131,40 +130,22 @@ const BrandingSettings = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-4 text-[var(--sf-text-secondary)]">Loading branding settings...</p>
-            </div>
+      <SettingsPageLayout title="Branding">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-[var(--sf-text-secondary)]">Loading branding settings…</p>
           </div>
         </div>
-      </div>
+      </SettingsPageLayout>
     )
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64 xl:ml-72">
-
-        {/* Header */}
-        <div className="bg-white border-b border-[var(--sf-border-light)] px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigate("/settings")}
-              className="flex items-center space-x-2 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
-            >
-              <ChevronLeft className="w-5 h-5" />
-              <span className="text-sm">Settings</span>
-            </button>
-            <h1 className="text-2xl font-semibold text-[var(--sf-text-primary)]">Branding</h1>
-          </div>
-        </div>
-
+    <SettingsPageLayout
+      title="Branding"
+      subtitle="Customize your branding for emails, invoices, and the rescheduling page"
+    >
         {/* Message */}
         {message.text && (
           <div className={`px-6 py-3 ${message.type === 'success' ? 'bg-green-50 border-l-4 border-green-400' : 'bg-red-50 border-l-4 border-red-400'}`}>
@@ -181,9 +162,7 @@ const BrandingSettings = () => {
           </div>
         )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-4xl mx-auto p-6">
+      {/* Content */}
             <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-6">
               <p className="text-[var(--sf-text-secondary)] mb-6">
                 Customize your emails and rescheduling page to match your brand.
@@ -291,10 +270,7 @@ const BrandingSettings = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </SettingsPageLayout>
   )
 }
 
