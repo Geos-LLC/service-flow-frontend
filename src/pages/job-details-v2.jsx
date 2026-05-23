@@ -12,6 +12,8 @@ import {
   MessageSquare,
   Phone as PhoneIcon,
   Edit,
+  Pencil,
+  X,
   Check,
   CheckCircle2,
   AlertCircle,
@@ -35,7 +37,7 @@ import {
   CreditCard,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
-import { jobsAPI, teamAPI, customersAPI, invoicesAPI } from "../services/api"
+import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI } from "../services/api"
 import { formatTime as formatTimeShared } from "../utils/formatTime"
 import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
@@ -212,6 +214,11 @@ const JobDetailsV2 = () => {
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const moreMenuRef = useRef(null)
 
+  // Edit job drawer
+  const [editOpen, setEditOpen] = useState(false)
+  const [editServices, setEditServices] = useState([])
+  const [savingEdit, setSavingEdit] = useState(false)
+
   // Close more-actions menu on outside click
   useEffect(() => {
     if (!showMoreMenu) return
@@ -322,6 +329,34 @@ const JobDetailsV2 = () => {
     } catch (e) {
       alert(e?.message || "Could not delete the job.")
       setBusy(false)
+    }
+  }
+
+  // Open the edit drawer; lazily fetch services on first open
+  const onOpenEdit = useCallback(async () => {
+    setEditOpen(true)
+    if (editServices.length === 0 && user?.id) {
+      try {
+        const resp = await servicesAPI.getAll(user.id)
+        const list = Array.isArray(resp) ? resp : resp?.services || []
+        setEditServices(list)
+      } catch {
+        // non-fatal — user can still edit other fields
+      }
+    }
+  }, [editServices.length, user?.id])
+
+  const onSaveEdit = async (patch) => {
+    if (!job) return
+    setSavingEdit(true)
+    try {
+      await jobsAPI.update(job.id, patch)
+      setEditOpen(false)
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not save changes.")
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -475,7 +510,7 @@ const JobDetailsV2 = () => {
               variant="secondary"
               size="md"
               icon={Edit}
-              onClick={() => navigate(`/job/${job.id}?edit=1`)}
+              onClick={onOpenEdit}
             >
               Edit
             </SfButton>
@@ -688,7 +723,30 @@ const JobDetailsV2 = () => {
 
               {/* Job details */}
               <SfCard>
-                <SfCardHeader title="Job details" />
+                <SfCardHeader
+                  title="Job details"
+                  right={
+                    <button
+                      type="button"
+                      onClick={onOpenEdit}
+                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors"
+                      style={{
+                        color: "var(--sf-ink-2)",
+                        background: "transparent",
+                        border: "1px solid var(--sf-border-soft)",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "var(--sf-panel-soft)"
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent"
+                      }}
+                    >
+                      <Pencil size={12} />
+                      Edit
+                    </button>
+                  }
+                />
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                   <DetailItem label="Service" value={serviceName} />
                   <DetailItem label="Date" value={formatDateLong(job.scheduled_date)} />
@@ -1087,8 +1145,301 @@ const JobDetailsV2 = () => {
         </div>
       </div>
       )}
+
+      <EditJobDrawer
+        open={editOpen}
+        job={job}
+        services={editServices}
+        saving={savingEdit}
+        onClose={() => setEditOpen(false)}
+        onSave={onSaveEdit}
+      />
     </div>
   )
+}
+
+// ── Edit job drawer ────────────────────────────────────────
+// Right-side drawer for editing the Job details card fields.
+// Splits scheduled_date into separate date + time inputs and re-joins
+// them server-side via the {scheduledDate, scheduledTime} pair the
+// PUT /api/jobs/:id handler already understands.
+
+const splitJobDateTime = (iso) => {
+  if (!iso) return { date: "", time: "" }
+  const s = String(iso)
+  const d = new Date(s.includes("T") ? s : s.replace(" ", "T"))
+  if (isNaN(d)) return { date: "", time: "" }
+  const pad = (n) => String(n).padStart(2, "0")
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return { date, time }
+}
+
+const RECURRENCE_OPTIONS = [
+  { value: "",           label: "One-time" },
+  { value: "weekly",     label: "Weekly" },
+  { value: "biweekly",   label: "Every 2 weeks" },
+  { value: "monthly",    label: "Monthly" },
+  { value: "quarterly",  label: "Quarterly" },
+]
+
+const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
+  const initial = useMemo(() => {
+    if (!job) return null
+    const { date, time } = splitJobDateTime(job.scheduled_date)
+    return {
+      serviceId: job.service_id || "",
+      serviceName: job.service_name || "",
+      scheduledDate: date,
+      scheduledTime: time,
+      duration: String(parseInt(job.duration || job.estimated_duration || 0, 10) || ""),
+      total: String(parseFloat(job.total || job.total_amount || job.service_price || 0) || ""),
+      bedrooms: job.bedrooms != null ? String(job.bedrooms) : "",
+      bathroom_count: job.bathroom_count != null ? String(job.bathroom_count) : "",
+      recurringFrequency: job.recurring_frequency || "",
+      notes: job.notes || "",
+    }
+  }, [job])
+
+  const [form, setForm] = useState(initial)
+
+  // Reset form whenever the drawer opens or the job changes
+  useEffect(() => {
+    if (open && initial) setForm(initial)
+  }, [open, initial])
+
+  if (!open || !job || !form) return null
+
+  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const onSubmit = (e) => {
+    e?.preventDefault?.()
+    // Build the patch with only fields the user can change. Snake_case
+    // keys (bedrooms, bathroom_count) pass straight through; camelCase
+    // keys (scheduledDate, recurringFrequency, etc.) hit the mapping
+    // table on the backend.
+    const patch = {
+      serviceId: form.serviceId || null,
+      serviceName: form.serviceName || null,
+      scheduledDate: form.scheduledDate || null,
+      scheduledTime: form.scheduledTime || null,
+      duration: form.duration === "" ? null : parseInt(form.duration, 10),
+      total: form.total === "" ? null : parseFloat(form.total),
+      total_amount: form.total === "" ? null : parseFloat(form.total),
+      bedrooms: form.bedrooms === "" ? null : parseInt(form.bedrooms, 10),
+      bathroom_count: form.bathroom_count === "" ? null : parseInt(form.bathroom_count, 10),
+      recurringJob: form.recurringFrequency ? true : false,
+      recurringFrequency: form.recurringFrequency || null,
+      notes: form.notes,
+    }
+    onSave(patch)
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        background: "rgba(15,23,42,.4)",
+        backdropFilter: "blur(4px)",
+        WebkitBackdropFilter: "blur(4px)",
+        fontFamily: "var(--sf-font-ui)",
+      }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={onSubmit}
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(520px, 100vw)",
+          background: "var(--sf-panel)",
+          borderLeft: "1px solid var(--sf-border-soft)",
+          boxShadow: "var(--sf-shadow-l)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+        >
+          <div>
+            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit job</div>
+            <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+              #{job.id} · {job.service_name || "Service"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-[var(--sf-panel-soft)] text-[var(--sf-ink-3)]"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto" style={{ padding: "18px" }}>
+          <div className="grid grid-cols-1 gap-3">
+            <Field label="Service">
+              <select
+                value={form.serviceId || ""}
+                onChange={(e) => {
+                  const id = e.target.value
+                  const svc = services.find((s) => String(s.id) === String(id))
+                  setForm((f) => ({
+                    ...f,
+                    serviceId: id,
+                    serviceName: svc?.name || svc?.service_name || f.serviceName,
+                  }))
+                }}
+                className="w-full"
+                style={inputStyle}
+              >
+                <option value="">— Keep current ({form.serviceName || "service"})</option>
+                {services.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name || s.service_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date">
+                <input
+                  type="date"
+                  value={form.scheduledDate}
+                  onChange={(e) => setField("scheduledDate", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Start time">
+                <input
+                  type="time"
+                  value={form.scheduledTime}
+                  onChange={(e) => setField("scheduledTime", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Duration (minutes)">
+                <input
+                  type="number"
+                  min="0"
+                  step="15"
+                  value={form.duration}
+                  onChange={(e) => setField("duration", e.target.value)}
+                  placeholder="e.g. 120"
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Total ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.total}
+                  onChange={(e) => setField("total", e.target.value)}
+                  placeholder="0.00"
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Bedrooms">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.bedrooms}
+                  onChange={(e) => setField("bedrooms", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Bathrooms">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.bathroom_count}
+                  onChange={(e) => setField("bathroom_count", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            <Field label="Recurrence">
+              <select
+                value={form.recurringFrequency}
+                onChange={(e) => setField("recurringFrequency", e.target.value)}
+                style={inputStyle}
+              >
+                {RECURRENCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Customer note">
+              <textarea
+                rows={3}
+                value={form.notes}
+                onChange={(e) => setField("notes", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", minHeight: 72 }}
+                placeholder="Notes visible on the job…"
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex items-center justify-end gap-2"
+          style={{ padding: "12px 18px", borderTop: "1px solid var(--sf-border-soft)" }}
+        >
+          <SfButton variant="ghost" size="md" onClick={onClose} type="button">
+            Cancel
+          </SfButton>
+          <SfButton variant="primary" size="md" type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </SfButton>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+const Field = ({ label, children }) => (
+  <label className="flex flex-col gap-1.5">
+    <span className="text-[11.5px] font-semibold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: ".04em" }}>
+      {label}
+    </span>
+    {children}
+  </label>
+)
+
+const inputStyle = {
+  width: "100%",
+  padding: "8px 10px",
+  fontSize: 13,
+  fontFamily: "var(--sf-font-ui)",
+  color: "var(--sf-ink)",
+  background: "var(--sf-panel)",
+  border: "1px solid var(--sf-border)",
+  borderRadius: 8,
+  outline: "none",
 }
 
 // ── Invoice tab ────────────────────────────────────────────
