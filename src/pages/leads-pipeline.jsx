@@ -1648,12 +1648,29 @@ const LeadsPipeline = () => {
         <div className="w-full px-4 lg:px-6 py-4">
           {/* Title row */}
           <div className="mb-5">
-            <p className="text-xs text-[var(--sf-text-muted)] mb-1">
-              <span>Leads</span>
-              <span className="mx-1.5">/</span>
-              <span className="text-[var(--sf-text-primary)] font-medium">Pipeline</span>
+            <p className="text-[10.5px] font-bold uppercase text-[var(--sf-text-muted)] mb-1" style={{ letterSpacing: '.06em' }}>
+              <span>Customers</span>
+              <span className="mx-1.5 text-[var(--sf-text-muted)]">›</span>
+              <span className="text-[var(--sf-text-primary)]">Leads</span>
             </p>
-            <h1 className="text-xl font-bold text-[var(--sf-text-primary)]">Lead Stage</h1>
+            <h1 className="text-[22px] font-bold text-[var(--sf-text-primary)]" style={{ letterSpacing: '-0.02em' }}>Leads</h1>
+            <p className="text-[13px] text-[var(--sf-text-secondary)] mt-1">
+              {(() => {
+                const stages = pipeline?.stages || []
+                const wonIds = new Set(stages.filter(s => /win|won/i.test(s.name)).map(s => s.id))
+                const lostIds = new Set(stages.filter(s => /lost/i.test(s.name)).map(s => s.id))
+                const active = leads.filter(l => !wonIds.has(l.stage_id) && !lostIds.has(l.stage_id))
+                const newThisWeek = leads.filter(l => {
+                  const d = new Date(l.created_at)
+                  return !Number.isNaN(d.getTime()) && (Date.now() - d.getTime()) <= 7 * 24 * 60 * 60 * 1000
+                }).length
+                const totalVal = active.reduce((s, l) => s + (parseFloat(l.value) || parseFloat(l.estimated_value) || 0), 0)
+                if (leadsTab === 'sources') return 'Channel attribution · conversion + value contribution per source'
+                if (leadsTab === 'owners')  return 'Sales rep leaderboard · win rate, response time, pipeline value'
+                if (leadsTab === 'list')    return `${leads.length} leads · sort, filter, bulk actions`
+                return `${active.length} leads in pipeline · $${Math.round(totalVal).toLocaleString()} potential · ${newThisWeek} new this week`
+              })()}
+            </p>
           </div>
           {/* Search + Buttons row — all on one line */}
           <div className="flex items-center gap-3">
@@ -1856,6 +1873,54 @@ const LeadsPipeline = () => {
           </button>
         ))}
       </div>
+
+      {/* Pipeline KPI strip — design pack §1 toolbar */}
+      {leadsTab === 'pipeline' && (() => {
+        const stages = pipeline?.stages || []
+        const wonIds = new Set(stages.filter(s => /win|won/i.test(s.name)).map(s => s.id))
+        const lostIds = new Set(stages.filter(s => /lost/i.test(s.name)).map(s => s.id))
+        const isWon = (l) => wonIds.has(l.stage_id)
+        const isLost = (l) => lostIds.has(l.stage_id)
+        const isClosed = (l) => isWon(l) || isLost(l)
+        const active = leads.filter(l => !isClosed(l))
+        const closedThisMonth = leads.filter(l => {
+          if (!isClosed(l)) return false
+          const d = new Date(l.updated_at || l.created_at)
+          if (Number.isNaN(d.getTime())) return false
+          const now = new Date()
+          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+        })
+        const wonThisMonth = closedThisMonth.filter(isWon)
+        const winRate = closedThisMonth.length ? Math.round((wonThisMonth.length / closedThisMonth.length) * 100) : 0
+        const activeValue = active.reduce((s, l) => s + (parseFloat(l.value) || parseFloat(l.estimated_value) || 0), 0)
+        const wonValue = wonThisMonth.reduce((s, l) => s + (parseFloat(l.value) || parseFloat(l.estimated_value) || 0), 0)
+        const dealValues = active.map(l => parseFloat(l.value) || parseFloat(l.estimated_value) || 0).filter(v => v > 0)
+        const avgDeal = dealValues.length ? dealValues.reduce((a, b) => a + b, 0) / dealValues.length : 0
+        const newThisWeek = leads.filter(l => {
+          const d = new Date(l.created_at)
+          if (Number.isNaN(d.getTime())) return false
+          return (Date.now() - d.getTime()) <= 7 * 24 * 60 * 60 * 1000
+        }).length
+        const fmt = (v) => `$${Math.round(v).toLocaleString()}`
+        const fmtShort = (v) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`
+        // Avg time to close = avg days for won leads this month
+        const closedAges = wonThisMonth.map(l => {
+          const c = new Date(l.created_at)
+          const u = new Date(l.updated_at || l.created_at)
+          return Math.max(0, (u - c) / (24 * 60 * 60 * 1000))
+        }).filter(d => d > 0)
+        const avgClose = closedAges.length ? closedAges.reduce((a, b) => a + b, 0) / closedAges.length : 0
+
+        return (
+          <div className="hidden md:grid gap-3 px-4 lg:px-6 pt-4 pb-2 flex-shrink-0" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+            <KpiTile label="In pipeline"     value={fmtShort(activeValue)}      sub={`${active.length} active`}                         accent="#2563EB" />
+            <KpiTile label="Won this month"  value={fmtShort(wonValue)}         sub={`${wonThisMonth.length} closed-won`}               accent="#16A34A" />
+            <KpiTile label="Win rate"        value={`${winRate}%`}              sub={`${wonThisMonth.length}/${closedThisMonth.length} of closed`} accent="#7C3AED" />
+            <KpiTile label="Avg deal size"   value={fmtShort(avgDeal)}          sub={`${dealValues.length} valued leads`}               accent="#D97706" />
+            <KpiTile label="Avg time to close" value={avgClose > 0 ? `${avgClose.toFixed(1)}d` : '—'} sub={`${newThisWeek} new this week`} accent="#0D9488" />
+          </div>
+        )
+      })()}
 
       {/* Pipeline Board - Desktop & Tablet: horizontal layout (native scroll + drag-to-pan) */}
       {leadsTab === 'pipeline' && (
