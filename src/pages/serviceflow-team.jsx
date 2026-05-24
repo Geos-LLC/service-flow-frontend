@@ -13,6 +13,48 @@ import { handleTeamDeletionError, createErrorNotification, createSuccessNotifica
 import { getImageUrl } from "../utils/imageUtils"
 import MobileHeader from "../components/mobile-header"
 
+// Placeholder card for the design-pack Team tabs (Teams, Schedule,
+// Payroll, Performance). The design pack ships a full implementation
+// for each; this stub explains what's coming and offers a sensible
+// shortcut to existing functionality.
+const TeamDesignPlaceholder = ({ title, body, primary, secondary }) => (
+  <div className="px-4 sm:px-6 py-10 sm:py-16 text-center">
+    <div
+      className="mx-auto mb-4 inline-flex items-center justify-center rounded-2xl"
+      style={{
+        width: 64,
+        height: 64,
+        background: 'rgba(37,99,235,0.10)',
+        color: '#2563EB',
+      }}
+    >
+      <Users className="w-7 h-7" />
+    </div>
+    <h3 className="text-base sm:text-lg font-semibold text-[var(--sf-text-primary)] mb-2">{title}</h3>
+    <p className="text-sm text-[var(--sf-text-secondary)] mx-auto mb-5" style={{ maxWidth: 480, lineHeight: 1.55 }}>
+      {body}
+    </p>
+    <div className="flex items-center justify-center gap-2 flex-wrap">
+      {primary && (
+        <button
+          onClick={primary.onClick}
+          className="sf-btn-primary inline-flex items-center px-4 py-2 text-sm font-medium"
+        >
+          {primary.label}
+        </button>
+      )}
+      {secondary && (
+        <button
+          onClick={secondary.onClick}
+          className="inline-flex items-center px-4 py-2 text-sm font-medium border border-[var(--sf-border-light)] text-[var(--sf-text-secondary)] rounded-lg bg-white hover:bg-[var(--sf-bg-hover)]"
+        >
+          {secondary.label}
+        </button>
+      )}
+    </div>
+  </div>
+)
+
 const ServiceFlowTeam = () => {
   const { user, loading: authLoading } = useAuth()
   console.log('Current user:', user)
@@ -543,6 +585,8 @@ const ServiceFlowTeam = () => {
       if (activeTab === "active") return member.status === 'active';
       if (activeTab === "invited") return member.status === 'invited' || member.status === 'pending';
       if (activeTab === "deactivated") return member.status === 'inactive' || member.status === 'on_leave';
+      // Design-pack "Members" tab — shows every member regardless of status
+      if (activeTab === "members") return true;
       return true;
     });
     
@@ -624,7 +668,7 @@ const ServiceFlowTeam = () => {
                       <nav className="flex min-w-max sm:min-w-0 ">
                         <button
                           onClick={() => setActiveTab("active")}
-                          className={`px-4 sm:px-6 py-3 sm:py-4 w-1/3 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
                             activeTab === "active"
                               ? "border-blue-600 text-[var(--sf-blue-500)]"
                               : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
@@ -634,7 +678,7 @@ const ServiceFlowTeam = () => {
                         </button>
                         <button
                           onClick={() => setActiveTab("invited")}
-                          className={`px-4 sm:px-6 py-3 sm:py-4 w-1/3 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
                             activeTab === "invited"
                               ? "border-blue-600 text-[var(--sf-blue-500)]"
                               : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
@@ -644,7 +688,7 @@ const ServiceFlowTeam = () => {
                         </button>
                         <button
                           onClick={() => setActiveTab("deactivated")}
-                          className={`px-4 sm:px-6 py-3 sm:py-4 w-1/3 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
                             activeTab === "deactivated"
                               ? "border-blue-600 text-[var(--sf-blue-500)]"
                               : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
@@ -652,10 +696,92 @@ const ServiceFlowTeam = () => {
                         >
                           Deactivated ({teamMembers.filter(m => m.status === 'inactive' || m.status === 'on_leave').length})
                         </button>
+                        {/* Design-pack tabs — TeamDesign.zip §screens/team.jsx */}
+                        <button
+                          onClick={() => setActiveTab("teams")}
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                            activeTab === "teams"
+                              ? "border-blue-600 text-[var(--sf-blue-500)]"
+                              : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
+                          }`}
+                        >
+                          Teams
+                        </button>
+                        <button
+                          onClick={() => setActiveTab("members")}
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                            activeTab === "members"
+                              ? "border-blue-600 text-[var(--sf-blue-500)]"
+                              : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
+                          }`}
+                        >
+                          Members ({teamMembers.length})
+                        </button>
+                        <button
+                          onClick={() => setActiveTab("schedule")}
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                            activeTab === "schedule"
+                              ? "border-blue-600 text-[var(--sf-blue-500)]"
+                              : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
+                          }`}
+                        >
+                          Schedule
+                        </button>
+                        <button
+                          onClick={() => setActiveTab("payroll")}
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                            activeTab === "payroll"
+                              ? "border-blue-600 text-[var(--sf-blue-500)]"
+                              : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
+                          }`}
+                        >
+                          Payroll
+                        </button>
+                        <button
+                          onClick={() => setActiveTab("performance")}
+                          className={`px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-[3px] transition-colors whitespace-nowrap ${
+                            activeTab === "performance"
+                              ? "border-blue-600 text-[var(--sf-blue-500)]"
+                              : "border-transparent text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] hover:border-[var(--sf-border-light)]"
+                          }`}
+                        >
+                          Performance
+                        </button>
                       </nav>
                     </div>
 
+                    {/* Design-pack placeholder tabs */}
+                    {activeTab === "teams" && (
+                      <TeamDesignPlaceholder
+                        title="Teams — coming soon"
+                        body="Group your workers into named teams (Team A, Team B) and assign them to territories. The design pack includes the full layout — implementation is on the next wave."
+                        primary={{ label: "Add Team Member", onClick: handleAddMember }}
+                      />
+                    )}
+                    {activeTab === "schedule" && (
+                      <TeamDesignPlaceholder
+                        title="Team schedule"
+                        body="A team-centric week view lives at /schedule with the Availability tab. Open it now or use the shortcut below."
+                        primary={{ label: "Open Schedule", onClick: () => navigate('/schedule') }}
+                        secondary={{ label: "Open Availability", onClick: () => navigate('/team-availability') }}
+                      />
+                    )}
+                    {activeTab === "payroll" && (
+                      <TeamDesignPlaceholder
+                        title="Team payroll"
+                        body="The full payroll surface — biweekly period banner, KPIs, per-cleaner breakdown, payouts — lives on the Payroll page."
+                        primary={{ label: "Open Payroll", onClick: () => navigate('/payroll') }}
+                      />
+                    )}
+                    {activeTab === "performance" && (
+                      <TeamDesignPlaceholder
+                        title="Performance — coming soon"
+                        body="Per-member trend sparklines, on-time / repeat / CSAT metrics, and territory performance will live here. Until then, click any member to see their detail view."
+                      />
+                    )}
+
                     {/* Filters */}
+                    {['active','invited','deactivated','members'].includes(activeTab) && (<>
                     <div className="p-4 sm:p-6 border-b border-[var(--sf-border-light)]">
                       <div className="flex flex-col gap-3">
                         <div className="w-full">
@@ -1023,6 +1149,7 @@ const ServiceFlowTeam = () => {
                         </div>
                       </>
                     )}
+                    </>)}
                   </div>
                 </>
               )}
