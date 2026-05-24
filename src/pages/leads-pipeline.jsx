@@ -827,12 +827,12 @@ const LeadsPipeline = () => {
     window.addEventListener('mouseup', onUp);
   };
 
-  // Click on a card: first click selects (enabling drag), second click opens details
+  // Click on a card: first click selects (enabling drag), second click opens
+  // the full-screen detail page at /lead/:id
   const handleCardClick = (lead) => {
     if (selectedCardId === lead.id) {
-      setSelectedLead(lead);
-      setShowLeadDetailsModal(true);
       setSelectedCardId(null);
+      navigate(`/lead/${lead.id}`);
     } else {
       setSelectedCardId(lead.id);
     }
@@ -2241,10 +2241,7 @@ const LeadsPipeline = () => {
                       key={lead.id}
                       draggable
                       onDragStart={() => handleDragStart(lead, stage)}
-                      onClick={() => {
-                        setSelectedLead(lead);
-                        setShowLeadDetailsModal(true);
-                      }}
+                      onClick={() => navigate(`/lead/${lead.id}`)}
                       className="bg-[var(--sf-bg-page)] rounded-xl border border-[var(--sf-border-light)] p-3.5 cursor-pointer mt-2.5 first:mt-2.5"
                     >
                       <div className="flex items-start justify-between mb-2">
