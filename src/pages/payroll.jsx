@@ -264,6 +264,36 @@ const QuickTimeFilter = ({ activeRange, onSelect, startDate, endDate, onStartCha
   </div>
 )
 
+// Empty-state card for placeholder tabs (Drafts / Time tracking /
+// Tax forms). Wraps an icon tile + headline + body + primary action
+// in an SfCard with consistent height.
+const EmptyTab = ({ icon: Icon, title, body, cta, onCta }) => (
+  <SfCard className="text-center" style={{ padding: '48px 32px' }}>
+    <div
+      className="mx-auto mb-4 inline-flex items-center justify-center rounded-2xl"
+      style={{
+        width: 64,
+        height: 64,
+        background: 'var(--sf-blue-soft)',
+        color: 'var(--sf-blue-dark)',
+      }}
+    >
+      {Icon && <Icon size={26} strokeWidth={1.9} />}
+    </div>
+    <div className="text-[16px] font-bold text-[var(--sf-ink)] mb-2" style={{ letterSpacing: '-0.01em' }}>
+      {title}
+    </div>
+    <div className="text-[13px] text-[var(--sf-ink-2)] mx-auto mb-5" style={{ maxWidth: 520, lineHeight: 1.55 }}>
+      {body}
+    </div>
+    {cta && onCta && (
+      <SfButton variant="primary" size="md" onClick={onCta}>
+        {cta}
+      </SfButton>
+    )}
+  </SfCard>
+)
+
 // Payroll period banner — gradient hero (design pack §screens/payroll).
 // Renders the date range, total to be paid, approval-status counts,
 // and a 5-step progress bar. Approval status is derived from existing
@@ -1047,11 +1077,14 @@ const Payroll = () => {
 
   // ── Tabs ──
   const tabs = [
-    { id: 'payroll', label: 'Payroll', icon: DollarSign },
-    { id: 'balances', label: 'Balances', icon: Users },
-    { id: 'payouts', label: 'Payouts', icon: Banknote },
-    { id: 'paystubs', label: 'Paystubs', icon: FileText },
-    { id: 'ledger', label: 'Ledger', icon: BookOpen }
+    { id: 'payroll',   label: 'Payroll',       icon: DollarSign },
+    { id: 'drafts',    label: 'Drafts',        icon: FileText },
+    { id: 'balances',  label: 'Balances',      icon: Users },
+    { id: 'payouts',   label: 'Payouts',       icon: Banknote },
+    { id: 'paystubs',  label: 'Paystubs',      icon: FileText },
+    { id: 'ledger',    label: 'Ledger',        icon: BookOpen },
+    { id: 'time',      label: 'Time tracking', icon: Clock },
+    { id: 'tax',       label: 'Tax forms',     icon: FileText },
   ]
 
   if (loading) {
@@ -2275,6 +2308,36 @@ const Payroll = () => {
               payoutBatches={batches || []}
               periodStart={startDate}
               periodEnd={endDate}
+            />
+          )}
+
+          {activeTab === 'drafts' && (
+            <EmptyTab
+              icon={FileText}
+              title="No draft payroll runs"
+              body="Saved draft payroll runs will appear here. Drafts let you stage adjustments — tip review, incentive grants, bonus add-ons — before processing the batch."
+              cta="Start a draft"
+              onCta={() => { setShowPayoutModal(true); setModalError('') }}
+            />
+          )}
+
+          {activeTab === 'time' && (
+            <EmptyTab
+              icon={Clock}
+              title="Time tracking — coming soon"
+              body="Per-shift clock-in / clock-out, break tracking, and overtime totals will live here. For now, hours are derived from completed jobs on the Payroll tab."
+              cta="Open Payroll"
+              onCta={() => setActiveTab('payroll')}
+            />
+          )}
+
+          {activeTab === 'tax' && (
+            <EmptyTab
+              icon={FileText}
+              title="Tax forms — coming soon"
+              body="Year-end 1099-NEC and W-2 generation, plus quarterly summaries, will appear here. Until then, export the Payroll table as CSV for accountant handoff."
+              cta="Export CSV"
+              onCta={handleExport}
             />
           )}
 
