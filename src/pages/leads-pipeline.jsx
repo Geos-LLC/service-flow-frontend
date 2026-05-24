@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Plus, 
-  Settings, 
-  User, 
-  Mail, 
-  Phone, 
-  Building, 
+import {
+  Plus,
+  Settings,
+  User,
+  User as UserIcon,
+  Mail,
+  Phone,
+  Building,
   DollarSign,
   MoreVertical,
   Edit,
@@ -26,8 +27,11 @@ import {
   SlidersHorizontal,
   Filter as FilterIcon,
   LayoutGrid,
+  List,
+  Tag,
+  Flag,
   Calendar as CalendarIcon,
-  Clock
+  Clock,
 } from 'lucide-react';
 import { leadsAPI, teamAPI, servicesAPI, leadSourcesAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -1922,12 +1926,59 @@ const LeadsPipeline = () => {
         )
       })()}
 
+      {/* Filter chip row — design pack §Pipeline toolbar */}
+      {leadsTab === 'pipeline' && (
+        <div className="hidden md:flex items-center gap-2 px-4 lg:px-6 pt-2 pb-3 flex-shrink-0">
+          {[
+            { id: 'source',   icon: Tag,      label: filters.source ? `Source: ${filters.source}` : 'Source',     active: !!filters.source },
+            { id: 'owner',    icon: UserIcon, label: 'Owner',     active: false },
+            { id: 'priority', icon: Flag,     label: 'Priority',  active: false },
+            { id: 'value',    icon: DollarSign, label: filters.priceMin || filters.priceMax ? `Value: $${filters.priceMin || 0}–${filters.priceMax || '∞'}` : 'Value', active: !!(filters.priceMin || filters.priceMax) },
+          ].map(c => (
+            <button
+              key={c.id}
+              onClick={() => setShowFilterDropdown(true)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold border transition-colors ${
+                c.active
+                  ? 'bg-[var(--sf-blue-50)] border-[var(--sf-blue-500)] text-[var(--sf-blue-500)]'
+                  : 'bg-white border-[var(--sf-border-light)] text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]'
+              }`}
+            >
+              <c.icon className="w-[13px] h-[13px]" />
+              <span>{c.label}</span>
+            </button>
+          ))}
+          <div className="flex-1" />
+          {/* Kanban / List view toggle */}
+          <div className="inline-flex items-center gap-0 p-[2px] rounded-md bg-[var(--sf-bg-page)] border border-[var(--sf-border-light)]">
+            <button
+              onClick={() => setLeadsTab('pipeline')}
+              className={`px-2 py-1 rounded text-[var(--sf-text-secondary)] transition-colors ${
+                leadsTab === 'pipeline' ? 'bg-white shadow-sm text-[var(--sf-text-primary)]' : 'hover:text-[var(--sf-text-primary)]'
+              }`}
+              title="Kanban view"
+            >
+              <LayoutGrid className="w-[14px] h-[14px]" />
+            </button>
+            <button
+              onClick={() => setLeadsTab('list')}
+              className={`px-2 py-1 rounded text-[var(--sf-text-secondary)] transition-colors ${
+                leadsTab === 'list' ? 'bg-white shadow-sm text-[var(--sf-text-primary)]' : 'hover:text-[var(--sf-text-primary)]'
+              }`}
+              title="List view"
+            >
+              <List className="w-[14px] h-[14px]" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pipeline Board - Desktop & Tablet: horizontal layout (native scroll + drag-to-pan) */}
       {leadsTab === 'pipeline' && (
       <div
         ref={pipelineScrollRef}
         onMouseDown={handleBoardMouseDown}
-        className="pipeline-scrollbar hidden sm:block w-full max-w-full min-w-0 min-h-0 px-3 lg:px-6 pt-5 pb-3 overflow-x-auto overflow-y-hidden flex-1"
+        className="pipeline-scrollbar hidden sm:block w-full max-w-full min-w-0 min-h-0 px-3 lg:px-6 pt-3 pb-3 overflow-x-auto overflow-y-hidden flex-1"
       >
         <div
           className="flex gap-4 pb-4"
@@ -1958,46 +2009,43 @@ const LeadsPipeline = () => {
                 >
                   <div className="w-0.5 h-12 bg-[var(--sf-border)] rounded-full opacity-0 group-hover/resize:opacity-100 group-hover/resize:bg-[var(--sf-blue-500)] transition-opacity" />
                 </div>
-                {/* Stage Header — colored top border accent */}
+                {/* Stage Header — design pack §PipelineCol layout */}
                 <div
-                  className="rounded-t-xl overflow-hidden"
+                  className="bg-white px-3 py-2.5 border border-[var(--sf-border-light)] rounded-t-[10px] flex items-center"
                   style={{ borderTop: `3px solid ${stage.color}` }}
                 >
-                  <div className="bg-white px-4 pt-3 pb-4 border-b border-x border-[var(--sf-border-light)] rounded-t-xl">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <h3 className="font-semibold text-sm text-[var(--sf-text-primary)] truncate">{stage.name}</h3>
-                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white flex-shrink-0" style={{ backgroundColor: stage.color }}>
-                          {stageLeads.length}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowCreateLeadModal(true); }}
-                          className="w-6 h-6 flex items-center justify-center rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-blue-500)] hover:bg-[var(--sf-bg-hover)] transition-colors"
-                          title="Add lead"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowEditStageModal(true); }}
-                          className="w-6 h-6 flex items-center justify-center rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-hover)] transition-colors"
-                          title="Stage options"
-                        >
-                          <MoreVertical className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-xl font-bold text-[var(--sf-text-primary)] mt-2">
-                      $ {totalValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </p>
-                  </div>
+                  <span className="text-[12.5px] font-bold text-[var(--sf-text-primary)] truncate">{stage.name}</span>
+                  <span className="ml-1.5 text-[10.5px] font-semibold text-[var(--sf-text-muted)] px-1.5 py-[1px] rounded-[9px] bg-[var(--sf-bg-page)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {stageLeads.length}
+                  </span>
+                  <div className="flex-1" />
+                  <span className="text-[11px] font-semibold text-[var(--sf-text-muted)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowCreateLeadModal(true); }}
+                    className="ml-1 p-[3px] rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-blue-500)] hover:bg-[var(--sf-bg-hover)] transition-colors"
+                    title="Add lead"
+                  >
+                    <Plus className="w-[13px] h-[13px]" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowEditStageModal(true); }}
+                    className="p-[3px] rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-hover)] transition-colors"
+                    title="Stage options"
+                  >
+                    <MoreVertical className="w-[13px] h-[13px]" />
+                  </button>
                 </div>
 
-                {/* Leads in Stage */}
-                <div className="flex-1 p-2 space-y-2.5 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
+                {/* Leads in Stage — design pack §LeadCard layout */}
+                <div className="flex-1 px-2.5 pt-2.5 pb-2 space-y-2 overflow-y-auto bg-[var(--sf-bg-page)] border-x border-b border-[var(--sf-border-light)] rounded-b-[10px]" style={{ maxHeight: 'calc(100vh - 290px)' }}>
                   {stageLeads.map((lead) => {
                     const isSelected = selectedCardId === lead.id;
+                    const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.email || 'Lead';
+                    const ownerName = lead.assigned_to_name || (lead.assigned_to_user_id ? `Owner ${lead.assigned_to_user_id}` : 'Unassigned');
+                    const ownerInitials = (ownerName.match(/\b[A-Z]/g) || []).join('').slice(0, 2).toUpperCase() || 'OW';
+                    const isHighPriority = (lead.priority || '').toLowerCase() === 'high';
                     return (
                     <div
                       key={lead.id}
@@ -2008,74 +2056,76 @@ const LeadsPipeline = () => {
                       }}
                       onDragEnd={() => setSelectedCardId(null)}
                       onClick={(e) => { e.stopPropagation(); handleCardClick(lead); }}
-                      className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-all group ${
+                      className={`bg-white rounded-lg border shadow-sm hover:shadow-md transition-all ${
                         isSelected
                           ? 'border-[var(--sf-blue-500)] ring-2 ring-[var(--sf-blue-500)] cursor-grab'
                           : 'border-[var(--sf-border-light)] cursor-pointer'
                       }`}
+                      style={{ borderLeft: `3px solid ${stage.color}` }}
                     >
-                      {/* Card top accent line */}
-                      <div className="h-[2px] rounded-t-xl" style={{ backgroundColor: stage.color, opacity: 0.4 }} />
-
-                      <div className="p-3.5">
-                        {/* Name + drag handle */}
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-sm text-[var(--sf-text-primary)] truncate leading-tight">
-                              {lead.first_name} {lead.last_name}
-                            </h4>
-                            {lead.company && (
-                              <p className="text-xs text-[var(--sf-text-muted)] flex items-center mt-0.5 truncate">
-                                <Building className="w-3 h-3 mr-1 flex-shrink-0 text-[var(--sf-text-muted)]" />
-                                <span className="truncate">{lead.company}</span>
-                              </p>
-                            )}
+                      <div className="p-[10px_11px]">
+                        {/* Row 1: avatar + name/id + more */}
+                        <div className="flex items-start gap-2">
+                          <div
+                            className="flex items-center justify-center rounded-full flex-shrink-0 text-white font-semibold"
+                            style={{ width: 24, height: 24, fontSize: 10, background: stage.color }}
+                          >
+                            {(leadName.match(/\b[A-Za-z]/g) || []).join('').slice(0, 2).toUpperCase()}
                           </div>
-                          <GripVertical className="w-3.5 h-3.5 text-[var(--sf-border)] group-hover:text-[var(--sf-text-muted)] flex-shrink-0 ml-2 transition-colors" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[12.5px] font-semibold text-[var(--sf-text-primary)]" style={{ lineHeight: 1.2 }}>{leadName}</span>
+                              {isHighPriority && (
+                                <span className="rounded-full flex-shrink-0" style={{ width: 6, height: 6, background: 'var(--sf-red)' }} />
+                              )}
+                            </div>
+                            <div className="text-[10.5px] text-[var(--sf-text-muted)] mt-[1px]" style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, SFMono-Regular, monospace)' }}>
+                              L-{String(lead.id || '').slice(-6).padStart(3, '0')}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); }}
+                            className="p-[2px] -mt-[2px] -mr-1 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)]"
+                          >
+                            <MoreVertical className="w-[13px] h-[13px]" />
+                          </button>
                         </div>
 
-                        {/* Value */}
-                        {lead.value && (
-                          <div className="flex items-center mb-2.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-xs font-semibold">
-                              <DollarSign className="w-3 h-3" />
-                              {parseFloat(lead.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
+                        {/* Optional notes (2-line clamp) */}
+                        {(lead.notes || lead.message) && (
+                          <div className="text-[11px] text-[var(--sf-text-secondary)] mt-[7px]" style={{
+                            lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box',
+                            WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                          }}>
+                            {lead.notes || lead.message}
                           </div>
                         )}
 
-                        {/* Divider */}
-                        <div className="border-t border-[var(--sf-border-light)] my-2" />
-
-                        {/* Contact info */}
-                        <div className="space-y-1.5 text-xs text-[var(--sf-text-secondary)]">
-                          {lead.email && (
-                            <div className="flex items-center gap-1.5 truncate">
-                              <Mail className="w-3 h-3 flex-shrink-0 text-[var(--sf-text-muted)]" />
-                              <span className="truncate">{lead.email}</span>
-                            </div>
-                          )}
-                          {lead.phone && (
-                            <div className="flex items-center gap-1.5 truncate">
-                              <Phone className="w-3 h-3 flex-shrink-0 text-[var(--sf-text-muted)]" />
-                              <span className="truncate">{formatPhoneNumber(lead.phone)}</span>
-                            </div>
-                          )}
+                        {/* Row 2: source tag + value */}
+                        <div className="flex items-center gap-1.5 mt-[9px] pt-[8px] border-t border-[var(--sf-border-light)]">
+                          <span
+                            className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-semibold text-[var(--sf-text-secondary)] bg-[var(--sf-bg-page)]"
+                            style={{ letterSpacing: '.02em' }}
+                          >
+                            {lead.source || 'Direct'}
+                          </span>
+                          <div className="flex-1" />
+                          <span className="text-[11.5px] font-bold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {lead.value ? `$${Math.round(parseFloat(lead.value)).toLocaleString()}` : '—'}
+                          </span>
                         </div>
 
-                        {/* Timestamps + Source */}
-                        <div className="mt-2.5 pt-2 border-t border-[var(--sf-border-light)]">
-                          <div className="flex items-center gap-1.5 text-[10px] text-[var(--sf-text-muted)]">
-                            <Clock className="w-3 h-3 flex-shrink-0" />
-                            <span>Created {lead.created_at ? new Date(lead.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>
+                        {/* Row 3: owner mini + age */}
+                        <div className="flex items-center gap-1.5 mt-[7px] text-[10.5px] text-[var(--sf-text-muted)]">
+                          <div
+                            className="flex items-center justify-center rounded-full flex-shrink-0 text-white font-semibold"
+                            style={{ width: 14, height: 14, fontSize: 8, background: 'var(--sf-ink-2)' }}
+                          >
+                            {ownerInitials}
                           </div>
-                          {lead.source && (
-                            <div className="mt-1.5">
-                              <span className="inline-flex items-center text-[10px] font-medium bg-[var(--sf-bg-page)] text-[var(--sf-text-muted)] px-2 py-0.5 rounded-full border border-[var(--sf-border-light)]">
-                                {lead.source}
-                              </span>
-                            </div>
-                          )}
+                          <span className="flex-1 truncate">{ownerName}</span>
+                          <Clock className="w-[10px] h-[10px] flex-shrink-0" />
+                          <span style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, SFMono-Regular, monospace)' }}>{ageLabel(lead)}</span>
                         </div>
                       </div>
                     </div>
@@ -2083,14 +2133,8 @@ const LeadsPipeline = () => {
                   })}
 
                   {stageLeads.length === 0 && (
-                    <div className="text-center py-10 text-[var(--sf-text-muted)]">
-                      <button
-                        onClick={() => setShowCreateLeadModal(true)}
-                        className="w-12 h-12 rounded-xl bg-white border-2 border-dashed border-[var(--sf-border)] flex items-center justify-center mx-auto mb-3 hover:border-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] transition-colors"
-                      >
-                        <Plus className="w-5 h-5" strokeWidth={2} />
-                      </button>
-                      <p className="text-xs">No leads in this stage</p>
+                    <div className="text-center py-6 text-[11.5px] text-[var(--sf-text-muted)] italic">
+                      Drop leads here
                     </div>
                   )}
                 </div>
