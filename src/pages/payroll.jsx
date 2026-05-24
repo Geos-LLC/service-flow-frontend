@@ -783,7 +783,7 @@ const Payroll = () => {
   }, [activeTab, fetchEntries])
 
   useEffect(() => {
-    if (activeTab === 'payouts' || activeTab === 'paystubs') fetchBatches()
+    if (activeTab === 'payouts' || activeTab === 'history' || activeTab === 'paystubs') fetchBatches()
   }, [activeTab, fetchBatches])
 
   // ── Handlers ──
@@ -802,7 +802,7 @@ const Payroll = () => {
       setAdjTeamMember(''); setAdjAmount(''); setAdjNote(''); setAdjJobId('')
       fetchBalances()
       if (activeTab === 'ledger') fetchEntries()
-      if (activeTab === 'payouts') fetchBatches()
+      if (activeTab === 'payouts' || activeTab === 'history') fetchBatches()
       setTimeout(() => alert(`Adjustment created: ${amount >= 0 ? '+' : ''}$${amount.toFixed(2)} for ${name}`), 200)
     } catch (err) {
       setModalError(err.response?.data?.error || 'Failed to create adjustment')
@@ -1079,6 +1079,7 @@ const Payroll = () => {
   const tabs = [
     { id: 'payroll',   label: 'Payroll',       icon: DollarSign },
     { id: 'drafts',    label: 'Drafts',        icon: FileText },
+    { id: 'history',   label: 'History',       icon: BookOpen, count: (batches || []).length || undefined },
     { id: 'balances',  label: 'Balances',      icon: Users },
     { id: 'payouts',   label: 'Payouts',       icon: Banknote },
     { id: 'paystubs',  label: 'Paystubs',      icon: FileText },
@@ -1142,7 +1143,7 @@ const Payroll = () => {
                 Export CSV
               </SfButton>
             )}
-            {(activeTab === 'balances' || activeTab === 'ledger' || activeTab === 'payouts') && (
+            {(activeTab === 'balances' || activeTab === 'ledger' || activeTab === 'payouts' || activeTab === 'history') && (
               <>
                 <SfButton
                   variant="secondary"
@@ -1183,6 +1184,7 @@ const Payroll = () => {
               <SfTab
                 key={tab.id}
                 active={activeTab === tab.id}
+                count={tab.count}
                 onClick={() => setActiveTab(tab.id)}
               >
                 <span className="inline-flex items-center gap-1.5">
@@ -2045,8 +2047,9 @@ const Payroll = () => {
             </div>
           )}
 
-          {/* ═══════════════ PAYOUTS TAB ═══════════════ */}
-          {activeTab === 'payouts' && (() => {
+          {/* ═══════════════ PAYOUTS / HISTORY TAB ═══════════════ */}
+          {/* History is the design-pack alias — same payout batches view */}
+          {(activeTab === 'payouts' || activeTab === 'history') && (() => {
             // Build per-member payout status from batches + team members
             const periodBatches = batches.filter(batch => {
               const batchStart = batch.period_start
