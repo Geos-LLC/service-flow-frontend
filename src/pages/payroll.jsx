@@ -764,7 +764,7 @@ const Payroll = () => {
 
   // ── Auto-refetch when job filter changes (dates handled by loadPayoutSettings and quick range buttons) ──
   useEffect(() => {
-    if (user?.id && activeTab === 'payroll' && payoutFrequency !== 'manual') {
+    if (user?.id && (activeTab === 'payroll' || activeTab === 'current_period') && payoutFrequency !== 'manual') {
       fetchPayrollData()
     }
   }, [payrollJobFilter])
@@ -1077,15 +1077,16 @@ const Payroll = () => {
 
   // ── Tabs ──
   const tabs = [
-    { id: 'payroll',   label: 'Payroll',       icon: DollarSign },
-    { id: 'drafts',    label: 'Drafts',        icon: FileText },
-    { id: 'history',   label: 'History',       icon: BookOpen, count: (batches || []).length || undefined },
-    { id: 'balances',  label: 'Balances',      icon: Users },
-    { id: 'payouts',   label: 'Payouts',       icon: Banknote },
-    { id: 'paystubs',  label: 'Paystubs',      icon: FileText },
-    { id: 'ledger',    label: 'Ledger',        icon: BookOpen },
-    { id: 'time',      label: 'Time tracking', icon: Clock },
-    { id: 'tax',       label: 'Tax forms',     icon: FileText },
+    { id: 'payroll',         label: 'Payroll',        icon: DollarSign },
+    { id: 'current_period',  label: 'Current period', icon: Calendar },
+    { id: 'drafts',          label: 'Drafts',         icon: FileText },
+    { id: 'history',         label: 'History',        icon: BookOpen, count: (batches || []).length || undefined },
+    { id: 'balances',        label: 'Balances',       icon: Users },
+    { id: 'payouts',         label: 'Payouts',        icon: Banknote },
+    { id: 'paystubs',        label: 'Paystubs',       icon: FileText },
+    { id: 'ledger',          label: 'Ledger',         icon: BookOpen },
+    { id: 'time',            label: 'Time tracking',  icon: Clock },
+    { id: 'tax',             label: 'Tax forms',      icon: FileText },
   ]
 
   if (loading) {
@@ -1132,7 +1133,7 @@ const Payroll = () => {
         subtitle="Calculate salaries, track balances, and manage payouts"
         actions={
           <>
-            {activeTab === 'payroll' && (
+            {(activeTab === 'payroll' || activeTab === 'current_period') && (
               <SfButton
                 variant="secondary"
                 size="md"
@@ -1200,7 +1201,7 @@ const Payroll = () => {
       <div className="px-4 sm:px-6 lg:px-8 py-6">
 
           {/* Error Message */}
-          {error && activeTab === 'payroll' && (
+          {error && (activeTab === 'payroll' || activeTab === 'current_period') && (
             <div className="mb-6 bg-red-50 border-l-4 border-red-400 p-4 rounded">
               <div className="flex items-center">
                 <AlertCircle className="w-5 h-5 text-red-400 mr-2" />
@@ -1210,7 +1211,7 @@ const Payroll = () => {
           )}
 
           {/* ═══════════════ PAYROLL TAB ═══════════════ */}
-          {activeTab === 'payroll' && payrollData && (
+          {(activeTab === 'payroll' || activeTab === 'current_period') && payrollData && (
             <div>
               {/* Period banner — gradient hero with status counts + step progress */}
               <PayrollPeriodBanner
