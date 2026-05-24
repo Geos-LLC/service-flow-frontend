@@ -873,6 +873,499 @@ const PayrollHistoryView = ({
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Time tracking tab — design-pack §3
+//
+// Week selector + 6-KPI strip + two-column grid (weekly timesheet on the
+// left, exceptions inbox on the right). Real attendance data isn't yet
+// stored in our schema, so per-day actual hours come from grouping
+// member.jobs by scheduled_date day-of-week. Scheduled hours default to
+// 8h Mon–Fri until availability data flows through.
+// ─────────────────────────────────────────────────────────────────────────
+
+const startOfWeekMonday = (d) => {
+  const out = new Date(d)
+  const day = (out.getDay() + 6) % 7
+  out.setDate(out.getDate() - day)
+  out.setHours(0, 0, 0, 0)
+  return out
+}
+const addDays = (d, n) => {
+  const out = new Date(d)
+  out.setDate(out.getDate() + n)
+  return out
+}
+const sameYMD = (a, b) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+const TimeCell = ({ sched, actual, isWeekend }) => {
+  if (sched === 0 && actual === 0) {
+    return (
+      <div
+        className="flex items-center justify-center text-[10.5px] font-semibold text-[var(--sf-ink-3)]"
+        style={{
+          height: 46,
+          borderRadius: 6,
+          background: isWeekend ? 'var(--sf-panel-alt)' : 'var(--sf-panel)',
+          border: '1px solid var(--sf-border-soft)',
+        }}
+      >
+        OFF
+      </div>
+    )
+  }
+  if (sched > 0 && actual === 0) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center"
+        style={{
+          height: 46,
+          borderRadius: 6,
+          background: 'var(--sf-red-soft)',
+          border: '1px solid rgba(239,68,68,0.33)',
+        }}
+      >
+        <div className="text-[13px] font-bold text-[var(--sf-red-dark)]" style={{ fontVariantNumeric: 'tabular-nums' }}>—</div>
+        <div className="text-[9px] text-[var(--sf-red-dark)] opacity-70">missed</div>
+      </div>
+    )
+  }
+  if (actual > 8) {
+    const ot = actual - 8
+    return (
+      <div
+        className="flex flex-col items-center justify-center"
+        style={{
+          height: 46,
+          borderRadius: 6,
+          background: 'var(--sf-amber-soft)',
+          border: '1px solid rgba(217,119,6,0.22)',
+        }}
+      >
+        <div className="text-[13px] font-bold text-[var(--sf-amber-dark)]" style={{ fontVariantNumeric: 'tabular-nums' }}>{actual.toFixed(1)}h</div>
+        <div className="text-[9px] text-[var(--sf-amber-dark)] opacity-80" style={{ fontVariantNumeric: 'tabular-nums' }}>+{ot.toFixed(1)} ot</div>
+      </div>
+    )
+  }
+  if (actual >= sched && sched > 0) {
+    const extra = actual - sched
+    return (
+      <div
+        className="flex flex-col items-center justify-center"
+        style={{
+          height: 46,
+          borderRadius: 6,
+          background: 'var(--sf-green-soft)',
+          border: '1px solid rgba(22,163,74,0.22)',
+        }}
+      >
+        <div className="text-[13px] font-bold text-[var(--sf-green-dark)]" style={{ fontVariantNumeric: 'tabular-nums' }}>{actual.toFixed(1)}h</div>
+        <div className="text-[9px] text-[var(--sf-green-dark)] opacity-80">{extra > 0.05 ? `+${extra.toFixed(1)}` : 'on plan'}</div>
+      </div>
+    )
+  }
+  // Under
+  const delta = actual - sched
+  return (
+    <div
+      className="flex flex-col items-center justify-center"
+      style={{
+        height: 46,
+        borderRadius: 6,
+        background: 'var(--sf-blue-soft)',
+        border: '1px solid rgba(37,99,235,0.22)',
+      }}
+    >
+      <div className="text-[13px] font-bold text-[var(--sf-blue-dark)]" style={{ fontVariantNumeric: 'tabular-nums' }}>{actual.toFixed(1)}h</div>
+      <div className="text-[9px] text-[var(--sf-blue-dark)] opacity-80" style={{ fontVariantNumeric: 'tabular-nums' }}>{delta.toFixed(1)}</div>
+    </div>
+  )
+}
+
+const PayrollTimeView = ({
+  payrollData,
+  weekAnchor,
+  setWeekAnchor,
+  showExceptionsOnly,
+  setShowExceptionsOnly,
+}) => {
+  const monday = startOfWeekMonday(weekAnchor)
+  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+  const weekLabel = `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+
+  const sched = [8, 8, 8, 8, 8, 0, 0] // Mon-Fri 8h, weekend off (default until availability flows)
+
+  // Per-cleaner per-day rollup. We derive actual from completed jobs in
+  // member.jobs; if the payroll fetch hasn't loaded yet, all cells are 0.
+  const rows = (payrollData?.teamMembers || [])
+    .filter((m) => !m.isManagerOrOwner) // workers only — design's "cleaners" framing
+    .map((m) => {
+      const dailyActual = [0, 0, 0, 0, 0, 0, 0]
+      ;(m.jobs || []).forEach((j) => {
+        const raw = j.scheduledDate
+        if (!raw) return
+        const jd = new Date(String(raw).includes('T') ? raw : String(raw).replace(' ', 'T'))
+        if (Number.isNaN(jd.getTime())) return
+        for (let i = 0; i < 7; i++) {
+          if (sameYMD(jd, days[i])) {
+            dailyActual[i] += parseFloat(j.hours || 0) || 0
+            break
+          }
+        }
+      })
+      const total = dailyActual.reduce((s, v) => s + v, 0)
+      const planned = sched.reduce((s, v) => s + v, 0)
+      // Exception flags per day
+      const exceptions = []
+      for (let i = 0; i < 7; i++) {
+        if (dailyActual[i] > 8) exceptions.push({ kind: 'Overtime', dayIdx: i, value: dailyActual[i] - 8 })
+        else if (sched[i] > 0 && dailyActual[i] === 0) exceptions.push({ kind: 'Missed punch', dayIdx: i, value: sched[i] })
+      }
+      return { member: m, dailyActual, total, planned, exceptions }
+    })
+
+  const filteredRows = showExceptionsOnly ? rows.filter((r) => r.exceptions.length > 0) : rows
+
+  // KPIs
+  const hoursClocked = rows.reduce((s, r) => s + r.total, 0)
+  const totalScheduled = rows.reduce((s, r) => s + r.planned, 0)
+  const schedMatchPct = totalScheduled > 0 ? Math.min(100, (hoursClocked / totalScheduled) * 100) : 0
+  const totalOT = rows.reduce(
+    (s, r) => s + r.dailyActual.reduce((a, v) => a + (v > 8 ? v - 8 : 0), 0),
+    0,
+  )
+  const totalMissed = rows.reduce(
+    (s, r) => s + r.exceptions.filter((e) => e.kind === 'Missed punch').length,
+    0,
+  )
+  const avgShift = (() => {
+    const allDays = rows.flatMap((r) => r.dailyActual.filter((v) => v > 0))
+    if (allDays.length === 0) return 0
+    return allDays.reduce((s, v) => s + v, 0) / allDays.length
+  })()
+
+  // Daily column totals + grand total
+  const colTotals = [0, 0, 0, 0, 0, 0, 0]
+  rows.forEach((r) => r.dailyActual.forEach((v, i) => { colTotals[i] += v }))
+  const grandTotal = colTotals.reduce((s, v) => s + v, 0)
+
+  // Exceptions inbox flattened — one row per exception
+  const exceptionsList = rows.flatMap((r) =>
+    r.exceptions.map((e) => ({
+      who: `${r.member.teamMember.first_name || ''} ${r.member.teamMember.last_name || ''}`.trim() || r.member.teamMember.email || 'Cleaner',
+      initials: ((r.member.teamMember.first_name || '?')[0] + (r.member.teamMember.last_name || '?')[0]).toUpperCase(),
+      day: days[e.dayIdx].toLocaleDateString('en-US', { weekday: 'short' }),
+      kind: e.kind,
+      detail:
+        e.kind === 'Overtime'
+          ? `Clocked +${e.value.toFixed(1)}h over the 8h daily cap on ${days[e.dayIdx].toLocaleDateString('en-US', { weekday: 'long' })}.`
+          : `${e.value.toFixed(1)}h scheduled but no jobs marked completed.`,
+    })),
+  )
+
+  const exceptionMeta = {
+    Overtime:       { fg: 'var(--sf-amber-dark)', bg: 'var(--sf-amber-soft)', icon: AlertCircle },
+    'Missed punch': { fg: 'var(--sf-red-dark)',   bg: 'var(--sf-red-soft)',   icon: Clock },
+  }
+
+  return (
+    <div>
+      {/* Week selector + filter chips + actions */}
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        <div className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setWeekAnchor(addDays(monday, -7))}
+            className="p-2 rounded-md hover:bg-[var(--sf-panel-soft)] text-[var(--sf-ink-2)]"
+            title="Previous week"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <div
+            className="inline-flex items-center px-3 py-1.5 rounded-[8px]"
+            style={{
+              background: 'var(--sf-panel-soft)',
+              border: '1px solid var(--sf-border-soft)',
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: 'var(--sf-ink)',
+            }}
+          >
+            Week of {weekLabel}
+          </div>
+          <button
+            type="button"
+            onClick={() => setWeekAnchor(addDays(monday, 7))}
+            className="p-2 rounded-md hover:bg-[var(--sf-panel-soft)] text-[var(--sf-ink-2)]"
+            title="Next week"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+        <SfFilterChip active>All teams</SfFilterChip>
+        <SfFilterChip
+          icon={AlertCircle}
+          count={exceptionsList.length}
+          active={showExceptionsOnly}
+          onClick={() => setShowExceptionsOnly(!showExceptionsOnly)}
+        >
+          Exceptions
+        </SfFilterChip>
+        <div className="flex-1" />
+        <SfButton variant="secondary" size="sm" icon={Download} disabled>
+          Export timesheet
+        </SfButton>
+        <SfButton variant="secondary" size="sm" icon={Plus} disabled>
+          Manual entry
+        </SfButton>
+        <SfButton variant="dark" size="sm" icon={Check} disabled>
+          Lock week
+        </SfButton>
+      </div>
+
+      {/* 6-KPI strip */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+        <SfKPI label="Hours clocked"  value={`${hoursClocked.toFixed(1)}h`} sub={`of ${totalScheduled.toFixed(0)}h planned`} accent="var(--sf-blue)" />
+        <SfKPI label="Schedule match" value={`${schedMatchPct.toFixed(0)}%`} sub="actual ÷ planned" accent="var(--sf-green-dark)" />
+        <SfKPI label="Overtime"       value={`${totalOT.toFixed(1)}h`}      sub="above 8h/day cap" accent="var(--sf-amber)" />
+        <SfKPI label="Missed punches" value={totalMissed}                   sub="scheduled but no work" accent="var(--sf-red)" />
+        <SfKPI label="On-time start"  value="—"                             sub="needs attendance" accent="var(--sf-purple)" />
+        <SfKPI label="Avg shift"      value={`${avgShift.toFixed(1)}h`}     sub="completed jobs only" accent="var(--sf-ink)" />
+      </div>
+
+      {/* Two-column grid: timesheet (left) + exceptions inbox (right) */}
+      <div className="grid xl:grid-cols-[1fr_320px] gap-4">
+        {/* Weekly timesheet */}
+        <SfCard padding={false}>
+          <div
+            className="grid items-center"
+            style={{
+              gridTemplateColumns: '200px repeat(7, 1fr) 90px',
+              gap: 8,
+              padding: '10px 14px',
+              background: 'var(--sf-panel-alt)',
+              borderBottom: '1px solid var(--sf-border-soft)',
+              fontSize: 11,
+              fontWeight: 700,
+              color: 'var(--sf-ink-3)',
+              textTransform: 'uppercase',
+              letterSpacing: '.05em',
+            }}
+          >
+            <div>Cleaner</div>
+            {days.map((d, i) => (
+              <div key={i} className="text-center">
+                <div>{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                <div className="text-[11px] font-bold text-[var(--sf-ink)] mt-0.5" style={{ letterSpacing: 0 }}>
+                  {d.getDate()}
+                </div>
+              </div>
+            ))}
+            <div className="text-right pr-2">Total</div>
+          </div>
+
+          {filteredRows.length === 0 ? (
+            <div className="py-12 text-center text-[12.5px] text-[var(--sf-ink-3)]">
+              {payrollData ? 'No cleaners with hours in this week.' : 'Open the Payroll tab first to load timesheet data.'}
+            </div>
+          ) : (
+            filteredRows.map((r) => {
+              const member = r.member
+              const overOT = r.total > 40
+              const isExceptionRow = r.exceptions.length > 0
+              return (
+                <div
+                  key={member.teamMember.id}
+                  className="grid items-center"
+                  style={{
+                    gridTemplateColumns: '200px repeat(7, 1fr) 90px',
+                    gap: 8,
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--sf-border-soft)',
+                    background: isExceptionRow && showExceptionsOnly ? 'rgba(239,68,68,0.03)' : 'transparent',
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div
+                      className="flex-shrink-0 rounded-md inline-flex items-center justify-center"
+                      style={{
+                        width: 32,
+                        height: 32,
+                        background: 'var(--sf-blue-soft)',
+                        color: 'var(--sf-blue-dark)',
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {(member.teamMember.name || '').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold text-[var(--sf-ink)] truncate">{member.teamMember.name}</div>
+                      <div className="text-[10.5px] text-[var(--sf-ink-3)] truncate">
+                        {member.teamMember.role || 'Cleaner'}
+                      </div>
+                    </div>
+                  </div>
+                  {days.map((_, i) => (
+                    <TimeCell
+                      key={i}
+                      sched={sched[i]}
+                      actual={r.dailyActual[i]}
+                      isWeekend={i >= 5}
+                    />
+                  ))}
+                  <div className="text-right pr-2">
+                    <div className="text-[13px] font-bold text-[var(--sf-ink)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {r.total.toFixed(1)}h
+                    </div>
+                    <div
+                      className="text-[10px] mt-0.5"
+                      style={{
+                        color: overOT ? 'var(--sf-amber-dark)' : 'var(--sf-ink-3)',
+                        fontVariantNumeric: 'tabular-nums',
+                        fontWeight: overOT ? 700 : 500,
+                      }}
+                    >
+                      {overOT ? `+${(r.total - 40).toFixed(1)}h OT` : 'of 40h'}
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
+
+          {filteredRows.length > 0 && (
+            <div
+              className="grid items-center"
+              style={{
+                gridTemplateColumns: '200px repeat(7, 1fr) 90px',
+                gap: 8,
+                padding: '12px 14px',
+                background: 'var(--sf-panel-alt)',
+                borderTop: '1px solid var(--sf-border-soft)',
+              }}
+            >
+              <div className="text-[11.5px] font-bold uppercase text-[var(--sf-ink-2)]" style={{ letterSpacing: '.04em' }}>
+                All cleaners · {filteredRows.length}
+              </div>
+              {colTotals.map((v, i) => (
+                <div
+                  key={i}
+                  className="text-center text-[12px] font-bold text-[var(--sf-ink)]"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {v > 0 ? `${v.toFixed(1)}h` : '—'}
+                </div>
+              ))}
+              <div className="text-right pr-2 text-[14px] font-bold text-[var(--sf-ink)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {grandTotal.toFixed(1)}h
+              </div>
+            </div>
+          )}
+        </SfCard>
+
+        {/* Exceptions inbox */}
+        <SfCard>
+          <div className="flex items-center gap-2 mb-3">
+            <div
+              className="inline-flex items-center justify-center rounded-md"
+              style={{
+                width: 26,
+                height: 26,
+                background: 'var(--sf-amber-soft)',
+                color: 'var(--sf-amber-dark)',
+              }}
+            >
+              <AlertCircle size={14} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13.5px] font-bold text-[var(--sf-ink)]" style={{ letterSpacing: '-0.005em' }}>
+                Exceptions
+              </div>
+              <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5">
+                {exceptionsList.length === 0 ? 'No exceptions this week' : `${exceptionsList.length} to review`}
+              </div>
+            </div>
+          </div>
+          {exceptionsList.length === 0 ? (
+            <div className="text-center py-8 text-[12px] text-[var(--sf-ink-3)]">
+              Nothing flagged. Hours match plan across all cleaners.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {exceptionsList.slice(0, 8).map((ex, i) => {
+                const meta = exceptionMeta[ex.kind] || exceptionMeta.Overtime
+                const Icon = meta.icon
+                return (
+                  <div
+                    key={i}
+                    className="rounded-lg p-2.5"
+                    style={{ border: '1px solid var(--sf-border-soft)', background: 'var(--sf-panel)' }}
+                  >
+                    <div className="flex items-start gap-2 mb-1.5">
+                      <div
+                        className="flex-shrink-0 rounded-md inline-flex items-center justify-center"
+                        style={{ width: 30, height: 30, background: meta.bg, color: meta.fg }}
+                      >
+                        <Icon size={14} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[12.5px] font-bold text-[var(--sf-ink)] truncate">{ex.who}</span>
+                          <span
+                            className="inline-flex items-center px-1.5 py-[1px] rounded-md"
+                            style={{
+                              background: meta.bg,
+                              color: meta.fg,
+                              fontSize: 9.5,
+                              fontWeight: 700,
+                              letterSpacing: '.04em',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {ex.kind}
+                          </span>
+                          <span className="text-[10.5px] text-[var(--sf-ink-3)] font-mono">{ex.day}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-[11.5px] text-[var(--sf-ink-2)] leading-snug mb-2">
+                      {ex.detail}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-[11px] font-semibold rounded-md text-[var(--sf-ink-3)] hover:bg-[var(--sf-panel-soft)]"
+                      >
+                        Dismiss
+                      </button>
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-[11px] font-semibold rounded-md text-white"
+                        style={{ background: 'var(--sf-ink)' }}
+                      >
+                        Resolve
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+              {exceptionsList.length > 8 && (
+                <button
+                  type="button"
+                  className="text-[12px] font-semibold text-[var(--sf-blue-dark)] mt-1"
+                >
+                  Show {exceptionsList.length - 8} more
+                </button>
+              )}
+            </div>
+          )}
+        </SfCard>
+      </div>
+    </div>
+  )
+}
+
 const Payroll = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -943,6 +1436,16 @@ const Payroll = () => {
   // History tab: year segmented control + status filter (per design pack)
   const [historyYear, setHistoryYear] = useState(String(new Date().getFullYear()))
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all') // all | paid
+  // Time tracking tab: week anchor + exception filter
+  const [timeWeekAnchor, setTimeWeekAnchor] = useState(() => {
+    // Anchor to current week's Monday in local time
+    const d = new Date()
+    const day = (d.getDay() + 6) % 7 // 0=Mon ... 6=Sun
+    d.setDate(d.getDate() - day)
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+  const [timeShowExceptionsOnly, setTimeShowExceptionsOnly] = useState(false)
 
   // ── Shared state ──
   const [teamMembers, setTeamMembers] = useState([])
@@ -2744,12 +3247,12 @@ const Payroll = () => {
           )}
 
           {activeTab === 'time' && (
-            <EmptyTab
-              icon={Clock}
-              title="Time tracking — coming soon"
-              body="Per-shift clock-in / clock-out, break tracking, and overtime totals will live here. For now, hours are derived from completed jobs on the Payroll tab."
-              cta="Open Payroll"
-              onCta={() => setActiveTab('payroll')}
+            <PayrollTimeView
+              payrollData={payrollData}
+              weekAnchor={timeWeekAnchor}
+              setWeekAnchor={setTimeWeekAnchor}
+              showExceptionsOnly={timeShowExceptionsOnly}
+              setShowExceptionsOnly={setTimeShowExceptionsOnly}
             />
           )}
 
