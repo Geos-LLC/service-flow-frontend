@@ -460,6 +460,7 @@ const Payroll = () => {
   })
   const [endDate, setEndDate] = useState(() => toLocalDateString(new Date()))
   const [selectedMemberId, setSelectedMemberId] = useState('all')
+  const [memberSearch, setMemberSearch] = useState('')
   const [expandedMembers, setExpandedMembers] = useState(new Set())
 
   // ── Balances tab state ──
@@ -1020,9 +1021,12 @@ const Payroll = () => {
   }
 
   // ── Payroll computed values ──
+  const memberSearchLower = memberSearch.trim().toLowerCase()
   const filteredMembers = (payrollData?.teamMembers?.filter(
     m => selectedMemberId === 'all' || String(m.teamMember.id) === String(selectedMemberId)
-  ) || []).filter(m => !payrollOnlyWithEarnings || (m.totalSalary || 0) > 0 || (m.jobCount || 0) > 0)
+  ) || [])
+    .filter(m => !payrollOnlyWithEarnings || (m.totalSalary || 0) > 0 || (m.jobCount || 0) > 0)
+    .filter(m => !memberSearchLower || (m.teamMember?.name || '').toLowerCase().includes(memberSearchLower))
 
   const filteredSummary = payrollData ? (selectedMemberId === 'all' ? payrollData.summary : {
     totalTeamMembers: filteredMembers.length,
@@ -1184,71 +1188,78 @@ const Payroll = () => {
                 payoutFrequency={payoutFrequency}
               />
 
-              {/* Filters */}
-              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-6">
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Filter className="w-4 h-4 text-[var(--sf-ink-3)]" />
-                      <span className="text-sm font-medium text-[var(--sf-ink)]">Filters:</span>
-                    </div>
-                    <button onClick={() => fetchPayrollData()} disabled={refreshing}
-                      className="sf-btn-primary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-                      {refreshing && <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>}
-                      Apply
-                    </button>
-                  </div>
-                  <QuickTimeFilter
-                    payoutFrequency={payoutFrequency} payoutStartDay={payoutStartDay}
-                    activeRange={payrollQuickRange}
-                    onSelect={(id) => { setPayrollQuickRange(id); setPayrollAllTime(id === 'all_time') }}
-                    startDate={startDate}
-                    endDate={endDate}
-                    onStartChange={setStartDate}
-                    onEndChange={setEndDate}
-                    onApply={(s, e) => fetchPayrollData(s, e)}
+              {/* Date range chips — slim row */}
+              <div className="mb-3">
+                <QuickTimeFilter
+                  payoutFrequency={payoutFrequency} payoutStartDay={payoutStartDay}
+                  activeRange={payrollQuickRange}
+                  onSelect={(id) => { setPayrollQuickRange(id); setPayrollAllTime(id === 'all_time') }}
+                  startDate={startDate}
+                  endDate={endDate}
+                  onStartChange={setStartDate}
+                  onEndChange={setEndDate}
+                  onApply={(s, e) => fetchPayrollData(s, e)}
+                />
+              </div>
+
+              {/* Toolbar — search + filter chips + bulk actions */}
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <div className="relative flex-shrink-0" style={{ width: 260 }}>
+                  <input
+                    type="text"
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    placeholder="Search team members"
+                    className="w-full pl-8 pr-3 py-2 text-[12.5px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] rounded-[8px] focus:outline-none focus:ring-1 focus:ring-[var(--sf-blue)] text-[var(--sf-ink)]"
                   />
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center space-x-2">
-                      <label className="text-sm text-[var(--sf-ink-2)]">Member:</label>
-                      <select value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)}
-                        className="border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] bg-white">
-                        <option value="all">All Members</option>
-                        {(payrollData?.teamMembers || []).map(m => (
-                          <option key={m.teamMember.id} value={m.teamMember.id}>{m.teamMember.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      onClick={() => setPayrollOnlyWithEarnings(!payrollOnlyWithEarnings)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
-                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
-                        border: payrollOnlyWithEarnings ? '1.5px solid var(--sf-blue-500)' : '1.5px solid var(--sf-border-light)',
-                        background: payrollOnlyWithEarnings ? 'var(--sf-blue-50)' : 'white',
-                        color: payrollOnlyWithEarnings ? 'var(--sf-blue-500)' : 'var(--sf-text-secondary)',
-                        boxShadow: 'none'
-                      }}
-                    >
-                      {payrollOnlyWithEarnings && <Check size={12} />}
-                      Only with earnings
-                    </button>
-                    <button
-                      onClick={() => setPayrollJobFilter(payrollJobFilter === 'completed' ? 'all' : 'completed')}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
-                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
-                        border: payrollJobFilter === 'all' ? '1.5px solid var(--sf-blue-500)' : '1.5px solid var(--sf-border-light)',
-                        background: payrollJobFilter === 'all' ? 'var(--sf-blue-50)' : 'white',
-                        color: payrollJobFilter === 'all' ? 'var(--sf-blue-500)' : 'var(--sf-text-secondary)',
-                        boxShadow: 'none'
-                      }}
-                    >
-                      {payrollJobFilter === 'all' && <Check size={12} />}
-                      Incl. Scheduled
-                    </button>
-                  </div>
+                  <Users
+                    size={13}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--sf-ink-3)] pointer-events-none"
+                  />
                 </div>
+                <select
+                  value={selectedMemberId}
+                  onChange={(e) => setSelectedMemberId(e.target.value)}
+                  className="px-3 py-2 text-[12.5px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] rounded-[8px] focus:outline-none focus:ring-1 focus:ring-[var(--sf-blue)] text-[var(--sf-ink-2)]"
+                >
+                  <option value="all">All members</option>
+                  {(payrollData?.teamMembers || []).map(m => (
+                    <option key={m.teamMember.id} value={m.teamMember.id}>{m.teamMember.name}</option>
+                  ))}
+                </select>
+                <SfFilterChip
+                  icon={Check}
+                  active={payrollOnlyWithEarnings}
+                  onClick={() => setPayrollOnlyWithEarnings(!payrollOnlyWithEarnings)}
+                >
+                  Only with earnings
+                </SfFilterChip>
+                <SfFilterChip
+                  icon={Calendar}
+                  active={payrollJobFilter === 'all'}
+                  onClick={() => setPayrollJobFilter(payrollJobFilter === 'completed' ? 'all' : 'completed')}
+                >
+                  Incl. scheduled
+                </SfFilterChip>
+                <div className="flex-1" />
+                {filteredMembers.length > 0 && (
+                  <SfButton
+                    variant="ghost"
+                    size="sm"
+                    icon={ClipboardCopy}
+                    onClick={copyPayrollTable}
+                  >
+                    {copiedPayroll ? 'Copied!' : 'Copy table'}
+                  </SfButton>
+                )}
+                <SfButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => fetchPayrollData()}
+                  disabled={refreshing}
+                >
+                  {refreshing ? 'Applying…' : 'Apply'}
+                </SfButton>
               </div>
 
               <div className={`transition-opacity duration-200 ${refreshing ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -1293,15 +1304,6 @@ const Payroll = () => {
                 </div>
 
                 {/* Team Members Table */}
-                {filteredMembers.length > 0 && (
-                  <div className="flex justify-end mb-2">
-                    <button onClick={copyPayrollTable}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--sf-ink-2)] bg-white border border-[var(--sf-border-soft)] rounded-lg hover:bg-[var(--sf-bg-hover)]">
-                      <ClipboardCopy size={13} />
-                      {copiedPayroll ? 'Copied!' : 'Copy Table'}
-                    </button>
-                  </div>
-                )}
                 {filteredMembers.length === 0 ? (
                   <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-12 text-center">
                     <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -1312,8 +1314,8 @@ const Payroll = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-x-auto xl:overflow-x-visible">
-                    <table className="w-full divide-y divide-[var(--sf-border-light)]" style={{ tableLayout: 'fixed' }}>
+                  <div className="bg-[var(--sf-panel)] rounded-[12px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-x-auto xl:overflow-x-visible">
+                    <table className="w-full" style={{ tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                       <colgroup>
                         <col style={{ width: '20%', minWidth: 180 }} />
                         <col style={{ width: '7%',  minWidth: 70 }} />
@@ -1328,20 +1330,20 @@ const Payroll = () => {
                         <col style={{ width: '6%',  minWidth: 60 }} />
                         <col style={{ width: '10%', minWidth: 80 }} />
                       </colgroup>
-                      <thead className="bg-[var(--sf-bg-page)]">
+                      <thead style={{ background: 'var(--sf-panel-alt)', borderBottom: '1px solid var(--sf-border-soft)' }}>
                         <tr>
-                          <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Team Member</th>
-                          <th className="px-2 py-3 text-left text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Pay Method</th>
-                          <th className="px-2 py-3 text-center text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Jobs</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Hours</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Total</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Hourly</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Comm</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Tips</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Incentives</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Reimb.</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Cash</th>
-                          <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Total</th>
+                          <th className="px-3 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Cleaner</th>
+                          <th className="px-2 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Pay method</th>
+                          <th className="px-2 py-2.5 text-center text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Jobs</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Hours</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Revenue</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Hourly</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Comm</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Tips</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Incentives</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Reimb.</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Cash</th>
+                          <th className="px-3 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Total</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-[var(--sf-border-light)]">
@@ -1349,63 +1351,92 @@ const Payroll = () => {
                           const isExpanded = expandedMembers.has(member.teamMember.id)
                           return (
                           <React.Fragment key={member.teamMember.id}>
-                          <tr className="border-b border-[var(--sf-border-soft)] hover:bg-[var(--sf-bg-hover)] cursor-pointer" onClick={() => toggleExpanded(member.teamMember.id)}>
+                          <tr className="hover:bg-[var(--sf-panel-soft)] cursor-pointer" style={{ borderBottom: '1px solid var(--sf-border-soft)' }} onClick={() => toggleExpanded(member.teamMember.id)}>
                             <td className="px-3 py-3">
-                              <div className="flex items-start min-w-0">
-                                <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center mt-0.5">
-                                  <span className="text-[var(--sf-blue-500)] font-semibold text-xs">
-                                    {member.teamMember.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                                  </span>
+                              <div className="flex items-center min-w-0 gap-2.5">
+                                {isExpanded
+                                  ? <ChevronDown size={13} className="text-[var(--sf-ink-3)] flex-shrink-0" />
+                                  : <ChevronRight size={13} className="text-[var(--sf-ink-3)] flex-shrink-0" />}
+                                <div
+                                  className="flex-shrink-0 rounded-md inline-flex items-center justify-center"
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    background: 'var(--sf-blue-soft)',
+                                    color: 'var(--sf-blue-dark)',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {member.teamMember.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                                 </div>
-                                <div className="ml-2 min-w-0 flex-1">
-                                  <div className="text-sm font-medium text-[var(--sf-ink)] flex items-start gap-1">
-                                    {isExpanded ? <ChevronDown className="w-3 h-3 text-[var(--sf-ink-3)] flex-shrink-0 mt-1" /> : <ChevronRight className="w-3 h-3 text-[var(--sf-ink-3)] flex-shrink-0 mt-1" />}
-                                    <span className="break-words leading-tight">{member.teamMember.name}</span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[13px] font-semibold text-[var(--sf-ink)] truncate">{member.teamMember.name}</span>
                                     {member.isManagerOrOwner && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full flex-shrink-0">
+                                      <span
+                                        className="inline-flex items-center px-1.5 py-[1px] rounded-md"
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          background: 'var(--sf-purple-soft)',
+                                          color: 'var(--sf-purple)',
+                                        }}
+                                      >
                                         {member.teamMember.role}
                                       </span>
                                     )}
                                   </div>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleExpanded(member.teamMember.id) }}
-                                    className="text-xs text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)]">
-                                    {isExpanded ? 'Hide' : 'Details'}
-                                  </button>
+                                  <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5">
+                                    {isExpanded ? 'Hide details' : 'Tap for details'}
+                                  </div>
                                 </div>
                               </div>
                             </td>
-                            <td className="px-2 py-3 text-xs text-[var(--sf-ink)] truncate">
+                            <td className="px-2 py-3 text-[12px] text-[var(--sf-ink-2)] truncate" style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {member.teamMember.commissionPercentage ? `${member.teamMember.commissionPercentage}%` : ''}
                               {member.teamMember.hourlyRate && member.teamMember.commissionPercentage ? ' + ' : ''}
                               {member.teamMember.hourlyRate ? `$${member.teamMember.hourlyRate}/hr` : ''}
                               {!member.teamMember.hourlyRate && !member.teamMember.commissionPercentage && <span className="text-[var(--sf-ink-3)] italic">Not set</span>}
                             </td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-center">{member.jobCount}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{member.totalHours.toFixed(1)}</td>
-                            <td className="px-2 py-3 text-sm text-indigo-700 text-right">{formatCurrency(member.totalJobRevenue || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{formatCurrency(member.hourlySalary || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right" title={member.isManagerOrOwner && member.commissionRevenueBase ? `From total revenue: ${formatCurrency(member.commissionRevenueBase)}` : ''}>
+                            <td className="px-2 py-3 text-[13px] font-semibold text-[var(--sf-ink)] text-center" style={{ fontVariantNumeric: 'tabular-nums' }}>{member.jobCount}</td>
+                            <td className="px-2 py-3 text-[13px] font-semibold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{member.totalHours.toFixed(1)}h</td>
+                            <td className="px-2 py-3 text-[12.5px] text-[var(--sf-ink-2)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(member.totalJobRevenue || 0)}</td>
+                            <td className="px-2 py-3 text-[13px] font-semibold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(member.hourlySalary || 0)}</td>
+                            <td
+                              className="px-2 py-3 text-[13px] font-semibold text-[var(--sf-ink)] text-right"
+                              style={{ fontVariantNumeric: 'tabular-nums' }}
+                              title={member.isManagerOrOwner && member.commissionRevenueBase ? `From total revenue: ${formatCurrency(member.commissionRevenueBase)}` : ''}
+                            >
                               {formatCurrency(member.commissionSalary || 0)}
                               {member.isManagerOrOwner && member.commissionSalary > 0 && (
-                                <div className="text-[10px] text-purple-600">rev: {formatCurrency(member.commissionRevenueBase || 0)}</div>
+                                <div className="text-[10px] text-[var(--sf-purple)] font-normal">rev: {formatCurrency(member.commissionRevenueBase || 0)}</div>
                               )}
                             </td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{formatCurrency(member.totalTips || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{formatCurrency(member.totalIncentives || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-right">
-                              {(member.totalReimbursements || 0) > 0
-                                ? <span className="text-[var(--sf-blue-500)] font-medium">{formatCurrency(member.totalReimbursements)}</span>
+                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {(member.totalTips || 0) > 0
+                                ? <span className="text-[var(--sf-green-dark)] font-semibold">+{formatCurrency(member.totalTips)}</span>
                                 : <span className="text-[var(--sf-ink-3)]">—</span>}
                             </td>
-                            <td className="px-2 py-3 text-sm text-right">
+                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {(member.totalIncentives || 0) > 0
+                                ? <span className="text-[var(--sf-purple)] font-semibold">+{formatCurrency(member.totalIncentives)}</span>
+                                : <span className="text-[var(--sf-ink-3)]">—</span>}
+                            </td>
+                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {(member.totalReimbursements || 0) > 0
+                                ? <span className="text-[var(--sf-blue-dark)] font-semibold">+{formatCurrency(member.totalReimbursements)}</span>
+                                : <span className="text-[var(--sf-ink-3)]">—</span>}
+                            </td>
+                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {((member.totalCashCollected || 0) + (member.priorCashCollected || 0)) < 0
-                                ? <span className="text-orange-600 font-medium">{formatCurrency((member.totalCashCollected || 0) + (member.priorCashCollected || 0))}</span>
+                                ? <span className="text-[var(--sf-amber-dark)] font-semibold">{formatCurrency((member.totalCashCollected || 0) + (member.priorCashCollected || 0))}</span>
                                 : <span className="text-[var(--sf-ink-3)]">—</span>}
                               {(member.priorCashCollected || 0) < 0 && (
-                                <div className="text-[10px] text-orange-400">incl. prior {formatCurrency(member.priorCashCollected)}</div>
+                                <div className="text-[10px] text-[var(--sf-amber-dark)] opacity-70">incl. prior {formatCurrency(member.priorCashCollected)}</div>
                               )}
                             </td>
-                            <td className="px-3 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(member.totalSalary + (member.priorCashCollected || 0))}</td>
+                            <td className="px-3 py-3 text-[14px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{formatCurrency(member.totalSalary + (member.priorCashCollected || 0))}</td>
                           </tr>
                           {/* Manager/Owner Pay Breakdown */}
                           {isExpanded && member.isManagerOrOwner && (
@@ -1600,19 +1631,21 @@ const Payroll = () => {
                           )
                         })}
                       </tbody>
-                      <tfoot className="bg-[var(--sf-bg-page)]">
+                      <tfoot style={{ background: 'var(--sf-panel-alt)', borderTop: '1px solid var(--sf-border-soft)' }}>
                         <tr>
-                          <td colSpan="2" className="px-3 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">Totals:</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-center">{filteredSummary.totalJobCount || 0}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{filteredSummary.totalHours.toFixed(1)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-indigo-700 text-right">{formatCurrency(filteredSummary.totalJobRevenue || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalHourlySalary || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalCommission || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalTips || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalIncentives || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-blue-500)] text-right">{(filteredSummary.totalReimbursements || 0) > 0 ? formatCurrency(filteredSummary.totalReimbursements) : '—'}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-right">{(filteredSummary.totalCashCollected || 0) < 0 ? <span className="text-orange-600">{formatCurrency(filteredSummary.totalCashCollected)}</span> : '—'}</td>
-                          <td className="px-3 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalSalary)}</td>
+                          <td colSpan="2" className="px-3 py-3 text-[11.5px] font-bold uppercase text-[var(--sf-ink-2)]" style={{ letterSpacing: '.04em' }}>
+                            {filteredMembers.length} cleaner{filteredMembers.length === 1 ? '' : 's'} · Totals
+                          </td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink)] text-center" style={{ fontVariantNumeric: 'tabular-nums' }}>{filteredSummary.totalJobCount || 0}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{filteredSummary.totalHours.toFixed(1)}h</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink-2)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalJobRevenue || 0)}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalHourlySalary || 0)}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalCommission || 0)}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-green-dark)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalTips || 0) > 0 ? `+${formatCurrency(filteredSummary.totalTips)}` : '—'}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-purple)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalIncentives || 0) > 0 ? `+${formatCurrency(filteredSummary.totalIncentives)}` : '—'}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-blue-dark)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalReimbursements || 0) > 0 ? `+${formatCurrency(filteredSummary.totalReimbursements)}` : '—'}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalCashCollected || 0) < 0 ? <span className="text-[var(--sf-amber-dark)]">{formatCurrency(filteredSummary.totalCashCollected)}</span> : '—'}</td>
+                          <td className="px-3 py-3 text-[15px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalSalary)}</td>
                         </tr>
                       </tfoot>
                     </table>
