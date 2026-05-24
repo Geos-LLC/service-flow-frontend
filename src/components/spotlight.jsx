@@ -32,7 +32,7 @@ const NAV_ENTRIES = [
   { kind: "nav", label: "Customers",      icon: Users,           path: "/customers",      keywords: "clients people" },
   { kind: "nav", label: "Leads",          icon: Target,          path: "/leads",          keywords: "pipeline prospects" },
   { kind: "nav", label: "Inbox",          icon: MessageSquare,   path: "/communications", keywords: "messages sms email" },
-  { kind: "nav", label: "Tasks",          icon: CalendarDays,    path: "/calendar",       keywords: "todo" },
+  { kind: "nav", label: "Tasks",          icon: CalendarDays,    path: "/tasks",          keywords: "todo" },
   { kind: "nav", label: "Estimates",      icon: FileText,        path: "/estimates",      keywords: "quotes proposals" },
   { kind: "nav", label: "Invoices",       icon: FileText,        path: "/invoices",       keywords: "billing" },
   { kind: "nav", label: "Team",           icon: Users,           path: "/team",           keywords: "members staff cleaners" },
