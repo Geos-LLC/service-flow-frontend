@@ -19,6 +19,8 @@ import {
   SfButton,
   SfPageHeader,
   SfTab,
+  SfKPI,
+  SfFilterChip,
 } from "../components/sf-primitives"
 
 // Inline editable cell with pen icon → input + save/cancel
@@ -261,6 +263,183 @@ const QuickTimeFilter = ({ activeRange, onSelect, startDate, endDate, onStartCha
     )}
   </div>
 )
+
+// Payroll period banner — gradient hero (design pack §screens/payroll).
+// Renders the date range, total to be paid, approval-status counts,
+// and a 5-step progress bar. Approval status is derived from existing
+// payout batches in the period: paid → Approved, pending → Pending
+// review, none → On hold.
+const PayrollPeriodBanner = ({
+  startDate,
+  endDate,
+  allTime,
+  totalToBePaid,
+  memberCount,
+  batches,
+  payoutFrequency,
+}) => {
+  // Count members by their most recent batch status in this period
+  const fmtDate = (s) => {
+    if (!s) return '—'
+    const d = new Date(`${s}T00:00:00`)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  const periodLabel = allTime
+    ? 'All-time period'
+    : `${fmtDate(startDate)} – ${fmtDate(endDate)}`
+
+  const inPeriod = (batches || []).filter((b) => {
+    if (!b?.period_start) return false
+    return (!startDate || b.period_start >= startDate) && (!endDate || b.period_end <= endDate)
+  })
+  const approved = inPeriod.filter((b) => (b.status || '').toLowerCase() === 'paid').length
+  const pending = inPeriod.filter((b) => (b.status || '').toLowerCase() === 'pending').length
+  const onHold = Math.max(0, (memberCount || 0) - approved - pending)
+
+  // Steps: hours tracked / tips collected are always done if there's data;
+  // reviewed/approved/paid out follow the batch counts. This mirrors the
+  // design's 5-step stepper visually without forcing new workflow concepts.
+  const totalMembers = memberCount || 0
+  const steps = [
+    { label: 'Hours tracked',  done: totalMembers > 0 },
+    { label: 'Tips collected', done: totalMembers > 0 },
+    { label: 'Reviewed',       done: false, active: pending > 0 || (approved > 0 && approved < totalMembers) },
+    { label: 'Approved',       done: approved > 0 && approved === totalMembers, active: approved > 0 && approved < totalMembers },
+    { label: 'Paid out',       done: approved === totalMembers && totalMembers > 0 },
+  ]
+
+  const freqLabel = payoutFrequency && payoutFrequency !== 'manual'
+    ? `${payoutFrequency.charAt(0).toUpperCase() + payoutFrequency.slice(1)} period`
+    : 'Pay period'
+
+  return (
+    <div
+      className="mb-6 overflow-hidden rounded-[12px]"
+      style={{
+        background: 'linear-gradient(135deg, var(--sf-blue) 0%, var(--sf-purple) 100%)',
+        color: '#fff',
+        boxShadow: 'var(--sf-shadow-m)',
+        fontFamily: 'var(--sf-font-ui)',
+      }}
+    >
+      <div className="flex items-center gap-4" style={{ padding: '18px 22px' }}>
+        <div
+          className="flex items-center justify-center flex-shrink-0"
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 12,
+            background: 'rgba(255,255,255,.18)',
+          }}
+        >
+          <DollarSign size={22} strokeWidth={2.2} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+              opacity: 0.85,
+            }}
+          >
+            {freqLabel}
+          </div>
+          <div
+            className="mt-0.5"
+            style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}
+          >
+            {periodLabel}
+          </div>
+          <div className="mt-1" style={{ fontSize: 12.5, opacity: 0.92 }}>
+            <b>{approved} approved</b> · {pending} pending review · {onHold} on hold
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+              opacity: 0.85,
+            }}
+          >
+            Total to be paid
+          </div>
+          <div
+            className="mt-0.5"
+            style={{
+              fontSize: 30,
+              fontWeight: 700,
+              letterSpacing: '-0.02em',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatCurrency(totalToBePaid || 0)}
+          </div>
+        </div>
+      </div>
+
+      {/* Step bar */}
+      <div
+        className="flex items-center"
+        style={{
+          background: 'rgba(0,0,0,.14)',
+          padding: '10px 22px',
+          borderTop: '1px solid rgba(255,255,255,.18)',
+          gap: 0,
+        }}
+      >
+        {steps.map((s, i) => (
+          <React.Fragment key={s.label}>
+            <div className="flex items-center" style={{ gap: 7 }}>
+              <span
+                className="inline-flex items-center justify-center flex-shrink-0"
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  background: s.done || s.active ? '#fff' : 'rgba(255,255,255,.22)',
+                  color: s.done || s.active ? 'var(--sf-blue)' : '#fff',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: s.active ? '2px solid #fff' : 'none',
+                }}
+              >
+                {s.done ? <Check size={11} strokeWidth={3} /> : i + 1}
+              </span>
+              <span
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: s.done || s.active ? 700 : 500,
+                  opacity: s.done || s.active ? 1 : 0.75,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {s.label}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <div
+                className="mx-3 flex-1"
+                style={{
+                  height: 2,
+                  background:
+                    steps[i + 1].done || steps[i + 1].active
+                      ? 'rgba(255,255,255,.7)'
+                      : 'rgba(255,255,255,.22)',
+                }}
+              />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const Payroll = () => {
   const { user } = useAuth()
@@ -994,6 +1173,17 @@ const Payroll = () => {
           {/* ═══════════════ PAYROLL TAB ═══════════════ */}
           {activeTab === 'payroll' && payrollData && (
             <div>
+              {/* Period banner — gradient hero with status counts + step progress */}
+              <PayrollPeriodBanner
+                startDate={startDate}
+                endDate={endDate}
+                allTime={payrollAllTime}
+                totalToBePaid={filteredSummary.totalSalary}
+                memberCount={filteredSummary.totalTeamMembers}
+                batches={batches || []}
+                payoutFrequency={payoutFrequency}
+              />
+
               {/* Filters */}
               <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-6">
                 <div className="flex flex-col space-y-3">
@@ -1062,88 +1252,44 @@ const Payroll = () => {
               </div>
 
               <div className={`transition-opacity duration-200 ${refreshing ? 'opacity-50 pointer-events-none' : ''}`}>
-                {/* Summary */}
-                <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-6 mb-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-[var(--sf-ink)]">Summary</h2>
-                    <span className="text-sm text-[var(--sf-ink-3)]">
-                      {payrollAllTime ? 'All Time' : `${new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${new Date(endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-2">
-                    <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <Users className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Members</span>
-                      </div>
-                      <p className="text-lg font-bold text-[var(--sf-ink)]">{filteredSummary.totalTeamMembers}</p>
-                    </div>
-                    <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <Calendar className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Jobs</span>
-                      </div>
-                      <p className="text-lg font-bold text-[var(--sf-ink)]">{filteredSummary.totalJobCount || 0}</p>
-                    </div>
-                    <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <Clock className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Hours</span>
-                      </div>
-                      <p className="text-lg font-bold text-[var(--sf-ink)]">{filteredSummary.totalHours.toFixed(1)}</p>
-                    </div>
-                    <div className="bg-indigo-50 rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-                        <span className="text-xs text-indigo-600 truncate">Revenue</span>
-                      </div>
-                      <p className="text-lg font-bold text-indigo-900">{formatCurrency(filteredSummary.totalJobRevenue || 0)}</p>
-                    </div>
-                    <div className="bg-[var(--sf-blue-50)] rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-blue-500)] truncate">Hourly</span>
-                      </div>
-                      <p className="text-lg font-bold text-blue-900">{formatCurrency(filteredSummary.totalHourlySalary || 0)}</p>
-                    </div>
-                    <div className="bg-green-50 rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
-                        <span className="text-xs text-green-600 truncate">Commission</span>
-                      </div>
-                      <p className="text-lg font-bold text-green-900">{formatCurrency(filteredSummary.totalCommission || 0)}</p>
-                    </div>
-                    <div className="bg-yellow-50 rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
-                        <span className="text-xs text-yellow-600 truncate">Tips</span>
-                      </div>
-                      <p className="text-lg font-bold text-yellow-900">{formatCurrency(filteredSummary.totalTips || 0)}</p>
-                    </div>
-                    <div className="bg-purple-50 rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
-                        <span className="text-xs text-purple-600 truncate">Incentives</span>
-                      </div>
-                      <p className="text-lg font-bold text-purple-900">{formatCurrency(filteredSummary.totalIncentives || 0)}</p>
-                    </div>
-                    {(filteredSummary.totalCashCollected || 0) < 0 && (
-                    <div className="bg-orange-50 rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <Banknote className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />
-                        <span className="text-xs text-orange-600 truncate">Cash Collected</span>
-                      </div>
-                      <p className="text-lg font-bold text-orange-900">{formatCurrency(filteredSummary.totalCashCollected)}</p>
-                    </div>
-                    )}
-                    <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
-                      <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Total Salary</span>
-                      </div>
-                      <p className="text-lg font-bold text-[var(--sf-ink)]">{formatCurrency(filteredSummary.totalSalary)}</p>
-                    </div>
-                  </div>
+                {/* KPI row — design spec: Hours / Jobs / Gross / Tips / Bonuses / Reimbursements */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+                  <SfKPI
+                    label="Total hours"
+                    value={`${(filteredSummary.totalHours || 0).toFixed(1)}h`}
+                    sub={`across ${filteredSummary.totalTeamMembers || 0} cleaner${filteredSummary.totalTeamMembers === 1 ? '' : 's'}`}
+                    accent="var(--sf-blue)"
+                  />
+                  <SfKPI
+                    label="Jobs completed"
+                    value={filteredSummary.totalJobCount || 0}
+                    sub="this period"
+                    accent="var(--sf-green-dark)"
+                  />
+                  <SfKPI
+                    label="Gross wages"
+                    value={formatCurrency((filteredSummary.totalHourlySalary || 0) + (filteredSummary.totalCommission || 0))}
+                    sub="hourly + commission"
+                    accent="var(--sf-ink)"
+                  />
+                  <SfKPI
+                    label="Tips"
+                    value={formatCurrency(filteredSummary.totalTips || 0)}
+                    sub={`avg ${formatCurrency(filteredSummary.totalTeamMembers ? (filteredSummary.totalTips || 0) / filteredSummary.totalTeamMembers : 0)} / cleaner`}
+                    accent="var(--sf-purple)"
+                  />
+                  <SfKPI
+                    label="Incentives"
+                    value={formatCurrency(filteredSummary.totalIncentives || 0)}
+                    sub="performance + referral"
+                    accent="var(--sf-amber)"
+                  />
+                  <SfKPI
+                    label="Total salary"
+                    value={formatCurrency(filteredSummary.totalSalary || 0)}
+                    sub={payrollAllTime ? 'All time' : `${new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${new Date(endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                    accent="var(--sf-teal)"
+                  />
                 </div>
 
                 {/* Team Members Table */}
