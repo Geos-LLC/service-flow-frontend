@@ -2047,9 +2047,8 @@ const Payroll = () => {
             </div>
           )}
 
-          {/* ═══════════════ PAYOUTS / HISTORY TAB ═══════════════ */}
-          {/* History is the design-pack alias — same payout batches view */}
-          {(activeTab === 'payouts' || activeTab === 'history') && (() => {
+          {/* ═══════════════ PAYOUTS TAB ═══════════════ */}
+          {activeTab === 'payouts' && (() => {
             // Build per-member payout status from batches + team members
             const periodBatches = batches.filter(batch => {
               const batchStart = batch.period_start
@@ -2302,6 +2301,215 @@ const Payroll = () => {
                 )}
               </div>
             </div>
+            )
+          })()}
+
+          {/* ═══════════════ HISTORY TAB — design-pack styled batch log ══ */}
+          {activeTab === 'history' && (() => {
+            // Sort by most recent activity (paid_at if paid, otherwise created_at)
+            const memberName = (id) => {
+              const tm = teamMembers.find((m) => String(m.id) === String(id))
+              if (!tm) return `Member #${id}`
+              return `${tm.first_name || ''} ${tm.last_name || ''}`.trim() || tm.email || `Member #${id}`
+            }
+            const allBatches = (batches || []).filter((b) => b.status !== 'cancelled')
+            const sortedBatches = [...allBatches].sort((a, b) => {
+              const ad = a.paid_at || a.created_at || a.period_end || ''
+              const bd = b.paid_at || b.created_at || b.period_end || ''
+              return bd.localeCompare(ad)
+            })
+
+            // KPI rollups
+            const paidBatches = allBatches.filter((b) => b.status === 'paid')
+            const pendingBatches = allBatches.filter((b) => b.status === 'pending')
+            const totalPaid = paidBatches.reduce((s, b) => s + (parseFloat(b.total_amount) || 0), 0)
+            const totalPending = pendingBatches.reduce((s, b) => s + (parseFloat(b.total_amount) || 0), 0)
+            const distinctMembers = new Set(paidBatches.map((b) => b.team_member_id)).size
+            const avgBatch = paidBatches.length > 0 ? totalPaid / paidBatches.length : 0
+            const lastPaid = paidBatches[0]?.paid_at || paidBatches[0]?.created_at
+            const lastPaidLabel = lastPaid
+              ? new Date(`${lastPaid}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : '—'
+
+            // Banner: derive an "all-time" period from earliest/latest batch
+            const periodStart = sortedBatches.length
+              ? sortedBatches[sortedBatches.length - 1].period_start
+              : null
+            const periodEnd = sortedBatches.length ? sortedBatches[0].period_end : null
+
+            const statusMeta = {
+              paid:    { label: 'Paid',    fg: 'var(--sf-green-dark)', bg: 'var(--sf-green-soft)', dot: '#22C55E' },
+              pending: { label: 'Pending', fg: 'var(--sf-amber-dark)', bg: 'var(--sf-amber-soft)', dot: 'var(--sf-amber)' },
+            }
+
+            return (
+              <div>
+                {/* History banner — total paid out + batches + member count */}
+                <div
+                  className="mb-6 overflow-hidden rounded-[12px]"
+                  style={{
+                    background: 'linear-gradient(135deg, var(--sf-blue) 0%, var(--sf-purple) 100%)',
+                    color: '#fff',
+                    boxShadow: 'var(--sf-shadow-m)',
+                  }}
+                >
+                  <div className="flex items-center gap-4" style={{ padding: '18px 22px' }}>
+                    <div
+                      className="flex items-center justify-center flex-shrink-0"
+                      style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(255,255,255,.18)' }}
+                    >
+                      <BookOpen size={22} strokeWidth={2.2} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', opacity: 0.85 }}>
+                        Payout history
+                      </div>
+                      <div className="mt-0.5" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>
+                        {periodStart && periodEnd
+                          ? `${formatDate(periodStart)} – ${formatDate(periodEnd)}`
+                          : 'No batches yet'}
+                      </div>
+                      <div className="mt-1" style={{ fontSize: 12.5, opacity: 0.92 }}>
+                        <b>{paidBatches.length} paid</b> · {pendingBatches.length} pending ·
+                        last payout {lastPaidLabel}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', opacity: 0.85 }}>
+                        Total paid out
+                      </div>
+                      <div className="mt-0.5" style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatCurrency(totalPaid)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* KPI row */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+                  <SfKPI label="Total paid"     value={formatCurrency(totalPaid)}    sub={`${paidBatches.length} batch${paidBatches.length === 1 ? '' : 'es'}`} accent="var(--sf-green-dark)" />
+                  <SfKPI label="Pending"        value={formatCurrency(totalPending)} sub={`${pendingBatches.length} batch${pendingBatches.length === 1 ? '' : 'es'}`} accent="var(--sf-amber)" />
+                  <SfKPI label="Batches"        value={allBatches.length}            sub="excluding cancelled" accent="var(--sf-blue)" />
+                  <SfKPI label="Members paid"   value={distinctMembers}              sub="with at least one batch" accent="var(--sf-purple)" />
+                  <SfKPI label="Avg batch"      value={formatCurrency(avgBatch)}     sub="paid only" accent="var(--sf-ink)" />
+                  <SfKPI label="Last payout"    value={lastPaidLabel}                sub={paidBatches[0] ? memberName(paidBatches[0].team_member_id) : '—'} accent="var(--sf-teal)" mono={false} />
+                </div>
+
+                {/* Toolbar */}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="text-[12.5px] text-[var(--sf-ink-3)]">
+                    Showing <b className="text-[var(--sf-ink)]">{sortedBatches.length}</b> batch{sortedBatches.length === 1 ? '' : 'es'}
+                  </div>
+                  <div className="flex-1" />
+                  <SfButton
+                    variant="primary"
+                    size="sm"
+                    icon={Plus}
+                    onClick={() => { setShowPayoutModal(true); setModalError('') }}
+                  >
+                    Create payout
+                  </SfButton>
+                </div>
+
+                {/* Batches table */}
+                {sortedBatches.length === 0 ? (
+                  <EmptyTab
+                    icon={BookOpen}
+                    title="No payout history yet"
+                    body="Once you create your first payout batch it will appear here. The History tab is your audit log — every closed pay period in one place."
+                    cta="Create payout"
+                    onCta={() => { setShowPayoutModal(true); setModalError('') }}
+                  />
+                ) : (
+                  <div className="bg-[var(--sf-panel)] rounded-[12px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-x-auto">
+                    <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+                      <thead style={{ background: 'var(--sf-panel-alt)', borderBottom: '1px solid var(--sf-border-soft)' }}>
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Period</th>
+                          <th className="px-4 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Member</th>
+                          <th className="px-4 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Status</th>
+                          <th className="px-4 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Paid date</th>
+                          <th className="px-4 py-2.5 text-left text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Note</th>
+                          <th className="px-4 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Amount</th>
+                          <th className="px-3 py-2.5" style={{ width: 40 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedBatches.map((b) => {
+                          const s = statusMeta[b.status] || statusMeta.pending
+                          const amt = parseFloat(b.total_amount) || 0
+                          const negative = amt < 0
+                          return (
+                            <tr
+                              key={b.id}
+                              className="hover:bg-[var(--sf-panel-soft)] cursor-pointer"
+                              style={{ borderBottom: '1px solid var(--sf-border-soft)' }}
+                              onClick={() => handleViewBatch(b.id)}
+                            >
+                              <td className="px-4 py-3">
+                                <div className="text-[13px] font-semibold text-[var(--sf-ink)]">
+                                  {formatDate(b.period_start)}
+                                </div>
+                                <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5">
+                                  to {formatDate(b.period_end)}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-[13px] text-[var(--sf-ink)] font-medium">
+                                {memberName(b.team_member_id)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md whitespace-nowrap"
+                                  style={{
+                                    background: s.bg,
+                                    color: s.fg,
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    border: `1px solid ${s.dot}25`,
+                                  }}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.dot }} />
+                                  {s.label}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-[12.5px] text-[var(--sf-ink-2)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                {b.paid_at ? formatDate(b.paid_at) : <span className="text-[var(--sf-ink-3)]">—</span>}
+                              </td>
+                              <td className="px-4 py-3 text-[12.5px] text-[var(--sf-ink-2)] truncate" style={{ maxWidth: 240 }}>
+                                {b.note || <span className="text-[var(--sf-ink-3)]">—</span>}
+                              </td>
+                              <td
+                                className="px-4 py-3 text-[14px] font-bold text-right"
+                                style={{
+                                  fontVariantNumeric: 'tabular-nums',
+                                  letterSpacing: '-0.01em',
+                                  color: negative ? 'var(--sf-red-dark)' : 'var(--sf-ink)',
+                                }}
+                              >
+                                {formatCurrency(amt)}
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <ChevronRight size={14} className="text-[var(--sf-ink-3)] inline" />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot style={{ background: 'var(--sf-panel-alt)', borderTop: '1px solid var(--sf-border-soft)' }}>
+                        <tr>
+                          <td colSpan="5" className="px-4 py-3 text-[11.5px] font-bold uppercase text-[var(--sf-ink-2)]" style={{ letterSpacing: '.04em' }}>
+                            {sortedBatches.length} batch{sortedBatches.length === 1 ? '' : 'es'} · Total
+                          </td>
+                          <td className="px-4 py-3 text-[15px] font-bold text-right text-[var(--sf-ink)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatCurrency(totalPaid + totalPending)}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
             )
           })()}
 
