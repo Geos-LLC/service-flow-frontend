@@ -2,9 +2,10 @@ import { useState, useEffect } from "react"
 import Sidebar from "../components/sidebar"
 import { Plus, Search, Filter, Users, TrendingUp, Calendar, DollarSign, Clock, Eye, Edit, Trash2, UserPlus, BarChart3, AlertCircle, MapPin, Loader2, Power, PowerOff, Zap, Settings, ChevronLeft, ChevronRight, HelpCircle, EyeOff, Mail } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
-import { teamAPI } from "../services/api"
+import { teamAPI, jobsAPI } from "../services/api"
 import { isAccountOwner } from "../utils/roleUtils"
 import api from "../services/api"
+import { normalizeAPIResponse } from "../utils/dataHandler"
 import LoadingButton from "../components/loading-button"
 import AddTeamMemberModal from "../components/add-team-member-modal"
 import AssignTerritoriesModal from "../components/assign-territories-modal"
@@ -12,6 +13,7 @@ import { useNavigate } from "react-router-dom"
 import { handleTeamDeletionError, createErrorNotification, createSuccessNotification } from "../utils/errorHandler"
 import { getImageUrl } from "../utils/imageUtils"
 import MobileHeader from "../components/mobile-header"
+import { TeamsView, ScheduleView, PayrollView, PerformanceView } from "../components/team-design-tabs"
 
 // Placeholder card for the design-pack Team tabs (Teams, Schedule,
 // Payroll, Performance). The design pack ships a full implementation
@@ -94,6 +96,11 @@ const ServiceFlowTeam = () => {
   const [staffLocationsEnabled, setStaffLocationsEnabled] = useState(true)
   const [updatingLocationSetting, setUpdatingLocationSetting] = useState(false)
 
+  // Jobs for design-pack Teams/Performance views — fetched lazily when a
+  // design tab is opened so the default Active list stays snappy.
+  const [designJobs, setDesignJobs] = useState([])
+  const [designJobsLoading, setDesignJobsLoading] = useState(false)
+
   const navigate = useNavigate()
 
   // Initial data fetch - wait for auth to load
@@ -122,6 +129,31 @@ const ServiceFlowTeam = () => {
       fetchAnalytics()
     }
   }, [activeTab, authLoading, user?.id])
+
+  // Fetch last-30d jobs when opening Teams or Performance tabs — used to
+  // compute per-member jobs / revenue / completion stats in those views.
+  useEffect(() => {
+    if (!user?.id) return
+    if (activeTab !== "teams" && activeTab !== "performance") return
+    if (designJobs.length > 0) return
+    let cancelled = false
+    const run = async () => {
+      setDesignJobsLoading(true)
+      try {
+        const end = new Date()
+        const start = new Date(); start.setDate(start.getDate() - 29)
+        const dr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")} to ${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`
+        const resp = await jobsAPI.getAll(user.id, "", "", 1, 10000, null, dr)
+        if (!cancelled) setDesignJobs(normalizeAPIResponse(resp, "jobs") || [])
+      } catch {
+        if (!cancelled) setDesignJobs([])
+      } finally {
+        if (!cancelled) setDesignJobsLoading(false)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [activeTab, user?.id])
 
   useEffect(() => {
     if (user?.id && isAccountOwner(user)) {
@@ -750,34 +782,18 @@ const ServiceFlowTeam = () => {
                       </nav>
                     </div>
 
-                    {/* Design-pack placeholder tabs */}
+                    {/* Design-pack tabs — now wired to live data */}
                     {activeTab === "teams" && (
-                      <TeamDesignPlaceholder
-                        title="Teams — coming soon"
-                        body="Group your workers into named teams (Team A, Team B) and assign them to territories. The design pack includes the full layout — implementation is on the next wave."
-                        primary={{ label: "Add Team Member", onClick: handleAddMember }}
-                      />
+                      <TeamsView members={teamMembers} jobs={designJobs} />
                     )}
                     {activeTab === "schedule" && (
-                      <TeamDesignPlaceholder
-                        title="Team schedule"
-                        body="A team-centric week view lives at /schedule with the Availability tab. Open it now or use the shortcut below."
-                        primary={{ label: "Open Schedule", onClick: () => navigate('/schedule') }}
-                        secondary={{ label: "Open Availability", onClick: () => navigate('/team-availability') }}
-                      />
+                      <ScheduleView members={teamMembers} />
                     )}
                     {activeTab === "payroll" && (
-                      <TeamDesignPlaceholder
-                        title="Team payroll"
-                        body="The full payroll surface — biweekly period banner, KPIs, per-cleaner breakdown, payouts — lives on the Payroll page."
-                        primary={{ label: "Open Payroll", onClick: () => navigate('/payroll') }}
-                      />
+                      <PayrollView members={teamMembers} navigate={navigate} />
                     )}
                     {activeTab === "performance" && (
-                      <TeamDesignPlaceholder
-                        title="Performance — coming soon"
-                        body="Per-member trend sparklines, on-time / repeat / CSAT metrics, and territory performance will live here. Until then, click any member to see their detail view."
-                      />
+                      <PerformanceView members={teamMembers} userId={user?.id} />
                     )}
 
                     {/* Filters */}
