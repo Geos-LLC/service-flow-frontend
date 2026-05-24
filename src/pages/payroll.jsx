@@ -1,18 +1,25 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import {
   ChevronLeft, Calendar, DollarSign, Clock, Users, Download, Filter,
   AlertCircle, ChevronDown, ChevronRight, Plus, Minus, CreditCard,
-  Check, X, ArrowUpDown, BookOpen, Banknote, ClipboardCopy, Pencil, Trash2, FileText
+  Check, X, ArrowUpDown, BookOpen, Banknote, ClipboardCopy, Pencil, Trash2, FileText,
+  ArrowLeft,
 } from "lucide-react"
 import { payrollAPI, ledgerAPI, teamAPI } from "../services/api"
 import api from "../services/api"
 import { useAuth } from "../context/AuthContext"
-import Sidebar from "../components/sidebar"
 import MobileHeader from "../components/mobile-header"
 import PaystubsTab from "../components/paystubs-tab"
+import {
+  SfCard,
+  SfCardHeader,
+  SfButton,
+  SfPageHeader,
+  SfTab,
+} from "../components/sf-primitives"
 
 // Inline editable cell with pen icon → input + save/cancel
 const EditableCell = ({ value, onSave, format = 'number', placeholder = '-' }) => {
@@ -58,7 +65,7 @@ const EditableCell = ({ value, onSave, format = 'number', placeholder = '-' }) =
   return (
     <span className="inline-flex items-center gap-1 group">
       <span>{display}</span>
-      <Pencil size={10} className="text-[var(--sf-text-muted)] opacity-0 group-hover:opacity-100 cursor-pointer" onClick={startEdit} />
+      <Pencil size={10} className="text-[var(--sf-ink-3)] opacity-0 group-hover:opacity-100 cursor-pointer" onClick={startEdit} />
     </span>
   )
 }
@@ -87,7 +94,7 @@ const TYPE_COLORS = {
   cash_collected: 'bg-orange-100 text-orange-800',
   cash_to_company: 'bg-cyan-100 text-cyan-800',
   adjustment: 'bg-yellow-100 text-yellow-800',
-  payout: 'bg-[var(--sf-bg-page)] text-[var(--sf-text-primary)]'
+  payout: 'bg-[var(--sf-bg-page)] text-[var(--sf-ink)]'
 }
 
 const formatCurrency = (amount) => {
@@ -247,7 +254,7 @@ const QuickTimeFilter = ({ activeRange, onSelect, startDate, endDate, onStartCha
       <div className="flex items-center gap-2 ml-1">
         <input type="date" value={startDate} onChange={e => onStartChange(e.target.value)}
           className="border rounded-lg px-2 py-1 text-xs" />
-        <span className="text-xs text-[var(--sf-text-muted)]">to</span>
+        <span className="text-xs text-[var(--sf-ink-3)]">to</span>
         <input type="date" value={endDate} onChange={e => onEndChange(e.target.value)}
           className="border rounded-lg px-2 py-1 text-xs" />
       </div>
@@ -258,7 +265,6 @@ const QuickTimeFilter = ({ activeRange, onSelect, startDate, endDate, onStartCha
 const Payroll = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('payroll')
 
   // ── Payroll tab state ──
@@ -867,76 +873,113 @@ const Payroll = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[var(--sf-bg-page)]">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-[var(--sf-text-secondary)]">Loading payroll data...</p>
-          </div>
+      <div
+        className="min-h-screen bg-[var(--sf-bg-page)] flex items-center justify-center"
+        style={{ fontFamily: "var(--sf-font-ui)" }}
+      >
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--sf-blue)] mx-auto mb-4"></div>
+          <p className="text-[13px] text-[var(--sf-ink-2)]">Loading payroll data…</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen bg-[var(--sf-bg-page)] overflow-hidden">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div
+      className="min-h-screen bg-[var(--sf-bg-page)]"
+      style={{ fontFamily: "var(--sf-font-ui)" }}
+    >
+      <MobileHeader pageTitle="Payroll" />
 
-      <div className="flex-1 flex flex-col overflow-auto">
-        <MobileHeader pageTitle="Payroll" />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-
-          {/* Header */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-4">
-                <button onClick={() => navigate('/team')} className="p-2 hover:bg-[var(--sf-bg-hover)] rounded-lg transition-colors">
-                  <ChevronLeft className="w-5 h-5 text-[var(--sf-text-secondary)]" />
-                </button>
-                <div>
-                  <h1 className="text-2xl font-bold text-[var(--sf-text-primary)]">Payroll</h1>
-                  <p className="text-sm text-[var(--sf-text-muted)] mt-1">Calculate salaries, track balances, and manage payouts</p>
-                </div>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {activeTab === 'payroll' && (
-                  <button onClick={handleExport} disabled={!payrollData || filteredMembers.length === 0}
-                    className="bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center">
-                    <Download className="w-4 h-4 mr-2" /> Export CSV
-                  </button>
-                )}
-                {(activeTab === 'balances' || activeTab === 'ledger' || activeTab === 'payouts') && (
-                  <>
-                    <button onClick={() => { setShowCashModal(true); setModalError('') }}
-                      className="px-3 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center gap-1">
-                      <Banknote size={16} /> Cash
-                    </button>
-                    <button onClick={() => { if (balances.length === 0) fetchBalances(); setShowAdjustmentModal(true); setModalError('') }}
-                      className="px-3 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 flex items-center gap-1">
-                      <ArrowUpDown size={16} /> Adjust
-                    </button>
-                    <button onClick={() => { setShowPayoutModal(true); setModalError('') }}
-                      className="px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1">
-                      <CreditCard size={16} /> Payout
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-1 bg-[var(--sf-bg-page)] p-1 rounded-lg w-fit">
-              {tabs.map(tab => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                    activeTab === tab.id ? 'bg-white text-[var(--sf-text-primary)] shadow-sm' : 'text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)]'
-                  }`}>
-                  <tab.icon size={16} /> {tab.label}
-                </button>
-              ))}
-            </div>
+      <SfPageHeader
+        eyebrow={
+          <Link
+            to="/team"
+            className="inline-flex items-center gap-1 text-[var(--sf-ink-3)] hover:text-[var(--sf-ink-2)] transition-colors"
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: ".06em",
+              textTransform: "uppercase",
+              textDecoration: "none",
+            }}
+          >
+            <ArrowLeft size={11} />
+            <span>Team</span>
+            <ChevronRight size={11} className="text-[var(--sf-ink-4)]" />
+            <span style={{ color: "var(--sf-ink)" }}>Payroll</span>
+          </Link>
+        }
+        title="Payroll"
+        subtitle="Calculate salaries, track balances, and manage payouts"
+        actions={
+          <>
+            {activeTab === 'payroll' && (
+              <SfButton
+                variant="secondary"
+                size="md"
+                icon={Download}
+                onClick={handleExport}
+                disabled={!payrollData || filteredMembers.length === 0}
+              >
+                Export CSV
+              </SfButton>
+            )}
+            {(activeTab === 'balances' || activeTab === 'ledger' || activeTab === 'payouts') && (
+              <>
+                <SfButton
+                  variant="secondary"
+                  size="md"
+                  icon={Banknote}
+                  onClick={() => { setShowCashModal(true); setModalError('') }}
+                  style={{
+                    color: "var(--sf-amber-dark)",
+                    borderColor: "var(--sf-amber-soft)",
+                    background: "var(--sf-amber-soft)",
+                  }}
+                >
+                  Cash
+                </SfButton>
+                <SfButton
+                  variant="secondary"
+                  size="md"
+                  icon={ArrowUpDown}
+                  onClick={() => { if (balances.length === 0) fetchBalances(); setShowAdjustmentModal(true); setModalError('') }}
+                >
+                  Adjust
+                </SfButton>
+                <SfButton
+                  variant="primary"
+                  size="md"
+                  icon={CreditCard}
+                  onClick={() => { setShowPayoutModal(true); setModalError('') }}
+                >
+                  Payout
+                </SfButton>
+              </>
+            )}
+          </>
+        }
+        tabs={
+          <div className="flex items-center overflow-x-auto scrollbar-hide w-full">
+            {tabs.map(tab => (
+              <SfTab
+                key={tab.id}
+                active={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <tab.icon size={13} />
+                  {tab.label}
+                </span>
+              </SfTab>
+            ))}
           </div>
+        }
+      />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
           {/* Error Message */}
           {error && activeTab === 'payroll' && (
@@ -952,12 +995,12 @@ const Payroll = () => {
           {activeTab === 'payroll' && payrollData && (
             <div>
               {/* Filters */}
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-4 mb-6">
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-6">
                 <div className="flex flex-col space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <Filter className="w-4 h-4 text-[var(--sf-text-muted)]" />
-                      <span className="text-sm font-medium text-[var(--sf-text-primary)]">Filters:</span>
+                      <Filter className="w-4 h-4 text-[var(--sf-ink-3)]" />
+                      <span className="text-sm font-medium text-[var(--sf-ink)]">Filters:</span>
                     </div>
                     <button onClick={() => fetchPayrollData()} disabled={refreshing}
                       className="sf-btn-primary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
@@ -977,9 +1020,9 @@ const Payroll = () => {
                   />
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center space-x-2">
-                      <label className="text-sm text-[var(--sf-text-secondary)]">Member:</label>
+                      <label className="text-sm text-[var(--sf-ink-2)]">Member:</label>
                       <select value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)}
-                        className="border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] bg-white">
+                        className="border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] bg-white">
                         <option value="all">All Members</option>
                         {(payrollData?.teamMembers || []).map(m => (
                           <option key={m.teamMember.id} value={m.teamMember.id}>{m.teamMember.name}</option>
@@ -1020,34 +1063,34 @@ const Payroll = () => {
 
               <div className={`transition-opacity duration-200 ${refreshing ? 'opacity-50 pointer-events-none' : ''}`}>
                 {/* Summary */}
-                <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-6 mb-6">
+                <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-6 mb-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Summary</h2>
-                    <span className="text-sm text-[var(--sf-text-muted)]">
+                    <h2 className="text-lg font-semibold text-[var(--sf-ink)]">Summary</h2>
+                    <span className="text-sm text-[var(--sf-ink-3)]">
                       {payrollAllTime ? 'All Time' : `${new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${new Date(endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
                     </span>
                   </div>
                   <div className="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-2">
                     <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
                       <div className="flex items-center space-x-1.5 mb-1">
-                        <Users className="w-3.5 h-3.5 text-[var(--sf-text-muted)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-text-secondary)] truncate">Members</span>
+                        <Users className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
+                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Members</span>
                       </div>
-                      <p className="text-lg font-bold text-[var(--sf-text-primary)]">{filteredSummary.totalTeamMembers}</p>
+                      <p className="text-lg font-bold text-[var(--sf-ink)]">{filteredSummary.totalTeamMembers}</p>
                     </div>
                     <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
                       <div className="flex items-center space-x-1.5 mb-1">
-                        <Calendar className="w-3.5 h-3.5 text-[var(--sf-text-muted)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-text-secondary)] truncate">Jobs</span>
+                        <Calendar className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
+                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Jobs</span>
                       </div>
-                      <p className="text-lg font-bold text-[var(--sf-text-primary)]">{filteredSummary.totalJobCount || 0}</p>
+                      <p className="text-lg font-bold text-[var(--sf-ink)]">{filteredSummary.totalJobCount || 0}</p>
                     </div>
                     <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
                       <div className="flex items-center space-x-1.5 mb-1">
-                        <Clock className="w-3.5 h-3.5 text-[var(--sf-text-muted)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-text-secondary)] truncate">Hours</span>
+                        <Clock className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
+                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Hours</span>
                       </div>
-                      <p className="text-lg font-bold text-[var(--sf-text-primary)]">{filteredSummary.totalHours.toFixed(1)}</p>
+                      <p className="text-lg font-bold text-[var(--sf-ink)]">{filteredSummary.totalHours.toFixed(1)}</p>
                     </div>
                     <div className="bg-indigo-50 rounded-lg p-3">
                       <div className="flex items-center space-x-1.5 mb-1">
@@ -1095,10 +1138,10 @@ const Payroll = () => {
                     )}
                     <div className="bg-[var(--sf-bg-page)] rounded-lg p-3">
                       <div className="flex items-center space-x-1.5 mb-1">
-                        <DollarSign className="w-3.5 h-3.5 text-[var(--sf-text-muted)] flex-shrink-0" />
-                        <span className="text-xs text-[var(--sf-text-secondary)] truncate">Total Salary</span>
+                        <DollarSign className="w-3.5 h-3.5 text-[var(--sf-ink-3)] flex-shrink-0" />
+                        <span className="text-xs text-[var(--sf-ink-2)] truncate">Total Salary</span>
                       </div>
-                      <p className="text-lg font-bold text-[var(--sf-text-primary)]">{formatCurrency(filteredSummary.totalSalary)}</p>
+                      <p className="text-lg font-bold text-[var(--sf-ink)]">{formatCurrency(filteredSummary.totalSalary)}</p>
                     </div>
                   </div>
                 </div>
@@ -1107,23 +1150,23 @@ const Payroll = () => {
                 {filteredMembers.length > 0 && (
                   <div className="flex justify-end mb-2">
                     <button onClick={copyPayrollTable}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--sf-text-secondary)] bg-white border border-[var(--sf-border-light)] rounded-lg hover:bg-[var(--sf-bg-hover)]">
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--sf-ink-2)] bg-white border border-[var(--sf-border-soft)] rounded-lg hover:bg-[var(--sf-bg-hover)]">
                       <ClipboardCopy size={13} />
                       {copiedPayroll ? 'Copied!' : 'Copy Table'}
                     </button>
                   </div>
                 )}
                 {filteredMembers.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-12 text-center">
+                  <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-12 text-center">
                     <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-[var(--sf-text-primary)] mb-2">No Team Members</h3>
-                    <p className="text-sm text-[var(--sf-text-muted)] mb-4">No active team members found.</p>
+                    <h3 className="text-lg font-medium text-[var(--sf-ink)] mb-2">No Team Members</h3>
+                    <p className="text-sm text-[var(--sf-ink-3)] mb-4">No active team members found.</p>
                     <button onClick={() => navigate('/team')} className="sf-btn-primary px-4 py-2 rounded-lg text-sm font-medium">
                       Go to Team
                     </button>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm overflow-x-auto xl:overflow-x-visible">
+                  <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-x-auto xl:overflow-x-visible">
                     <table className="w-full divide-y divide-[var(--sf-border-light)]" style={{ tableLayout: 'fixed' }}>
                       <colgroup>
                         <col style={{ width: '20%', minWidth: 180 }} />
@@ -1141,18 +1184,18 @@ const Payroll = () => {
                       </colgroup>
                       <thead className="bg-[var(--sf-bg-page)]">
                         <tr>
-                          <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Team Member</th>
-                          <th className="px-2 py-3 text-left text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Pay Method</th>
-                          <th className="px-2 py-3 text-center text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Jobs</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Hours</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Total</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Hourly</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Comm</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Tips</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Incentives</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Reimb.</th>
-                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Cash</th>
-                          <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--sf-text-muted)] uppercase tracking-wider">Total</th>
+                          <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Team Member</th>
+                          <th className="px-2 py-3 text-left text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Pay Method</th>
+                          <th className="px-2 py-3 text-center text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Jobs</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Hours</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Total</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Hourly</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Comm</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Tips</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Incentives</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Reimb.</th>
+                          <th className="px-2 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Cash</th>
+                          <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--sf-ink-3)] uppercase tracking-wider">Total</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-[var(--sf-border-light)]">
@@ -1160,7 +1203,7 @@ const Payroll = () => {
                           const isExpanded = expandedMembers.has(member.teamMember.id)
                           return (
                           <React.Fragment key={member.teamMember.id}>
-                          <tr className="border-b border-[var(--sf-border-light)] hover:bg-[var(--sf-bg-hover)] cursor-pointer" onClick={() => toggleExpanded(member.teamMember.id)}>
+                          <tr className="border-b border-[var(--sf-border-soft)] hover:bg-[var(--sf-bg-hover)] cursor-pointer" onClick={() => toggleExpanded(member.teamMember.id)}>
                             <td className="px-3 py-3">
                               <div className="flex items-start min-w-0">
                                 <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center mt-0.5">
@@ -1169,8 +1212,8 @@ const Payroll = () => {
                                   </span>
                                 </div>
                                 <div className="ml-2 min-w-0 flex-1">
-                                  <div className="text-sm font-medium text-[var(--sf-text-primary)] flex items-start gap-1">
-                                    {isExpanded ? <ChevronDown className="w-3 h-3 text-[var(--sf-text-muted)] flex-shrink-0 mt-1" /> : <ChevronRight className="w-3 h-3 text-[var(--sf-text-muted)] flex-shrink-0 mt-1" />}
+                                  <div className="text-sm font-medium text-[var(--sf-ink)] flex items-start gap-1">
+                                    {isExpanded ? <ChevronDown className="w-3 h-3 text-[var(--sf-ink-3)] flex-shrink-0 mt-1" /> : <ChevronRight className="w-3 h-3 text-[var(--sf-ink-3)] flex-shrink-0 mt-1" />}
                                     <span className="break-words leading-tight">{member.teamMember.name}</span>
                                     {member.isManagerOrOwner && (
                                       <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full flex-shrink-0">
@@ -1185,38 +1228,38 @@ const Payroll = () => {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-2 py-3 text-xs text-[var(--sf-text-primary)] truncate">
+                            <td className="px-2 py-3 text-xs text-[var(--sf-ink)] truncate">
                               {member.teamMember.commissionPercentage ? `${member.teamMember.commissionPercentage}%` : ''}
                               {member.teamMember.hourlyRate && member.teamMember.commissionPercentage ? ' + ' : ''}
                               {member.teamMember.hourlyRate ? `$${member.teamMember.hourlyRate}/hr` : ''}
-                              {!member.teamMember.hourlyRate && !member.teamMember.commissionPercentage && <span className="text-[var(--sf-text-muted)] italic">Not set</span>}
+                              {!member.teamMember.hourlyRate && !member.teamMember.commissionPercentage && <span className="text-[var(--sf-ink-3)] italic">Not set</span>}
                             </td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-text-primary)] text-center">{member.jobCount}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-text-primary)] text-right">{member.totalHours.toFixed(1)}</td>
+                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-center">{member.jobCount}</td>
+                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{member.totalHours.toFixed(1)}</td>
                             <td className="px-2 py-3 text-sm text-indigo-700 text-right">{formatCurrency(member.totalJobRevenue || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-text-primary)] text-right">{formatCurrency(member.hourlySalary || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-text-primary)] text-right" title={member.isManagerOrOwner && member.commissionRevenueBase ? `From total revenue: ${formatCurrency(member.commissionRevenueBase)}` : ''}>
+                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{formatCurrency(member.hourlySalary || 0)}</td>
+                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right" title={member.isManagerOrOwner && member.commissionRevenueBase ? `From total revenue: ${formatCurrency(member.commissionRevenueBase)}` : ''}>
                               {formatCurrency(member.commissionSalary || 0)}
                               {member.isManagerOrOwner && member.commissionSalary > 0 && (
                                 <div className="text-[10px] text-purple-600">rev: {formatCurrency(member.commissionRevenueBase || 0)}</div>
                               )}
                             </td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-text-primary)] text-right">{formatCurrency(member.totalTips || 0)}</td>
-                            <td className="px-2 py-3 text-sm text-[var(--sf-text-primary)] text-right">{formatCurrency(member.totalIncentives || 0)}</td>
+                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{formatCurrency(member.totalTips || 0)}</td>
+                            <td className="px-2 py-3 text-sm text-[var(--sf-ink)] text-right">{formatCurrency(member.totalIncentives || 0)}</td>
                             <td className="px-2 py-3 text-sm text-right">
                               {(member.totalReimbursements || 0) > 0
                                 ? <span className="text-[var(--sf-blue-500)] font-medium">{formatCurrency(member.totalReimbursements)}</span>
-                                : <span className="text-[var(--sf-text-muted)]">—</span>}
+                                : <span className="text-[var(--sf-ink-3)]">—</span>}
                             </td>
                             <td className="px-2 py-3 text-sm text-right">
                               {((member.totalCashCollected || 0) + (member.priorCashCollected || 0)) < 0
                                 ? <span className="text-orange-600 font-medium">{formatCurrency((member.totalCashCollected || 0) + (member.priorCashCollected || 0))}</span>
-                                : <span className="text-[var(--sf-text-muted)]">—</span>}
+                                : <span className="text-[var(--sf-ink-3)]">—</span>}
                               {(member.priorCashCollected || 0) < 0 && (
                                 <div className="text-[10px] text-orange-400">incl. prior {formatCurrency(member.priorCashCollected)}</div>
                               )}
                             </td>
-                            <td className="px-3 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{formatCurrency(member.totalSalary + (member.priorCashCollected || 0))}</td>
+                            <td className="px-3 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(member.totalSalary + (member.priorCashCollected || 0))}</td>
                           </tr>
                           {/* Manager/Owner Pay Breakdown */}
                           {isExpanded && member.isManagerOrOwner && (
@@ -1236,48 +1279,48 @@ const Payroll = () => {
                                     <tbody className="divide-y divide-purple-100">
                                       {member.teamMember.commissionPercentage > 0 && (
                                         <tr>
-                                          <td className="py-2 pr-4 text-[var(--sf-text-primary)]">Commission</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">Total revenue: {formatCurrency(payrollData?.totalBusinessRevenue || 0)}</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">{member.teamMember.commissionPercentage}%</td>
+                                          <td className="py-2 pr-4 text-[var(--sf-ink)]">Commission</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">Total revenue: {formatCurrency(payrollData?.totalBusinessRevenue || 0)}</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{member.teamMember.commissionPercentage}%</td>
                                           <td className="py-2 text-right font-semibold text-purple-700">{formatCurrency(member.commissionSalary)}</td>
                                         </tr>
                                       )}
                                       {member.teamMember.hourlyRate > 0 && (
                                         <tr>
-                                          <td className="py-2 pr-4 text-[var(--sf-text-primary)]">Hourly (Scheduled)</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">{(member.scheduledHours || 0).toFixed(1)} scheduled hrs</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">${member.teamMember.hourlyRate}/hr</td>
+                                          <td className="py-2 pr-4 text-[var(--sf-ink)]">Hourly (Scheduled)</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{(member.scheduledHours || 0).toFixed(1)} scheduled hrs</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">${member.teamMember.hourlyRate}/hr</td>
                                           <td className="py-2 text-right font-semibold text-purple-700">{formatCurrency(member.hourlySalary || 0)}</td>
                                         </tr>
                                       )}
                                       {(member.totalTips || 0) > 0 && (
                                         <tr>
-                                          <td className="py-2 pr-4 text-[var(--sf-text-primary)]">Tips</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-muted)]">—</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-muted)]">—</td>
+                                          <td className="py-2 pr-4 text-[var(--sf-ink)]">Tips</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink-3)]">—</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink-3)]">—</td>
                                           <td className="py-2 text-right font-semibold text-purple-700">{formatCurrency(member.totalTips)}</td>
                                         </tr>
                                       )}
                                       {(member.totalIncentives || 0) > 0 && (
                                         <tr>
-                                          <td className="py-2 pr-4 text-[var(--sf-text-primary)]">Incentives</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-muted)]">—</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-muted)]">—</td>
+                                          <td className="py-2 pr-4 text-[var(--sf-ink)]">Incentives</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink-3)]">—</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink-3)]">—</td>
                                           <td className="py-2 text-right font-semibold text-purple-700">{formatCurrency(member.totalIncentives)}</td>
                                         </tr>
                                       )}
                                       {(member.totalCashCollected || 0) < 0 && (
                                         <tr>
-                                          <td className="py-2 pr-4 text-[var(--sf-text-primary)]">Cash Collected</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-muted)]">—</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-muted)]">—</td>
+                                          <td className="py-2 pr-4 text-[var(--sf-ink)]">Cash Collected</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink-3)]">—</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink-3)]">—</td>
                                           <td className="py-2 text-right font-semibold text-orange-600">{formatCurrency(member.totalCashCollected)}</td>
                                         </tr>
                                       )}
                                     </tbody>
                                     <tfoot>
                                       <tr className="border-t-2 border-purple-200">
-                                        <td colSpan="3" className="py-2 pr-4 text-right font-semibold text-[var(--sf-text-primary)]">Total Pay</td>
+                                        <td colSpan="3" className="py-2 pr-4 text-right font-semibold text-[var(--sf-ink)]">Total Pay</td>
                                         <td className="py-2 text-right font-bold text-purple-800 text-base">{formatCurrency(member.totalSalary)}</td>
                                       </tr>
                                     </tfoot>
@@ -1303,21 +1346,21 @@ const Payroll = () => {
                                           <tbody className="divide-y divide-purple-100">
                                             {member.revenueJobs.map(rj => (
                                               <tr key={rj.id} className="hover:bg-purple-100 cursor-pointer" onClick={(e) => { e.stopPropagation(); navigate(`/job/${rj.id}`) }}>
-                                                <td className="py-1.5 pr-3 text-[var(--sf-text-primary)] whitespace-nowrap">{formatShortDate(rj.scheduledDate)}</td>
-                                                <td className="py-1.5 pr-3 text-[var(--sf-text-primary)] font-medium truncate max-w-[150px]">{rj.serviceName}</td>
-                                                <td className="py-1.5 pr-3 text-[var(--sf-text-primary)] truncate max-w-[120px]">{rj.customerName}</td>
+                                                <td className="py-1.5 pr-3 text-[var(--sf-ink)] whitespace-nowrap">{formatShortDate(rj.scheduledDate)}</td>
+                                                <td className="py-1.5 pr-3 text-[var(--sf-ink)] font-medium truncate max-w-[150px]">{rj.serviceName}</td>
+                                                <td className="py-1.5 pr-3 text-[var(--sf-ink)] truncate max-w-[120px]">{rj.customerName}</td>
                                                 <td className="py-1.5 pr-3">
                                                   <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
                                                     rj.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
                                                     rj.status === 'completed' ? 'bg-green-100 text-green-700' :
                                                     rj.status === 'in-progress' ? 'bg-blue-100 text-[var(--sf-blue-500)]' :
                                                     rj.status === 'scheduled' ? 'bg-yellow-100 text-yellow-700' :
-                                                    'bg-[var(--sf-bg-page)] text-[var(--sf-text-secondary)]'
+                                                    'bg-[var(--sf-bg-page)] text-[var(--sf-ink-2)]'
                                                   }`}>{rj.status}</span>
                                                 </td>
-                                                <td className="py-1.5 pr-3 text-right text-[var(--sf-text-muted)]">{formatCurrency(rj.grossPrice || 0)}</td>
+                                                <td className="py-1.5 pr-3 text-right text-[var(--sf-ink-3)]">{formatCurrency(rj.grossPrice || 0)}</td>
                                                 <td className="py-1.5 pr-3 text-right text-red-500">{rj.taxes > 0 ? `-${formatCurrency(rj.taxes)}` : '-'}</td>
-                                                <td className="py-1.5 text-right text-[var(--sf-text-primary)] font-medium">{formatCurrency(rj.revenue)}</td>
+                                                <td className="py-1.5 text-right text-[var(--sf-ink)] font-medium">{formatCurrency(rj.revenue)}</td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -1339,11 +1382,11 @@ const Payroll = () => {
                           {isExpanded && member.jobs && member.jobs.length > 0 && (
                             <tr>
                               <td colSpan="12" className="p-0">
-                                <div className="bg-[var(--sf-bg-page)] border-t border-b border-[var(--sf-border-light)] px-3 py-2">
-                                  <p className="text-xs font-semibold text-[var(--sf-text-muted)] uppercase mb-1">Job Breakdown</p>
+                                <div className="bg-[var(--sf-bg-page)] border-t border-b border-[var(--sf-border-soft)] px-3 py-2">
+                                  <p className="text-xs font-semibold text-[var(--sf-ink-3)] uppercase mb-1">Job Breakdown</p>
                                   <table className="w-full text-xs">
                                     <thead>
-                                      <tr className="text-[var(--sf-text-muted)] uppercase tracking-wider">
+                                      <tr className="text-[var(--sf-ink-3)] uppercase tracking-wider">
                                         <th className="text-left py-2 pr-4 font-medium">Date</th>
                                         <th className="text-left py-2 pr-4 font-medium">Name</th>
                                         <th className="text-left py-2 pr-4 font-medium">Status</th>
@@ -1360,8 +1403,8 @@ const Payroll = () => {
                                     </thead>
                                     <tbody>
                                       {[...member.jobs].sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate)).map(job => (
-                                        <tr key={job.id} className="border-t border-[var(--sf-border-light)]">
-                                          <td className="py-2 pr-4 text-[var(--sf-text-primary)] whitespace-nowrap">{formatShortDate(job.scheduledDate)}</td>
+                                        <tr key={job.id} className="border-t border-[var(--sf-border-soft)]">
+                                          <td className="py-2 pr-4 text-[var(--sf-ink)] whitespace-nowrap">{formatShortDate(job.scheduledDate)}</td>
                                           <td className="py-2 pr-4 font-medium"><span className="text-[var(--sf-text-active)] hover:underline cursor-pointer" onClick={(e) => { e.stopPropagation(); navigate(`/job/${job.id}`) }}>{job.customerName}</span></td>
                                           <td className="py-2 pr-4">
                                             <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -1369,36 +1412,36 @@ const Payroll = () => {
                                               job.status === 'completed' ? 'bg-green-100 text-green-700' :
                                               job.status === 'in-progress' ? 'bg-blue-100 text-[var(--sf-blue-500)]' :
                                               job.status === 'scheduled' ? 'bg-yellow-100 text-yellow-700' :
-                                              'bg-[var(--sf-bg-page)] text-[var(--sf-text-secondary)]'
+                                              'bg-[var(--sf-bg-page)] text-[var(--sf-ink-2)]'
                                             }`}>{job.status}</span>
                                           </td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
                                             <EditableCell value={job.hours} format="hours" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { hoursWorked: val }); await fetchPayrollData(); }} />
                                             {job.hoursOverridden && <span className="text-[9px] text-orange-500 ml-0.5">*</span>}
                                           </td>
                                           <td className="py-2 pr-4 text-right text-xs">
                                             {job.realHours != null ? (
-                                              <span className={job.realHours > job.hours * 1.1 ? 'text-red-600 font-medium' : job.realHours < job.hours * 0.9 ? 'text-green-600 font-medium' : 'text-[var(--sf-text-muted)]'}>
+                                              <span className={job.realHours > job.hours * 1.1 ? 'text-red-600 font-medium' : job.realHours < job.hours * 0.9 ? 'text-green-600 font-medium' : 'text-[var(--sf-ink-3)]'}>
                                                 {job.realHours.toFixed(1)}
                                               </span>
-                                            ) : <span className="text-[var(--sf-text-muted)]">—</span>}
+                                            ) : <span className="text-[var(--sf-ink-3)]">—</span>}
                                           </td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
                                             <EditableCell value={job.fullRevenue || job.revenue || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { servicePrice: val }); await fetchPayrollData(); }} />
-                                            {job.memberCount > 1 && <span className="text-[var(--sf-text-muted)] text-xs ml-1">({formatCurrency(job.revenue)}/ea)</span>}
+                                            {job.memberCount > 1 && <span className="text-[var(--sf-ink-3)] text-xs ml-1">({formatCurrency(job.revenue)}/ea)</span>}
                                           </td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">{formatCurrency(job.hourlySalary)}</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">{formatCurrency(job.commission)}</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{formatCurrency(job.hourlySalary)}</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{formatCurrency(job.commission)}</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
                                             <EditableCell value={job.tip || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { tipAmount: val * (job.memberCount || 1) }); await fetchPayrollData(); }} />
                                           </td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-text-primary)]">
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
                                             <EditableCell value={job.incentive || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { incentiveAmount: val, teamMemberId: member.teamMember.id }); await fetchPayrollData(); }} />
                                           </td>
                                           <td className="py-2 pr-4 text-right text-orange-600">
                                             <EditableCell value={Math.abs(job.cashCollected || 0)} format="dollar" onSave={async (val) => { await ledgerAPI.updateCashCollected(job.id, member.teamMember.id, val); await fetchPayrollData(); }} />
                                           </td>
-                                          <td className="py-2 text-right text-[var(--sf-text-primary)] font-medium">{formatCurrency((job.hourlySalary || 0) + (job.commission || 0) + (job.tip || 0) + (job.incentive || 0) + (job.cashCollected || 0))}</td>
+                                          <td className="py-2 text-right text-[var(--sf-ink)] font-medium">{formatCurrency((job.hourlySalary || 0) + (job.commission || 0) + (job.tip || 0) + (job.incentive || 0) + (job.cashCollected || 0))}</td>
                                         </tr>
                                       ))}
                                     </tbody>
@@ -1413,17 +1456,17 @@ const Payroll = () => {
                       </tbody>
                       <tfoot className="bg-[var(--sf-bg-page)]">
                         <tr>
-                          <td colSpan="2" className="px-3 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">Totals:</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-center">{filteredSummary.totalJobCount || 0}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{filteredSummary.totalHours.toFixed(1)}</td>
+                          <td colSpan="2" className="px-3 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">Totals:</td>
+                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-center">{filteredSummary.totalJobCount || 0}</td>
+                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{filteredSummary.totalHours.toFixed(1)}</td>
                           <td className="px-2 py-3 text-sm font-semibold text-indigo-700 text-right">{formatCurrency(filteredSummary.totalJobRevenue || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{formatCurrency(filteredSummary.totalHourlySalary || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{formatCurrency(filteredSummary.totalCommission || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{formatCurrency(filteredSummary.totalTips || 0)}</td>
-                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{formatCurrency(filteredSummary.totalIncentives || 0)}</td>
+                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalHourlySalary || 0)}</td>
+                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalCommission || 0)}</td>
+                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalTips || 0)}</td>
+                          <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalIncentives || 0)}</td>
                           <td className="px-2 py-3 text-sm font-semibold text-[var(--sf-blue-500)] text-right">{(filteredSummary.totalReimbursements || 0) > 0 ? formatCurrency(filteredSummary.totalReimbursements) : '—'}</td>
                           <td className="px-2 py-3 text-sm font-semibold text-right">{(filteredSummary.totalCashCollected || 0) < 0 ? <span className="text-orange-600">{formatCurrency(filteredSummary.totalCashCollected)}</span> : '—'}</td>
-                          <td className="px-3 py-3 text-sm font-semibold text-[var(--sf-text-primary)] text-right">{formatCurrency(filteredSummary.totalSalary)}</td>
+                          <td className="px-3 py-3 text-sm font-semibold text-[var(--sf-ink)] text-right">{formatCurrency(filteredSummary.totalSalary)}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -1438,23 +1481,23 @@ const Payroll = () => {
             <div>
               {/* Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-5">
-                  <div className="text-sm text-[var(--sf-text-muted)] mb-1">Total Unpaid Balance</div>
+                <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-5">
+                  <div className="text-sm text-[var(--sf-ink-3)] mb-1">Total Unpaid Balance</div>
                   <div className={`text-2xl font-bold ${totalUnpaidBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(totalUnpaidBalance)}
                   </div>
-                  <div className="text-xs text-[var(--sf-text-muted)] mt-1">Owed to all cleaners</div>
+                  <div className="text-xs text-[var(--sf-ink-3)] mt-1">Owed to all cleaners</div>
                 </div>
-                <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-5">
-                  <div className="text-sm text-[var(--sf-text-muted)] mb-1">Team Members</div>
-                  <div className="text-2xl font-bold text-[var(--sf-text-primary)]">{balances.length}</div>
-                  <div className="text-xs text-[var(--sf-text-muted)] mt-1">{balances.filter(b => b.status !== 'inactive').length} active, {balances.filter(b => b.status === 'inactive').length} inactive</div>
+                <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-5">
+                  <div className="text-sm text-[var(--sf-ink-3)] mb-1">Team Members</div>
+                  <div className="text-2xl font-bold text-[var(--sf-ink)]">{balances.length}</div>
+                  <div className="text-xs text-[var(--sf-ink-3)] mt-1">{balances.filter(b => b.status !== 'inactive').length} active, {balances.filter(b => b.status === 'inactive').length} inactive</div>
                 </div>
-                <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-5">
+                <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-5">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <div className="text-sm text-[var(--sf-text-muted)] mb-1">Backfill</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">Create ledger for past completed jobs</div>
+                      <div className="text-sm text-[var(--sf-ink-3)] mb-1">Backfill</div>
+                      <div className="text-xs text-[var(--sf-ink-3)]">Create ledger for past completed jobs</div>
                     </div>
                     {!backfillPreview && !backfillResult && (
                       <button onClick={handleBackfillPreview} disabled={backfillLoading}
@@ -1467,9 +1510,9 @@ const Payroll = () => {
                   {/* Preview result */}
                   {backfillPreview && !backfillResult && (
                     <div className="mt-3 pt-3 border-t">
-                      <div className="text-sm text-[var(--sf-text-primary)] mb-2">
+                      <div className="text-sm text-[var(--sf-ink)] mb-2">
                         <span className="font-semibold">{backfillPreview.would_process}</span> jobs to process
-                        <span className="text-[var(--sf-text-muted)] ml-2">({backfillPreview.already_have_entries} already have entries)</span>
+                        <span className="text-[var(--sf-ink-3)] ml-2">({backfillPreview.already_have_entries} already have entries)</span>
                         {backfillPreview.managers_with_salary > 0 && (
                           <span className="text-purple-600 ml-2">+ {backfillPreview.managers_with_salary} manager(s) daily salary</span>
                         )}
@@ -1485,7 +1528,7 @@ const Payroll = () => {
                             {backfillLoading ? 'Processing...' : 'Reset & Re-backfill All'}
                           </button>
                           <button onClick={() => setBackfillPreview(null)}
-                            className="px-3 py-2 text-xs border border-[var(--sf-border-light)] rounded-lg hover:bg-[var(--sf-bg-hover)]">Cancel</button>
+                            className="px-3 py-2 text-xs border border-[var(--sf-border-soft)] rounded-lg hover:bg-[var(--sf-bg-hover)]">Cancel</button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 flex-wrap">
@@ -1496,7 +1539,7 @@ const Payroll = () => {
                             Reset & Re-backfill All
                           </button>
                           <button onClick={() => setBackfillPreview(null)}
-                            className="ml-2 px-2 py-1 text-xs border border-[var(--sf-border-light)] rounded hover:bg-[var(--sf-bg-hover)]">Dismiss</button>
+                            className="ml-2 px-2 py-1 text-xs border border-[var(--sf-border-soft)] rounded hover:bg-[var(--sf-bg-hover)]">Dismiss</button>
                         </div>
                       )}
                     </div>
@@ -1505,7 +1548,7 @@ const Payroll = () => {
                   {/* Progress bar */}
                   {backfillLoading && (
                     <div className="mt-3 pt-3 border-t">
-                      <div className="flex items-center justify-between text-xs text-[var(--sf-text-muted)] mb-1">
+                      <div className="flex items-center justify-between text-xs text-[var(--sf-ink-3)] mb-1">
                         <span>
                           {backfillPhase === 'manager_salary' ? 'Creating manager salary entries...' :
                            backfillTotal > 0 ? `Processing jobs: ${backfillProcessed} / ${backfillTotal}` : 'Starting...'}
@@ -1532,12 +1575,12 @@ const Payroll = () => {
                         <Check size={14} className="text-green-600" />
                         <span className="text-sm font-medium text-green-700">Backfill complete</span>
                       </div>
-                      <div className="text-xs text-[var(--sf-text-secondary)]">
+                      <div className="text-xs text-[var(--sf-ink-2)]">
                         {backfillResult.processed} jobs processed, {backfillResult.already_had_entries || 0} already had entries{backfillResult.errors > 0 && `, ${backfillResult.errors} errors`}
                         {backfillResult.manager_salary_entries > 0 && `, ${backfillResult.manager_salary_entries} manager salary entries created`}
                       </div>
                       <button onClick={() => { setBackfillResult(null); setBackfillProgress(0) }}
-                        className="mt-2 px-2 py-1 text-xs border border-[var(--sf-border-light)] rounded hover:bg-[var(--sf-bg-hover)]">Dismiss</button>
+                        className="mt-2 px-2 py-1 text-xs border border-[var(--sf-border-soft)] rounded hover:bg-[var(--sf-bg-hover)]">Dismiss</button>
                     </div>
                   )}
 
@@ -1545,10 +1588,10 @@ const Payroll = () => {
               </div>
 
               {/* Date Filter */}
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-4 mb-4">
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-4">
                 <div className="flex flex-wrap gap-3 items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Filter size={14} className="text-[var(--sf-text-muted)]" />
+                    <Filter size={14} className="text-[var(--sf-ink-3)]" />
                     <QuickTimeFilter
                       payoutFrequency={payoutFrequency} payoutStartDay={payoutStartDay}
                       activeRange={balancesQuickRange}
@@ -1568,9 +1611,9 @@ const Payroll = () => {
               </div>
 
               {/* Cleaner Balances Table */}
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-[var(--sf-border-light)] flex items-center justify-between flex-wrap gap-2">
-                  <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Cleaner Balances</h2>
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-hidden">
+                <div className="px-5 py-4 border-b border-[var(--sf-border-soft)] flex items-center justify-between flex-wrap gap-2">
+                  <h2 className="text-lg font-semibold text-[var(--sf-ink)]">Cleaner Balances</h2>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setShowOnlyWithEarnings(!showOnlyWithEarnings)}
@@ -1588,7 +1631,7 @@ const Payroll = () => {
                     </button>
                     {balances.length > 0 && (
                       <button onClick={copyBalancesTable}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--sf-text-secondary)] bg-[var(--sf-bg-page)] border rounded-lg hover:bg-[var(--sf-bg-hover)]">
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--sf-ink-2)] bg-[var(--sf-bg-page)] border rounded-lg hover:bg-[var(--sf-bg-hover)]">
                         <ClipboardCopy size={13} />
                         {copiedBalances ? 'Copied!' : 'Copy Table'}
                       </button>
@@ -1600,16 +1643,16 @@ const Payroll = () => {
                     ? balances.filter(b => (parseFloat(b.unpaid_earnings) || 0) !== 0 || (parseFloat(b.unpaid_tips) || 0) !== 0 || (parseFloat(b.current_balance) || 0) !== 0)
                     : balances;
                   return balancesLoading ? (
-                  <div className="p-8 text-center text-[var(--sf-text-muted)]">Loading...</div>
+                  <div className="p-8 text-center text-[var(--sf-ink-3)]">Loading...</div>
                 ) : displayBalances.length === 0 ? (
-                  <div className="p-8 text-center text-[var(--sf-text-muted)]">
+                  <div className="p-8 text-center text-[var(--sf-ink-3)]">
                     <BookOpen size={40} className="mx-auto mb-3 text-gray-300" />
                     <p>No ledger data yet. Complete jobs or run a backfill to populate.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-[var(--sf-bg-page)] text-[var(--sf-text-muted)] text-xs font-semibold uppercase tracking-wider">
+                      <thead className="bg-[var(--sf-bg-page)] text-[var(--sf-ink-3)] text-xs font-semibold uppercase tracking-wider">
                         <tr>
                           <th className="px-4 py-3 text-left">Cleaner</th>
                           <th className="px-4 py-3 text-center">Jobs</th>
@@ -1626,22 +1669,22 @@ const Payroll = () => {
                       <tbody className="divide-y divide-[var(--sf-border-light)]">
                         {displayBalances.map(b => (
                           <tr key={b.team_member_id} className="hover:bg-[var(--sf-bg-hover)]">
-                            <td className="px-4 py-3 font-medium text-[var(--sf-text-primary)]">{b.name || `ID ${b.team_member_id}`}</td>
-                            <td className="px-4 py-3 text-center text-[var(--sf-text-secondary)]">{b.job_count || 0}</td>
+                            <td className="px-4 py-3 font-medium text-[var(--sf-ink)]">{b.name || `ID ${b.team_member_id}`}</td>
+                            <td className="px-4 py-3 text-center text-[var(--sf-ink-2)]">{b.job_count || 0}</td>
                             <td className={`px-4 py-3 text-right font-semibold ${b.current_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                               {formatCurrency(b.current_balance)}
                               {(b.prior_debt || 0) < 0 && (
                                 <div className="text-[10px] font-normal text-orange-400">incl. prior {formatCurrency(b.prior_debt)}</div>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-right hidden sm:table-cell text-[var(--sf-text-secondary)]">{formatCurrency(b.unpaid_earnings)}</td>
-                            <td className="px-4 py-3 text-right hidden sm:table-cell text-[var(--sf-text-secondary)]">{formatCurrency(b.unpaid_tips)}</td>
-                            <td className="px-4 py-3 text-right hidden sm:table-cell text-[var(--sf-text-secondary)]">{formatCurrency(b.unpaid_incentives)}</td>
-                            <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--sf-text-secondary)]">{formatCurrency(b.unpaid_reimbursements || 0)}</td>
-                            <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--sf-text-secondary)]">{formatCurrency(b.unpaid_cash_offsets)}</td>
-                            <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--sf-text-secondary)]">{formatCurrency(b.unpaid_adjustments)}</td>
+                            <td className="px-4 py-3 text-right hidden sm:table-cell text-[var(--sf-ink-2)]">{formatCurrency(b.unpaid_earnings)}</td>
+                            <td className="px-4 py-3 text-right hidden sm:table-cell text-[var(--sf-ink-2)]">{formatCurrency(b.unpaid_tips)}</td>
+                            <td className="px-4 py-3 text-right hidden sm:table-cell text-[var(--sf-ink-2)]">{formatCurrency(b.unpaid_incentives)}</td>
+                            <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--sf-ink-2)]">{formatCurrency(b.unpaid_reimbursements || 0)}</td>
+                            <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--sf-ink-2)]">{formatCurrency(b.unpaid_cash_offsets)}</td>
+                            <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--sf-ink-2)]">{formatCurrency(b.unpaid_adjustments)}</td>
                             <td className="px-4 py-3 text-center">
-                              <span className="text-xs px-2 py-1 bg-[var(--sf-bg-page)] rounded-full text-[var(--sf-text-secondary)] capitalize">
+                              <span className="text-xs px-2 py-1 bg-[var(--sf-bg-page)] rounded-full text-[var(--sf-ink-2)] capitalize">
                                 {b.payout_schedule || 'manual'}
                               </span>
                             </td>
@@ -1674,7 +1717,7 @@ const Payroll = () => {
           {activeTab === 'ledger' && (
             <div>
               {/* Filters */}
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-4 mb-4 space-y-3">
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-4 space-y-3">
                 <QuickTimeFilter
                   payoutFrequency={payoutFrequency} payoutStartDay={payoutStartDay}
                   activeRange={ledgerQuickRange}
@@ -1686,9 +1729,9 @@ const Payroll = () => {
                 />
                 <div className="flex flex-wrap gap-3 items-end">
                   <div className="flex-1 min-w-[140px]">
-                    <label className="text-xs text-[var(--sf-text-muted)] mb-1 block">Team Member</label>
+                    <label className="text-xs text-[var(--sf-ink-3)] mb-1 block">Team Member</label>
                     <select value={filterMember} onChange={e => { setFilterMember(e.target.value); setEntriesPage(1) }}
-                      className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                      className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                       <option value="">All</option>
                       {teamMembers.map(tm => (
                         <option key={tm.id} value={tm.id}>{tm.first_name} {tm.last_name}</option>
@@ -1696,9 +1739,9 @@ const Payroll = () => {
                     </select>
                   </div>
                   <div className="min-w-[120px]">
-                    <label className="text-xs text-[var(--sf-text-muted)] mb-1 block">Type</label>
+                    <label className="text-xs text-[var(--sf-ink-3)] mb-1 block">Type</label>
                     <select value={filterType} onChange={e => { setFilterType(e.target.value); setEntriesPage(1) }}
-                      className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                      className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                       <option value="">All</option>
                       {Object.entries(TYPE_LABELS).map(([k, v]) => (
                         <option key={k} value={k}>{v}</option>
@@ -1706,9 +1749,9 @@ const Payroll = () => {
                     </select>
                   </div>
                   <div className="min-w-[110px]">
-                    <label className="text-xs text-[var(--sf-text-muted)] mb-1 block">Status</label>
+                    <label className="text-xs text-[var(--sf-ink-3)] mb-1 block">Status</label>
                     <select value={filterPayoutStatus} onChange={e => { setFilterPayoutStatus(e.target.value); setEntriesPage(1) }}
-                      className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                      className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                       <option value="">All</option>
                       <option value="unpaid">Unpaid</option>
                       <option value="paid">Paid</option>
@@ -1721,16 +1764,16 @@ const Payroll = () => {
               </div>
 
               {/* Entries Table */}
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm overflow-hidden">
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-hidden">
                 {entriesLoading ? (
-                  <div className="p-8 text-center text-[var(--sf-text-muted)]">Loading...</div>
+                  <div className="p-8 text-center text-[var(--sf-ink-3)]">Loading...</div>
                 ) : entries.length === 0 ? (
-                  <div className="p-8 text-center text-[var(--sf-text-muted)]">No ledger entries found</div>
+                  <div className="p-8 text-center text-[var(--sf-ink-3)]">No ledger entries found</div>
                 ) : (
                   <>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
-                        <thead className="bg-[var(--sf-bg-page)] text-[var(--sf-text-muted)] text-xs font-semibold uppercase tracking-wider">
+                        <thead className="bg-[var(--sf-bg-page)] text-[var(--sf-ink-3)] text-xs font-semibold uppercase tracking-wider">
                           <tr>
                             <th className="px-4 py-3 text-left">Date</th>
                             <th className="px-4 py-3 text-left">Cleaner</th>
@@ -1744,8 +1787,8 @@ const Payroll = () => {
                         <tbody className="divide-y divide-[var(--sf-border-light)]">
                           {entries.map(e => (
                             <tr key={e.id} className="hover:bg-[var(--sf-bg-hover)]">
-                              <td className="px-4 py-3 text-[var(--sf-text-secondary)]">{formatDate(e.effective_date)}</td>
-                              <td className="px-4 py-3 font-medium text-[var(--sf-text-primary)]">
+                              <td className="px-4 py-3 text-[var(--sf-ink-2)]">{formatDate(e.effective_date)}</td>
+                              <td className="px-4 py-3 font-medium text-[var(--sf-ink)]">
                                 {e.team_members ? `${e.team_members.first_name || ''} ${e.team_members.last_name || ''}`.trim() : '-'}
                               </td>
                               <td className="px-4 py-3">
@@ -1756,12 +1799,12 @@ const Payroll = () => {
                               <td className={`px-4 py-3 text-right font-semibold ${parseFloat(e.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 {formatCurrency(e.amount)}
                               </td>
-                              <td className="px-4 py-3 hidden sm:table-cell text-[var(--sf-text-muted)]">
+                              <td className="px-4 py-3 hidden sm:table-cell text-[var(--sf-ink-3)]">
                                 {e.job_id ? (
                                   <button onClick={() => navigate(`/job/${e.job_id}`)} className="text-[var(--sf-blue-500)] hover:underline">#{e.job_id}</button>
                                 ) : '-'}
                               </td>
-                              <td className="px-4 py-3 hidden md:table-cell text-[var(--sf-text-muted)] max-w-[200px] truncate">{e.note || '-'}</td>
+                              <td className="px-4 py-3 hidden md:table-cell text-[var(--sf-ink-3)] max-w-[200px] truncate">{e.note || '-'}</td>
                               <td className="px-4 py-3 text-center">
                                 {e.payout_batch_id ? (
                                   <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">Paid</span>
@@ -1774,14 +1817,14 @@ const Payroll = () => {
                         </tbody>
                       </table>
                     </div>
-                    <div className="px-4 py-3 border-t border-[var(--sf-border-light)] flex items-center justify-between text-sm text-[var(--sf-text-muted)]">
+                    <div className="px-4 py-3 border-t border-[var(--sf-border-soft)] flex items-center justify-between text-sm text-[var(--sf-ink-3)]">
                       <span>{entriesTotal} total entries</span>
                       <div className="flex gap-2">
                         <button disabled={entriesPage <= 1} onClick={() => setEntriesPage(p => p - 1)}
-                          className="px-3 py-1 border border-[var(--sf-border-light)] rounded hover:bg-[var(--sf-bg-hover)] disabled:opacity-50">Prev</button>
+                          className="px-3 py-1 border border-[var(--sf-border-soft)] rounded hover:bg-[var(--sf-bg-hover)] disabled:opacity-50">Prev</button>
                         <span className="px-3 py-1">Page {entriesPage}</span>
                         <button disabled={entries.length < 50} onClick={() => setEntriesPage(p => p + 1)}
-                          className="px-3 py-1 border border-[var(--sf-border-light)] rounded hover:bg-[var(--sf-bg-hover)] disabled:opacity-50">Next</button>
+                          className="px-3 py-1 border border-[var(--sf-border-soft)] rounded hover:bg-[var(--sf-bg-hover)] disabled:opacity-50">Next</button>
                       </div>
                     </div>
                   </>
@@ -1843,7 +1886,7 @@ const Payroll = () => {
 
             return (
             <div>
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-4 mb-4">
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-4">
                 <QuickTimeFilter
                   payoutFrequency={payoutFrequency} payoutStartDay={payoutStartDay}
                   activeRange={payoutsQuickRange}
@@ -1872,22 +1915,22 @@ const Payroll = () => {
 
               {/* Summary panel */}
               {(counts.paid > 0 || counts.pending > 0) && (
-                <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm p-4 mb-4">
+                <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] p-4 mb-4">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div>
-                      <div className="text-xs text-[var(--sf-text-muted)] uppercase">Pending</div>
+                      <div className="text-xs text-[var(--sf-ink-3)] uppercase">Pending</div>
                       <div className="text-xl font-bold text-yellow-600">{formatCurrency(totals.pending)}</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">{counts.pending} members</div>
+                      <div className="text-xs text-[var(--sf-ink-3)]">{counts.pending} members</div>
                     </div>
                     <div>
-                      <div className="text-xs text-[var(--sf-text-muted)] uppercase">Paid</div>
+                      <div className="text-xs text-[var(--sf-ink-3)] uppercase">Paid</div>
                       <div className="text-xl font-bold text-green-600">{formatCurrency(totals.paid)}</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">{counts.paid} members</div>
+                      <div className="text-xs text-[var(--sf-ink-3)]">{counts.paid} members</div>
                     </div>
                     <div>
-                      <div className="text-xs text-[var(--sf-text-muted)] uppercase">Total</div>
-                      <div className="text-xl font-bold text-[var(--sf-text-primary)]">{formatCurrency(totals.pending + totals.paid)}</div>
-                      <div className="text-xs text-[var(--sf-text-muted)]">{counts.paid + counts.pending} members</div>
+                      <div className="text-xs text-[var(--sf-ink-3)] uppercase">Total</div>
+                      <div className="text-xl font-bold text-[var(--sf-ink)]">{formatCurrency(totals.pending + totals.paid)}</div>
+                      <div className="text-xs text-[var(--sf-ink-3)]">{counts.paid + counts.pending} members</div>
                     </div>
                     <div className="flex items-center">
                       {pendingBatchIds.length > 0 && (
@@ -1901,18 +1944,18 @@ const Payroll = () => {
                 </div>
               )}
 
-              <div className="bg-white rounded-xl border border-[var(--sf-border-light)] shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-[var(--sf-border-light)] flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Team Payouts</h2>
+              <div className="bg-[var(--sf-panel)] rounded-[10px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-hidden">
+                <div className="px-5 py-4 border-b border-[var(--sf-border-soft)] flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-[var(--sf-ink)]">Team Payouts</h2>
                   <button onClick={() => { setPayPeriodStart(payoutsStartDate); setPayPeriodEnd(payoutsEndDate); setShowPayoutModal(true); setModalError('') }}
                     className="px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1">
                     <Plus size={16} /> Create Payout
                   </button>
                 </div>
                 {batchesLoading ? (
-                  <div className="p-8 text-center text-[var(--sf-text-muted)]">Loading...</div>
+                  <div className="p-8 text-center text-[var(--sf-ink-3)]">Loading...</div>
                 ) : filteredRows.length === 0 ? (
-                  <div className="p-8 text-center text-[var(--sf-text-muted)]">
+                  <div className="p-8 text-center text-[var(--sf-ink-3)]">
                     <Banknote size={40} className="mx-auto mb-3 text-gray-300" />
                     <p>No team members match the selected filter.</p>
                   </div>
@@ -1924,23 +1967,23 @@ const Payroll = () => {
                           onClick={() => activeBatch && handleViewBatch(activeBatch.id)}>
                           <div className="flex items-center gap-4">
                             {activeBatch ? (
-                              <button className="text-[var(--sf-text-muted)]">
+                              <button className="text-[var(--sf-ink-3)]">
                                 {expandedBatch === activeBatch.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                               </button>
                             ) : (
                               <div className="w-4" />
                             )}
                             <div>
-                              <div className="font-medium text-[var(--sf-text-primary)]">
+                              <div className="font-medium text-[var(--sf-ink)]">
                                 {tm.first_name} {tm.last_name || ''}
                                 {tm.status === 'inactive' && <span className="ml-1.5 text-xs text-gray-400 font-normal">(inactive)</span>}
                               </div>
                               {activeBatch ? (
-                                <div className="text-xs text-[var(--sf-text-muted)]">
+                                <div className="text-xs text-[var(--sf-ink-3)]">
                                   {formatDate(activeBatch.period_start)} - {formatDate(activeBatch.period_end)}
                                 </div>
                               ) : (
-                                <div className="text-xs text-[var(--sf-text-muted)]">No entries</div>
+                                <div className="text-xs text-[var(--sf-ink-3)]">No entries</div>
                               )}
                             </div>
                           </div>
@@ -2005,12 +2048,12 @@ const Payroll = () => {
                           </div>
                         </div>
                         {activeBatch && expandedBatch === activeBatch.id && batchDetail && (
-                          <div className="px-5 pb-4 bg-[var(--sf-bg-page)] border-t border-[var(--sf-border-light)]">
+                          <div className="px-5 pb-4 bg-[var(--sf-bg-page)] border-t border-[var(--sf-border-soft)]">
                             <div className="mt-3">
-                              {activeBatch.paid_at && <p className="text-xs text-[var(--sf-text-muted)] mb-2">Paid on: {formatDate(activeBatch.paid_at)}</p>}
-                              {activeBatch.note && <p className="text-xs text-[var(--sf-text-muted)] mb-2">Note: {activeBatch.note}</p>}
+                              {activeBatch.paid_at && <p className="text-xs text-[var(--sf-ink-3)] mb-2">Paid on: {formatDate(activeBatch.paid_at)}</p>}
+                              {activeBatch.note && <p className="text-xs text-[var(--sf-ink-3)] mb-2">Note: {activeBatch.note}</p>}
                               <table className="w-full text-xs mt-2">
-                                <thead className="text-[var(--sf-text-muted)] uppercase">
+                                <thead className="text-[var(--sf-ink-3)] uppercase">
                                   <tr>
                                     <th className="py-1 text-left">Date</th>
                                     <th className="py-1 text-left">Type</th>
@@ -2030,7 +2073,7 @@ const Payroll = () => {
                                       <td className={`py-1 text-right font-medium ${parseFloat(e.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                         {formatCurrency(e.amount)}
                                       </td>
-                                      <td className="py-1 text-[var(--sf-text-muted)] truncate max-w-[200px]">{e.note || '-'}</td>
+                                      <td className="py-1 text-[var(--sf-ink-3)] truncate max-w-[200px]">{e.note || '-'}</td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -2057,7 +2100,6 @@ const Payroll = () => {
           )}
 
         </div>
-      </div>
 
       {/* ═══════════════ MODALS ═══════════════ */}
 
@@ -2065,11 +2107,11 @@ const Payroll = () => {
       {showAdjustmentModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-bold text-[var(--sf-text-primary)] mb-4">Create Adjustment</h3>
+            <h3 className="text-lg font-bold text-[var(--sf-ink)] mb-4">Create Adjustment</h3>
             {modalError && <div className="text-sm text-red-600 bg-red-50 p-2 rounded mb-3">{modalError}</div>}
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Team Member *</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Team Member *</label>
                 <select value={adjTeamMember} onChange={e => {
                   const tmId = e.target.value
                   setAdjTeamMember(tmId)
@@ -2083,7 +2125,7 @@ const Payroll = () => {
                     }
                   }
                 }}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                   <option value="">Select...</option>
                   {teamMembers.map(tm => {
                     const bal = balances.find(b => b.team_member_id === tm.id)
@@ -2099,32 +2141,32 @@ const Payroll = () => {
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Amount *</label>
+                  <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Amount *</label>
                   <input type="number" step="0.01" value={adjAmount} onChange={e => setAdjAmount(e.target.value)}
-                    className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                    className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
                 </div>
                 <div>
-                  <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Direction</label>
+                  <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Direction</label>
                   <select value={adjDirection} onChange={e => setAdjDirection(e.target.value)}
-                    className="border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                    className="border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                     <option value="positive">+ Credit</option>
                     <option value="negative">- Debit</option>
                   </select>
                 </div>
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Job ID (optional)</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Job ID (optional)</label>
                 <input type="text" value={adjJobId} onChange={e => setAdjJobId(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="Job ID" />
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" placeholder="Job ID" />
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Reason / Note *</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Reason / Note *</label>
                 <textarea value={adjNote} onChange={e => setAdjNote(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" rows={2} placeholder="Reason for adjustment..." />
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" rows={2} placeholder="Reason for adjustment..." />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setShowAdjustmentModal(false)} className="bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
+              <button onClick={() => setShowAdjustmentModal(false)} className="bg-white border border-[var(--sf-border-soft)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-ink-2)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
               <button onClick={handleCreateAdjustment} disabled={modalLoading}
                 className="px-4 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50">
                 {modalLoading ? 'Creating...' : 'Create Adjustment'}
@@ -2138,17 +2180,17 @@ const Payroll = () => {
       {showCashModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-bold text-[var(--sf-text-primary)] mb-4">Record Cash</h3>
+            <h3 className="text-lg font-bold text-[var(--sf-ink)] mb-4">Record Cash</h3>
             {modalError && <div className="text-sm text-red-600 bg-red-50 p-2 rounded mb-3">{modalError}</div>}
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Cash Type *</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Cash Type *</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => setCashType('paid_in_cash')}
                     className={`px-3 py-2.5 text-sm rounded-lg border-2 transition-colors ${
                       cashType === 'paid_in_cash'
                         ? 'border-orange-500 bg-orange-50 text-orange-700 font-medium'
-                        : 'border-[var(--sf-border-light)] text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-page)]'
+                        : 'border-[var(--sf-border-soft)] text-[var(--sf-ink-2)] hover:bg-[var(--sf-bg-page)]'
                     }`}>
                     <div className="font-medium">Paid in Cash</div>
                     <div className="text-xs mt-0.5 opacity-75">Reduces salary owed</div>
@@ -2157,7 +2199,7 @@ const Payroll = () => {
                     className={`px-3 py-2.5 text-sm rounded-lg border-2 transition-colors ${
                       cashType === 'cash_to_company'
                         ? 'border-blue-500 bg-[var(--sf-blue-50)] text-[var(--sf-blue-500)] font-medium'
-                        : 'border-[var(--sf-border-light)] text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-page)]'
+                        : 'border-[var(--sf-border-soft)] text-[var(--sf-ink-2)] hover:bg-[var(--sf-bg-page)]'
                     }`}>
                     <div className="font-medium">Cash to Company</div>
                     <div className="text-xs mt-0.5 opacity-75">Cashflow record only</div>
@@ -2165,9 +2207,9 @@ const Payroll = () => {
                 </div>
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Team Member *</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Team Member *</label>
                 <select value={cashTeamMember} onChange={e => setCashTeamMember(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                   <option value="">Select...</option>
                   {teamMembers.map(tm => (
                     <option key={tm.id} value={tm.id}>{tm.first_name} {tm.last_name}</option>
@@ -2175,19 +2217,19 @@ const Payroll = () => {
                 </select>
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Amount *</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Amount *</label>
                 <input type="number" step="0.01" value={cashAmount} onChange={e => setCashAmount(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Job ID (optional)</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Job ID (optional)</label>
                 <input type="text" value={cashJobId} onChange={e => setCashJobId(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="Job ID" />
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" placeholder="Job ID" />
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Note</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Note</label>
                 <input type="text" value={cashNote} onChange={e => setCashNote(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="Optional note" />
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" placeholder="Optional note" />
               </div>
               {cashType === 'paid_in_cash' && (
                 <div className="bg-orange-50 rounded-lg p-3 text-xs text-orange-700">
@@ -2201,7 +2243,7 @@ const Payroll = () => {
               )}
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => { setShowCashModal(false); setCashType('paid_in_cash') }} className="bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
+              <button onClick={() => { setShowCashModal(false); setCashType('paid_in_cash') }} className="bg-white border border-[var(--sf-border-soft)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-ink-2)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
               <button onClick={handleRecordCash} disabled={modalLoading}
                 className={`px-4 py-2 text-sm text-white rounded-lg disabled:opacity-50 ${
                   cashType === 'cash_to_company' ? 'bg-[var(--sf-blue-500)] hover:bg-[var(--sf-blue-600)]' : 'bg-orange-500 hover:bg-orange-600'
@@ -2217,14 +2259,14 @@ const Payroll = () => {
       {showPayoutModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-bold text-[var(--sf-text-primary)] mb-4">Create Payout Batch</h3>
-            <p className="text-xs text-[var(--sf-text-muted)] mb-3">Groups all unpaid ledger entries in the selected period into a payout batch.</p>
+            <h3 className="text-lg font-bold text-[var(--sf-ink)] mb-4">Create Payout Batch</h3>
+            <p className="text-xs text-[var(--sf-ink-3)] mb-3">Groups all unpaid ledger entries in the selected period into a payout batch.</p>
             {modalError && <div className="text-sm text-red-600 bg-red-50 p-2 rounded mb-3">{modalError}</div>}
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Team Member *</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Team Member *</label>
                 <select value={payTeamMember} onChange={e => setPayTeamMember(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm bg-white">
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm bg-white">
                   <option value="">Select...</option>
                   <option value="all">All Active Members</option>
                   {teamMembers.filter(tm => tm.status === 'active').map(tm => (
@@ -2240,14 +2282,14 @@ const Payroll = () => {
               </div>
               <div className="flex gap-3 items-end">
                 <div className="flex-1">
-                  <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Period Start *</label>
+                  <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Period Start *</label>
                   <input type="date" value={payPeriodStart} onChange={e => setPayPeriodStart(e.target.value)}
-                    className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div className="flex-1">
-                  <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Period End *</label>
+                  <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Period End *</label>
                   <input type="date" value={payPeriodEnd} onChange={e => setPayPeriodEnd(e.target.value)}
-                    className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <button type="button" onClick={() => { setPayPeriodStart('2024-01-01'); setPayPeriodEnd(toLocalDateString(new Date())) }}
                   className="px-3 py-2 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 whitespace-nowrap">
@@ -2255,9 +2297,9 @@ const Payroll = () => {
                 </button>
               </div>
               <div>
-                <label className="text-sm text-[var(--sf-text-secondary)] mb-1 block">Note</label>
+                <label className="text-sm text-[var(--sf-ink-2)] mb-1 block">Note</label>
                 <input type="text" value={payNote} onChange={e => setPayNote(e.target.value)}
-                  className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm" placeholder="Optional note" />
+                  className="w-full border border-[var(--sf-border-soft)] rounded-lg px-3 py-2 text-sm" placeholder="Optional note" />
               </div>
 
               {/* Pay-in-advance toggle */}
@@ -2265,7 +2307,7 @@ const Payroll = () => {
                 className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${
                   payIncludeScheduled
                     ? 'border-amber-300 bg-amber-50'
-                    : 'border-[var(--sf-border-light)] bg-white hover:bg-[var(--sf-bg-hover)]'
+                    : 'border-[var(--sf-border-soft)] bg-white hover:bg-[var(--sf-bg-hover)]'
                 }`}
               >
                 <input
@@ -2275,10 +2317,10 @@ const Payroll = () => {
                   className="mt-0.5"
                 />
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--sf-text-primary)]">
+                  <div className="text-sm font-medium text-[var(--sf-ink)]">
                     Include scheduled jobs
                   </div>
-                  <div className="text-xs text-[var(--sf-text-muted)] mt-0.5">
+                  <div className="text-xs text-[var(--sf-ink-3)] mt-0.5">
                     Marks scheduled jobs in this period as <strong>completed</strong> before
                     the payout. Use when paying in advance — once batched, those earnings
                     can&apos;t be reversed by cancelling the job later.
@@ -2287,7 +2329,7 @@ const Payroll = () => {
               </label>
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setShowPayoutModal(false)} className="bg-white border border-[var(--sf-border-light)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
+              <button onClick={() => setShowPayoutModal(false)} className="bg-white border border-[var(--sf-border-soft)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--sf-ink-2)] hover:bg-[var(--sf-bg-hover)]">Cancel</button>
               <button onClick={handleCreatePayout} disabled={modalLoading}
                 className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
                 {modalLoading ? 'Creating...' : 'Create Payout Batch'}
