@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom"
 import { handleTeamDeletionError, createErrorNotification, createSuccessNotification } from "../utils/errorHandler"
 import { getImageUrl } from "../utils/imageUtils"
 import MobileHeader from "../components/mobile-header"
-import { TeamsView, ScheduleView, PayrollView, PerformanceView } from "../components/team-design-tabs"
+import { TeamsView, ScheduleView, PayrollView, PerformanceView, MembersView } from "../components/team-design-tabs"
 
 // Placeholder card for the design-pack Team tabs (Teams, Schedule,
 // Payroll, Performance). The design pack ships a full implementation
@@ -786,6 +786,20 @@ const ServiceFlowTeam = () => {
                     {activeTab === "teams" && (
                       <TeamsView members={teamMembers} jobs={designJobs} />
                     )}
+                    {activeTab === "members" && (
+                      <MembersView
+                        members={getFilteredMembers()}
+                        jobs={designJobs}
+                        filters={filters}
+                        onFilterChange={handleFilterChange}
+                        onAddMember={handleAddMember}
+                        onView={handleViewMember}
+                        onEdit={handleEditMember}
+                        onDelete={handleDeleteMember}
+                        onResend={handleResendInvite}
+                        onToggleActivation={handleToggleActivation}
+                      />
+                    )}
                     {activeTab === "schedule" && (
                       <ScheduleView members={teamMembers} />
                     )}
@@ -797,7 +811,7 @@ const ServiceFlowTeam = () => {
                     )}
 
                     {/* Filters */}
-                    {['active','invited','deactivated','members'].includes(activeTab) && (<>
+                    {['active','invited','deactivated'].includes(activeTab) && (<>
                     <div className="p-4 sm:p-6 border-b border-[var(--sf-border-light)]">
                       <div className="flex flex-col gap-3">
                         <div className="w-full">

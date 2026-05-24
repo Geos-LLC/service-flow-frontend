@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   Users, Briefcase, ChevronLeft, ChevronRight, Calendar as CalIcon,
   DollarSign, Star, Clock, AlertCircle, Download, RefreshCw, ArrowRight,
+  Search, Mail, Phone, Edit, MoreHorizontal, UserPlus, ChevronDown,
 } from "lucide-react"
 import { jobsAPI, payrollAPI } from "../services/api"
 import { normalizeAPIResponse } from "../utils/dataHandler"
@@ -143,6 +144,341 @@ const EmptyChart = ({ icon: Icon = AlertCircle, title, subtitle, height = 180 })
     {subtitle && <div style={{ fontSize: 11.5, color: T.ink3 }}>{subtitle}</div>}
   </div>
 )
+
+// ════════════════════════════════════════════════════════════════════════
+// MEMBERS TAB — Flat card grid with search + role + status + sort filters
+// ════════════════════════════════════════════════════════════════════════
+
+const MemberCard = ({ m, jobStats, onView, onEdit, onDelete, onResend, onToggleActivation }) => {
+  const role = memberRoleKind(m)
+  const stats = jobStats || { jobs: 0, revenue: 0, completed: 0 }
+  const isWorker = role === "worker"
+  const isInvited = m.status === "invited" || m.status === "pending"
+  const isInactive = m.status === "inactive" || m.status === "on_leave"
+  const railColor = m.color || ROLE_META[role]?.c || T.blueDark
+
+  return (
+    <div
+      style={{
+        background: T.panel, border: `1px solid ${T.borderS}`, borderRadius: 10,
+        overflow: "hidden", display: "flex", flexDirection: "column",
+        borderLeft: `6px solid ${railColor}`,
+        opacity: isInactive ? 0.7 : 1,
+      }}
+    >
+      {/* Header */}
+      <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+        <SfAvatar initials={sfInitials(fullName(m))} color={m.color || railColor} size={42} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {fullName(m)}
+          </div>
+          <div style={{ fontSize: 11, color: T.ink3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {ROLE_META[role]?.label || "Member"}{m.is_service_provider ? " · Field" : ""}
+          </div>
+        </div>
+        <button
+          onClick={() => onView?.(m)}
+          title="View member"
+          style={{
+            padding: 6, borderRadius: 6, border: "none",
+            background: "transparent", color: T.ink3, cursor: "pointer",
+          }}
+        >
+          <MoreHorizontal size={16} />
+        </button>
+      </div>
+
+      {/* Tags row */}
+      <div style={{ padding: "0 14px 10px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <RoleTag kind={role} />
+        <StatusTag status={m.status} />
+      </div>
+
+      {/* Active work strip (only if invited or active worker with stats) */}
+      {isInvited && (
+        <div style={{ background: T.purpleSoft, padding: "8px 14px", display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: T.purple, fontStyle: "italic" }}>
+          <Mail size={11} />
+          <span>Invite pending — waiting for member to accept</span>
+        </div>
+      )}
+      {!isInvited && isWorker && stats.jobs > 0 && (
+        <div style={{ background: T.panelSoft, padding: "8px 14px", fontSize: 11.5, color: T.ink2 }}>
+          <Briefcase size={11} style={{ display: "inline", verticalAlign: "middle", marginRight: 5 }} />
+          <span style={{ verticalAlign: "middle" }}>
+            {stats.completed}/{stats.jobs} jobs done · {moneyShort(stats.revenue)} revenue
+          </span>
+        </div>
+      )}
+
+      {/* Stats triplet — workers only */}
+      {isWorker && !isInvited && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderTop: `1px solid ${T.borderS}` }}>
+          {[
+            { label: "Jobs", value: stats.jobs, sub: `${stats.completed} done` },
+            { label: "Revenue", value: moneyShort(stats.revenue), sub: stats.jobs ? `${money(stats.revenue / Math.max(1, stats.jobs))} avg` : "—" },
+            { label: "Done", value: stats.jobs ? `${Math.round((stats.completed / stats.jobs) * 100)}%` : "—", sub: stats.jobs && stats.completed / stats.jobs >= 0.9 ? "on track" : "" },
+          ].map((s, i) => (
+            <div key={s.label} style={{ padding: "10px 14px", borderRight: i < 2 ? `1px solid ${T.borderS}` : "none" }}>
+              <div style={{ fontSize: 9.5, color: T.ink3, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>{s.label}</div>
+              <div style={{ fontSize: 14, color: T.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{s.value}</div>
+              {s.sub && <div style={{ fontSize: 10, color: T.ink3, marginTop: 1 }}>{s.sub}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Contact row */}
+      <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.borderS}`, background: T.panelAlt, display: "flex", alignItems: "center", gap: 8 }}>
+        {m.email && (
+          <a href={`mailto:${m.email}`} title={m.email} onClick={(e) => e.stopPropagation()}
+            style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${T.borderS}`, background: T.panel,
+                     display: "flex", alignItems: "center", justifyContent: "center", color: T.ink2, textDecoration: "none" }}>
+            <Mail size={13} />
+          </a>
+        )}
+        {m.phone && (
+          <a href={`tel:${m.phone}`} title={m.phone} onClick={(e) => e.stopPropagation()}
+            style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${T.borderS}`, background: T.panel,
+                     display: "flex", alignItems: "center", justifyContent: "center", color: T.ink2, textDecoration: "none" }}>
+            <Phone size={13} />
+          </a>
+        )}
+        <div style={{ flex: 1 }} />
+        {!isInvited && (
+          <button onClick={() => onEdit?.(m)} style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "5px 10px", borderRadius: 7, background: T.panel,
+            border: `1px solid ${T.borderS}`, color: T.ink2, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+          }}>
+            <Edit size={12} />
+            Edit
+          </button>
+        )}
+        {isInvited && m.email && (
+          <button onClick={() => onResend?.(m)} style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "5px 10px", borderRadius: 7, background: T.panel,
+            border: `1px solid ${T.borderS}`, color: T.blueDark, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+          }}>
+            <Mail size={12} />
+            Resend
+          </button>
+        )}
+        <button onClick={() => onView?.(m)} style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "5px 10px", borderRadius: 7, background: T.panel,
+          border: `1px solid ${T.borderS}`, color: T.blueDark, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+        }}>
+          Open
+          <ArrowRight size={11} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export const MembersView = ({
+  members, jobs, filters, onFilterChange, onAddMember,
+  onView, onEdit, onDelete, onResend, onToggleActivation,
+}) => {
+  const [roleFilter, setRoleFilter] = useState("all")
+  const [sort, setSort] = useState("name_asc")
+
+  // Compute jobs-by-member once
+  const jobsByMember = useMemo(() => {
+    const map = {}
+    ;(jobs || []).forEach((j) => {
+      const ids = new Set()
+      if (j.team_member_id) ids.add(Number(j.team_member_id))
+      if (j.assigned_team_member_id) ids.add(Number(j.assigned_team_member_id))
+      if (Array.isArray(j.team_assignments)) j.team_assignments.forEach((ta) => ta?.team_member_id && ids.add(Number(ta.team_member_id)))
+      ids.forEach((id) => {
+        if (!map[id]) map[id] = { jobs: 0, revenue: 0, completed: 0 }
+        map[id].jobs += 1
+        if (j.status === "completed" || j.status === "paid") map[id].completed += 1
+        map[id].revenue += (parseFloat(j.total_amount) || parseFloat(j.total) || parseFloat(j.service_price) || parseFloat(j.price) || 0)
+      })
+    })
+    return map
+  }, [jobs])
+
+  // Apply role + search + status filters locally on top of what server already filtered
+  const filtered = useMemo(() => {
+    let out = members || []
+    if (roleFilter !== "all") {
+      out = out.filter((m) => memberRoleKind(m) === roleFilter)
+    }
+    // sort
+    out = [...out]
+    const nameOf = (m) => fullName(m).toLowerCase()
+    if (sort === "name_asc") out.sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
+    else if (sort === "name_desc") out.sort((a, b) => nameOf(b).localeCompare(nameOf(a)))
+    else if (sort === "role") out.sort((a, b) => memberRoleKind(a).localeCompare(memberRoleKind(b)) || nameOf(a).localeCompare(nameOf(b)))
+    else if (sort === "status") out.sort((a, b) => (a.status || "").localeCompare(b.status || "") || nameOf(a).localeCompare(nameOf(b)))
+    else if (sort === "jobs_desc") out.sort((a, b) => (jobsByMember[Number(b.id)]?.jobs || 0) - (jobsByMember[Number(a.id)]?.jobs || 0))
+    else if (sort === "revenue_desc") out.sort((a, b) => (jobsByMember[Number(b.id)]?.revenue || 0) - (jobsByMember[Number(a.id)]?.revenue || 0))
+    return out
+  }, [members, roleFilter, sort, jobsByMember])
+
+  // KPIs use the full (pre-role-filter) member list so totals don't drift with role chip
+  const kpis = useMemo(() => {
+    const all = members || []
+    return {
+      total: all.length,
+      active: all.filter((m) => m.status === "active").length,
+      workers: all.filter((m) => memberRoleKind(m) === "worker").length,
+      schedulers: all.filter((m) => memberRoleKind(m) === "scheduler").length,
+      managers: all.filter((m) => memberRoleKind(m) === "manager").length,
+      invited: all.filter((m) => m.status === "invited" || m.status === "pending").length,
+    }
+  }, [members])
+
+  const ROLE_CHIPS = [
+    { id: "all",       label: "All",        count: kpis.total },
+    { id: "worker",    label: "Workers",    count: kpis.workers },
+    { id: "scheduler", label: "Schedulers", count: kpis.schedulers },
+    { id: "manager",   label: "Managers",   count: kpis.managers },
+  ]
+
+  return (
+    <div style={{ padding: "14px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        <SfKPI label="Total members" value={kpis.total} sub="all statuses" accent={T.blue} />
+        <SfKPI label="Active" value={kpis.active} sub="working today" accent={T.green} />
+        <SfKPI label="Workers" value={kpis.workers} sub="field crew" accent={T.greenDark} />
+        <SfKPI label="Schedulers" value={kpis.schedulers} sub="dispatching" accent={T.purple} />
+        <SfKPI label="Pending invites" value={kpis.invited} sub="awaiting accept" accent={T.amber} />
+      </div>
+
+      {/* Filter toolbar */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+        {/* Role chips */}
+        <div style={{ display: "inline-flex", gap: 0, background: T.panelSoft, borderRadius: 8, padding: 3, border: `1px solid ${T.borderS}` }}>
+          {ROLE_CHIPS.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setRoleFilter(c.id)}
+              style={{
+                padding: "5px 10px", fontSize: 11.5, fontWeight: 600, border: "none",
+                background: roleFilter === c.id ? T.panel : "transparent",
+                color: roleFilter === c.id ? T.ink : T.ink2,
+                borderRadius: 6, cursor: "pointer",
+                boxShadow: roleFilter === c.id ? "0 1px 2px rgba(15,23,42,.08)" : "none",
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}
+            >
+              {c.label}
+              <span style={{
+                fontSize: 10, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                color: roleFilter === c.id ? T.blueDark : T.ink3,
+                background: roleFilter === c.id ? T.blueSoft : T.panelSoft,
+                padding: "1px 5px", borderRadius: 6,
+              }}>{c.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
+          <Search size={14} color={T.ink3} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input
+            type="text"
+            placeholder="Search members…"
+            value={filters?.search || ""}
+            onChange={(e) => onFilterChange?.({ search: e.target.value })}
+            style={{
+              width: "100%", padding: "7px 10px 7px 30px",
+              fontSize: 12.5, color: T.ink, fontWeight: 500,
+              background: T.panel, border: `1px solid ${T.borderS}`, borderRadius: 8,
+              outline: "none",
+            }}
+          />
+        </div>
+
+        {/* Status dropdown */}
+        <select
+          value={filters?.status || ""}
+          onChange={(e) => onFilterChange?.({ status: e.target.value })}
+          style={{
+            padding: "7px 10px", fontSize: 12.5, fontWeight: 600,
+            color: T.ink, background: T.panel,
+            border: `1px solid ${T.borderS}`, borderRadius: 8, cursor: "pointer",
+          }}
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active only</option>
+          <option value="invited">Invited only</option>
+          <option value="inactive">Inactive only</option>
+        </select>
+
+        {/* Sort dropdown */}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          style={{
+            padding: "7px 10px", fontSize: 12.5, fontWeight: 600,
+            color: T.ink, background: T.panel,
+            border: `1px solid ${T.borderS}`, borderRadius: 8, cursor: "pointer",
+          }}
+        >
+          <option value="name_asc">Sort: Name A→Z</option>
+          <option value="name_desc">Sort: Name Z→A</option>
+          <option value="role">Sort: Role</option>
+          <option value="status">Sort: Status</option>
+          <option value="jobs_desc">Sort: Most jobs</option>
+          <option value="revenue_desc">Sort: Most revenue</option>
+        </select>
+
+        {/* Add button */}
+        {onAddMember && (
+          <button onClick={onAddMember} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "7px 12px", background: T.blueDark, color: "#fff",
+            border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+            boxShadow: "0 1px 2px rgba(37,99,235,.3)",
+          }}>
+            <UserPlus size={13} />
+            Add member
+          </button>
+        )}
+      </div>
+
+      {/* Card grid */}
+      {filtered.length === 0 ? (
+        <EmptyChart
+          icon={Users}
+          title="No members match"
+          subtitle={
+            (filters?.search || filters?.status || roleFilter !== "all")
+              ? "Try clearing filters or changing role."
+              : "Click Add member to get started."
+          }
+          height={240}
+        />
+      ) : (
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+          gap: 14,
+        }}>
+          {filtered.map((m) => (
+            <MemberCard
+              key={m.id}
+              m={m}
+              jobStats={jobsByMember[Number(m.id)]}
+              onView={onView}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onResend={onResend}
+              onToggleActivation={onToggleActivation}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // TEAMS TAB — Role-grouped cards (since codebase has no first-class teams)
