@@ -996,13 +996,20 @@ const LeadsPipeline = () => {
     let stageLeads = leads.filter(lead => lead.stage_id === stageId);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      stageLeads = stageLeads.filter(lead =>
-        (lead.first_name && lead.first_name.toLowerCase().includes(q)) ||
-        (lead.last_name && lead.last_name.toLowerCase().includes(q)) ||
-        (lead.email && lead.email.toLowerCase().includes(q)) ||
-        (lead.company && lead.company.toLowerCase().includes(q)) ||
-        (lead.phone && lead.phone.includes(q))
-      );
+      // Match against the concatenated display name ("First Last") instead of
+      // individual first_name / last_name fields. The card UI renders the name
+      // as `{first_name} {last_name}`, so searching the visible string
+      // (e.g. "Sagar J" for "Sagar" + "J.") previously matched zero records
+      // because neither field alone contained the space-joined query.
+      stageLeads = stageLeads.filter(lead => {
+        const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(' ').toLowerCase();
+        return (
+          fullName.includes(q) ||
+          (lead.email && lead.email.toLowerCase().includes(q)) ||
+          (lead.company && lead.company.toLowerCase().includes(q)) ||
+          (lead.phone && lead.phone.includes(q))
+        );
+      });
     }
     // Apply filters
     if (filters.priceMin) {
