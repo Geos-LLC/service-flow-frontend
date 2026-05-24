@@ -112,6 +112,7 @@ import DropdownMultiselectDemo from "./pages/dropdown-multiselect-demo"
 import ImportDataPage from "./pages/import-data"
 import ImportJobsPage from "./pages/import-jobs"
 import LeadsPipeline from "./pages/leads-pipeline"
+import TasksPage from "./pages/tasks"
 import Communications from "./pages/communications-v2"
 import ConnectedInboxes from "./pages/settings/ConnectedInboxes"
 import LandingPageLegacy from "./pages/LandingPage"
@@ -170,6 +171,7 @@ root.render(
       <Route path="/customers" element={<ServiceFlowCustomers />} />
       <Route path="/customer/:customerId" element={<ProtectedRoute><CustomerDetails /></ProtectedRoute>} />
       <Route path="/leads" element={<ProtectedRoute><LeadsPipeline /></ProtectedRoute>} />
+      <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
       <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
       <Route path="/invoices/:invoiceId" element={<ProtectedRoute><InvoiceDetails /></ProtectedRoute>} />
       <Route path="/invoices/:invoiceId/edit" element={<ProtectedRoute><InvoiceEdit /></ProtectedRoute>} />
