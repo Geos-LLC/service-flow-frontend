@@ -13,6 +13,7 @@ import api from "../services/api"
 import { useAuth } from "../context/AuthContext"
 import MobileHeader from "../components/mobile-header"
 import PaystubsTab from "../components/paystubs-tab"
+import { SimplePayView, SimpleHistoryView } from "../components/payroll-simple-view"
 import {
   SfCard,
   SfCardHeader,
@@ -1369,7 +1370,7 @@ const PayrollTimeView = ({
 const Payroll = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('payroll')
+  const [activeTab, setActiveTab] = useState('simple')
 
   // ── Payroll tab state ──
   const [loading, setLoading] = useState(true)
@@ -1672,10 +1673,20 @@ const Payroll = () => {
 
   // ── Auto-refetch when job filter changes (dates handled by loadPayoutSettings and quick range buttons) ──
   useEffect(() => {
-    if (user?.id && (activeTab === 'payroll' || activeTab === 'current_period') && payoutFrequency !== 'manual') {
+    if (user?.id && (activeTab === 'payroll' || activeTab === 'current_period' || activeTab === 'simple') && payoutFrequency !== 'manual') {
       fetchPayrollData()
     }
   }, [payrollJobFilter])
+
+  // Simple tab needs both payroll data + batches for status — fetch on first visit
+  useEffect(() => {
+    if (!user?.id) return
+    if (activeTab === 'simple' || activeTab === 'simple_history') {
+      if (!payrollData) fetchPayrollData()
+      fetchBatches()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, user?.id])
 
   // Auto-refetch balances removed — onApply handles it directly
 
@@ -1985,6 +1996,8 @@ const Payroll = () => {
 
   // ── Tabs ──
   const tabs = [
+    { id: 'simple',          label: 'Pay run',        icon: DollarSign },
+    { id: 'simple_history',  label: 'Past runs',      icon: BookOpen },
     { id: 'payroll',         label: 'Payroll',        icon: DollarSign },
     { id: 'current_period',  label: 'Current period', icon: Calendar },
     { id: 'drafts',          label: 'Drafts',         icon: FileText },
@@ -2109,13 +2122,36 @@ const Payroll = () => {
       <div className="px-4 sm:px-6 lg:px-8 py-6">
 
           {/* Error Message */}
-          {error && (activeTab === 'payroll' || activeTab === 'current_period') && (
+          {error && (activeTab === 'payroll' || activeTab === 'current_period' || activeTab === 'simple') && (
             <div className="mb-6 bg-red-50 border-l-4 border-red-400 p-4 rounded">
               <div className="flex items-center">
                 <AlertCircle className="w-5 h-5 text-red-400 mr-2" />
                 <span className="text-sm text-red-700">{error}</span>
               </div>
             </div>
+          )}
+
+          {/* ═══════════════ SIMPLE PAY TAB ═══════════════ */}
+          {activeTab === 'simple' && payrollData && (
+            <SimplePayView
+              payrollData={payrollData}
+              batches={batches}
+              startDate={startDate}
+              endDate={endDate}
+              onRefresh={() => { fetchPayrollData(); fetchBatches(); }}
+              showToast={(msg, type) => { /* fall back to console; existing modal/notification pattern can be wired later */ console.log(`[${type}] ${msg}`); }}
+              onViewMember={(row) => { window.location.href = `/team/${row.id}`; }}
+              onEditMember={(row) => { setActiveTab('payroll'); setSelectedMemberId(String(row.id)); }}
+            />
+          )}
+
+          {/* ═══════════════ SIMPLE PAY · PAST RUNS TAB ═══════════════ */}
+          {activeTab === 'simple_history' && (
+            <SimpleHistoryView
+              batches={batches}
+              teamMembers={teamMembers}
+              onViewRun={(run) => { setActiveTab('history'); }}
+            />
           )}
 
           {/* ═══════════════ PAYROLL TAB ═══════════════ */}
