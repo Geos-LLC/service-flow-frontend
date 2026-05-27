@@ -30,7 +30,7 @@ import ServiceFlowCoupons from "./pages/serviceflow-coupons"
 import CreateCoupon from "./pages/create-coupon"
 import ServiceFlowTerritories from "./pages/serviceflow-territories"
 import TerritoryDetails from "./pages/territory-details"
-import Analytics from "./pages/analytics"
+import Analytics from "./pages/analytics-v2"
 import ServiceFlowOnlineBooking from "./pages/serviceflow-online-booking"
 import ServiceFlowWebsiteEmbed from "./pages/serviceflow-website-embed"
 import ServiceFlowSettings from "./pages/serviceflow-settings-v2"
@@ -112,6 +112,8 @@ import DropdownMultiselectDemo from "./pages/dropdown-multiselect-demo"
 import ImportDataPage from "./pages/import-data"
 import ImportJobsPage from "./pages/import-jobs"
 import LeadsPipeline from "./pages/leads-pipeline"
+import LeadDetailsPage from "./pages/lead-details"
+import TasksPage from "./pages/tasks"
 import Communications from "./pages/communications-v2"
 import ConnectedInboxes from "./pages/settings/ConnectedInboxes"
 import LandingPageLegacy from "./pages/LandingPage"
@@ -170,6 +172,8 @@ root.render(
       <Route path="/customers" element={<ServiceFlowCustomers />} />
       <Route path="/customer/:customerId" element={<ProtectedRoute><CustomerDetails /></ProtectedRoute>} />
       <Route path="/leads" element={<ProtectedRoute><LeadsPipeline /></ProtectedRoute>} />
+      <Route path="/lead/:leadId" element={<ProtectedRoute><LeadDetailsPage /></ProtectedRoute>} />
+      <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
       <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
       <Route path="/invoices/:invoiceId" element={<ProtectedRoute><InvoiceDetails /></ProtectedRoute>} />
       <Route path="/invoices/:invoiceId/edit" element={<ProtectedRoute><InvoiceEdit /></ProtectedRoute>} />

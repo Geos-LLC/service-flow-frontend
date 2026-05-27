@@ -2882,6 +2882,9 @@ export const leadbridgeAPI = {
   disconnect: async () => { const r = await api.delete('/integrations/leadbridge/disconnect'); return r.data; },
   sync: async (accountId, limit) => { const r = await api.post('/integrations/leadbridge/sync', { accountId, limit }); return r.data; },
   getSyncProgress: async () => { const r = await api.get('/integrations/leadbridge/sync/progress'); return r.data; },
+  // Phase 1.5 — semantic observability (read-only diagnostic endpoints)
+  getSemanticSummary: async () => { const r = await api.get('/integrations/leadbridge/semantic-summary'); return r.data; },
+  getEntitySemanticState: async (type, id) => { const r = await api.get(`/integrations/leadbridge/entity/${type}/${id}/semantic-state`); return r.data; },
 };
 
 export const leadAutomationAPI = {

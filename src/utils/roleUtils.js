@@ -219,6 +219,7 @@ export const getAllowedSidebarItems = (user) => {
       '/payments',
       '/customers',
       '/leads',
+      '/tasks',
       '/communications',
       '/team',
       '/payroll',
@@ -228,7 +229,7 @@ export const getAllowedSidebarItems = (user) => {
       '/online-booking',
       '/settings',
     ];
-    
+
     // Only account owners can access analytics
     if (role === 'owner') {
       items.push('/analytics');
@@ -256,12 +257,13 @@ export const getAllowedSidebarItems = (user) => {
       '/payments',
       '/customers',
       '/leads',
+      '/tasks',
       '/services',
       '/territories',
       '/settings',
     ];
   }
-  
+
   // Workers have limited access
   if (role === 'worker') {
     return [
@@ -287,6 +289,7 @@ export const getAllowedSidebarItems = (user) => {
       '/payments',
       '/customers',
       '/leads',
+      '/tasks',
       '/team',
       '/services',
     '/coupons',

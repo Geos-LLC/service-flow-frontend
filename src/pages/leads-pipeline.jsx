@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Plus, 
-  Settings, 
-  User, 
-  Mail, 
-  Phone, 
-  Building, 
+import {
+  Plus,
+  Settings,
+  User,
+  User as UserIcon,
+  Mail,
+  Phone,
+  Building,
   DollarSign,
   MoreVertical,
   Edit,
@@ -26,8 +27,11 @@ import {
   SlidersHorizontal,
   Filter as FilterIcon,
   LayoutGrid,
+  List,
+  Tag,
+  Flag,
   Calendar as CalendarIcon,
-  Clock
+  Clock,
 } from 'lucide-react';
 import { leadsAPI, teamAPI, servicesAPI, leadSourcesAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -42,6 +46,565 @@ import MobileHeader from '../components/mobile-header';
 import ServiceSelectionModal from '../components/service-selection-modal';
 import SfDatePicker from '../components/sf-date-picker';
 
+// ─────────────────────────────────────────────────────────────────────────
+// LeadsDesign tab views — pulled from ADDON_leads_tabs.md
+//
+// Three sibling views to the existing kanban: a dense List, a Sources
+// (channel attribution) view, and an Owners (sales rep) leaderboard.
+// All three read the same `leads` array the kanban uses.
+// ─────────────────────────────────────────────────────────────────────────
+
+const SOURCE_META = {
+  'Website':       { color: '#2563EB', bg: '#DBEAFE' },
+  'Google':        { color: '#4285F4', bg: '#E8F0FE' },
+  'Yelp':          { color: '#D32323', bg: '#FEE2E2' },
+  'Referral':      { color: '#16A34A', bg: '#DCFCE7' },
+  'Instagram':     { color: '#E1306C', bg: '#FCE4EC' },
+  'Facebook':      { color: '#1877F2', bg: '#E3EBF6' },
+  'Cold call':     { color: '#475569', bg: '#F1F5F9' },
+  'Other':         { color: '#475569', bg: '#F1F5F9' },
+}
+const sourceMeta = (s) => SOURCE_META[s] || SOURCE_META['Other']
+
+const stageColor = (stage) => stage?.color || '#94A3B8'
+
+const fmtMoney = (n) => `$${(parseFloat(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+
+const StagePill = ({ stage }) => {
+  if (!stage) return <span className="text-[11px] text-[var(--sf-text-muted)]">—</span>
+  const c = stageColor(stage)
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md whitespace-nowrap"
+      style={{
+        background: `${c}1a`,
+        color: c,
+        fontSize: 11,
+        fontWeight: 600,
+        border: `1px solid ${c}33`,
+      }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: c }} />
+      {stage.name}
+    </span>
+  )
+}
+
+const PriorityDot = ({ priority }) => {
+  const meta = {
+    high: { c: '#DC2626', label: 'High' },
+    med:  { c: '#D97706', label: 'Med' },
+    medium: { c: '#D97706', label: 'Med' },
+    low:  { c: '#94A3B8', label: 'Low' },
+  }[String(priority || '').toLowerCase()] || { c: '#CBD5E1', label: '—' }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-[var(--sf-text-secondary)]">
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta.c }} />
+      {meta.label}
+    </span>
+  )
+}
+
+const ageDays = (lead) => {
+  const created = lead.created_at || lead.createdAt
+  if (!created) return 0
+  const d = new Date(created)
+  if (Number.isNaN(d.getTime())) return 0
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)))
+}
+
+const ageLabel = (lead) => {
+  const days = ageDays(lead)
+  if (days === 0) {
+    const created = lead.created_at || lead.createdAt
+    if (!created) return '—'
+    const hours = Math.max(0, Math.floor((Date.now() - new Date(created).getTime()) / (1000 * 60 * 60)))
+    return hours <= 0 ? 'just now' : `${hours}h`
+  }
+  if (days >= 7) {
+    const weeks = Math.floor(days / 7)
+    return `${weeks}w`
+  }
+  return `${days}d`
+}
+
+const KpiTile = ({ label, value, sub, accent }) => (
+  <div className="bg-white rounded-[10px] border border-[var(--sf-border-light)] shadow-sm px-4 py-3">
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-[var(--sf-text-muted)] font-medium">{label}</span>
+      {accent && <span className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: accent }} />}
+    </div>
+    <div className="text-[22px] font-bold text-[var(--sf-text-primary)] mt-1.5 leading-none" style={{ letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+      {value}
+    </div>
+    {sub && <div className="text-[11px] text-[var(--sf-text-muted)] mt-1">{sub}</div>}
+  </div>
+)
+
+// ── List tab ──
+const LeadsListTabView = ({ leads, teamMembers, stages, selected, setSelected, sort, setSort, onOpenLead }) => {
+  const stageById = new Map(stages.map(s => [s.id, s]))
+  const wonStageIds = new Set(stages.filter(s => /win|won/i.test(s.name)).map(s => s.id))
+  const lostStageIds = new Set(stages.filter(s => /lost/i.test(s.name)).map(s => s.id))
+  const isWon = (l) => wonStageIds.has(l.stage_id)
+  const isLost = (l) => lostStageIds.has(l.stage_id)
+  const isClosed = (l) => isWon(l) || isLost(l)
+
+  const memberById = new Map(teamMembers.map(m => [m.id, m]))
+  const ownerName = (l) => {
+    const id = l.assigned_to_user_id || l.assigned_to
+    const m = memberById.get(id)
+    if (!m) return null
+    return `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email
+  }
+  const ownerInitials = (l) => {
+    const n = ownerName(l)
+    if (!n) return null
+    return n.split(' ').filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase()
+  }
+
+  // KPI rollups
+  const activeLeads = leads.filter(l => !isClosed(l))
+  const pipelineValue = activeLeads.reduce((s, l) => s + (parseFloat(l.value) || 0), 0)
+  const highPriority = leads.filter(l => /high/i.test(l.priority || '')).length
+  const stalled = activeLeads.filter(l => ageDays(l) > 7).length
+  const newThisWeek = leads.filter(l => ageDays(l) <= 7).length
+  const avgValue = leads.length > 0 ? leads.reduce((s, l) => s + (parseFloat(l.value) || 0), 0) / leads.length : 0
+
+  const sortedLeads = [...leads].sort((a, b) => {
+    if (sort === 'value') return (parseFloat(b.value) || 0) - (parseFloat(a.value) || 0)
+    if (sort === 'stage') {
+      const ai = stages.findIndex(s => s.id === a.stage_id)
+      const bi = stages.findIndex(s => s.id === b.stage_id)
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+    }
+    return ageDays(a) - ageDays(b)
+  })
+
+  const allSelected = sortedLeads.length > 0 && sortedLeads.every(l => selected.has(l.id))
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set())
+    else setSelected(new Set(sortedLeads.map(l => l.id)))
+  }
+  const toggleOne = (id) => {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
+  }
+
+  const tableGross = sortedLeads.reduce((s, l) => s + (parseFloat(l.value) || 0), 0)
+
+  return (
+    <div>
+      {/* 6-KPI strip */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+        <KpiTile label="Active pipeline" value={fmtMoney(pipelineValue)} sub={`${activeLeads.length} open`} accent="#2563EB" />
+        <KpiTile label="Total leads"     value={leads.length}             sub="all-time"                 accent="#16A34A" />
+        <KpiTile label="High priority"   value={highPriority}             sub="needs attention"          accent="#DC2626" />
+        <KpiTile label="Stalled > 7d"    value={stalled}                  sub="no recent activity"       accent="#D97706" />
+        <KpiTile label="New this week"   value={newThisWeek}              sub="last 7 days"              accent="#7C3AED" />
+        <KpiTile label="Avg lead value"  value={fmtMoney(avgValue)}       sub="across all stages"        accent="#0F172A" />
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        {selected.size > 0 ? (
+          <div className="inline-flex items-center gap-3 px-3 py-1.5 rounded-md" style={{ background: '#DBEAFE', border: '1px solid rgba(37,99,235,0.33)' }}>
+            <span className="text-[12px] font-semibold text-[var(--sf-blue-500)]">✓ {selected.size} selected</span>
+            <button className="text-[12px] text-[var(--sf-blue-500)] hover:underline">Assign owner</button>
+            <button className="text-[12px] text-[var(--sf-blue-500)] hover:underline">Change stage</button>
+            <button className="text-[12px] text-[var(--sf-blue-500)] hover:underline">Add task</button>
+            <button className="text-[12px] text-red-600 hover:underline font-semibold">Delete</button>
+          </div>
+        ) : (
+          <div className="text-[12.5px] text-[var(--sf-text-muted)]">
+            Showing <b className="text-[var(--sf-text-primary)]">{sortedLeads.length}</b> lead{sortedLeads.length === 1 ? '' : 's'}
+          </div>
+        )}
+        <div className="flex-1" />
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          className="px-2.5 py-1.5 text-[12px] bg-white border border-[var(--sf-border-light)] rounded-md text-[var(--sf-text-secondary)]"
+        >
+          <option value="age">Sort: Newest</option>
+          <option value="value">Sort: Highest value</option>
+          <option value="stage">Sort: By stage</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-[12px] border border-[var(--sf-border-light)] shadow-sm overflow-x-auto">
+        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+          <thead style={{ background: 'var(--sf-bg-page)', borderBottom: '1px solid var(--sf-border-light)' }}>
+            <tr>
+              <th className="px-3 py-2.5" style={{ width: 36 }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+              </th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 70 }}>ID</th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em' }}>Lead</th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 110 }}>Source</th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 130 }}>Stage</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 110 }}>Value</th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 90 }}>Priority</th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 130 }}>Owner</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 70 }}>Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedLeads.map((l) => {
+              const stage = stageById.get(l.stage_id)
+              const sMeta = sourceMeta(l.source)
+              const isSel = selected.has(l.id)
+              const closed = isClosed(l)
+              const lost = isLost(l)
+              const aDays = ageDays(l)
+              return (
+                <tr
+                  key={l.id}
+                  className="hover:bg-[var(--sf-bg-hover)] cursor-pointer"
+                  style={{
+                    borderBottom: '1px solid var(--sf-border-light)',
+                    opacity: closed && !isSel ? 0.7 : 1,
+                    background: isSel ? 'rgba(37,99,235,0.07)' : 'transparent',
+                  }}
+                  onClick={() => onOpenLead(l)}
+                >
+                  <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={isSel} onChange={() => toggleOne(l.id)} />
+                  </td>
+                  <td className="px-3 py-2.5 text-[12px] text-[var(--sf-text-secondary)]" style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, monospace)' }}>
+                    L-{String(l.id).slice(-4).padStart(4, '0')}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className="flex-shrink-0 rounded-md inline-flex items-center justify-center"
+                        style={{
+                          width: 28, height: 28,
+                          background: `${stageColor(stage)}1a`,
+                          color: stageColor(stage),
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {(l.name || l.contact_name || '?').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className="text-[13px] font-semibold text-[var(--sf-text-primary)] truncate"
+                          style={lost ? { textDecoration: 'line-through' } : undefined}
+                        >
+                          {l.name || l.contact_name || 'Untitled lead'}
+                        </div>
+                        {(l.notes || l.description) && (
+                          <div className="text-[11px] text-[var(--sf-text-muted)] truncate" style={{ maxWidth: 280 }}>
+                            {l.notes || l.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {l.source ? (
+                      <span
+                        className="inline-flex items-center px-2 py-[2px] rounded-md whitespace-nowrap"
+                        style={{ background: sMeta.bg, color: sMeta.color, fontSize: 11, fontWeight: 600 }}
+                      >
+                        {l.source}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-[var(--sf-text-muted)]">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <StagePill stage={stage} />
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-[13.5px] font-bold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {l.value ? fmtMoney(l.value) : <span className="text-[var(--sf-text-muted)] font-normal">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <PriorityDot priority={l.priority} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {ownerName(l) ? (
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div
+                          className="flex-shrink-0 rounded-full inline-flex items-center justify-center"
+                          style={{
+                            width: 22, height: 22,
+                            background: 'rgba(37,99,235,0.15)',
+                            color: 'var(--sf-blue-500)',
+                            fontSize: 10,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {ownerInitials(l)}
+                        </div>
+                        <span className="text-[12px] text-[var(--sf-text-primary)] truncate">
+                          {ownerName(l).split(' ')[0]}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-[var(--sf-text-muted)] italic">Unassigned</span>
+                    )}
+                  </td>
+                  <td
+                    className="px-3 py-2.5 text-right text-[12px]"
+                    style={{
+                      fontFamily: 'var(--sf-font-mono, ui-monospace, monospace)',
+                      color: aDays > 7 ? '#D97706' : 'var(--sf-text-secondary)',
+                      fontWeight: aDays > 7 ? 700 : 500,
+                    }}
+                  >
+                    {closed ? 'closed' : ageLabel(l)}
+                  </td>
+                </tr>
+              )
+            })}
+            {sortedLeads.length === 0 && (
+              <tr>
+                <td colSpan="9" className="px-6 py-12 text-center text-[12.5px] text-[var(--sf-text-muted)]">
+                  No leads match the current filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+          {sortedLeads.length > 0 && (
+            <tfoot style={{ background: 'var(--sf-bg-page)', borderTop: '1px solid var(--sf-border-light)' }}>
+              <tr>
+                <td colSpan="5" className="px-3 py-3 text-[11px] font-bold uppercase text-[var(--sf-text-secondary)]" style={{ letterSpacing: '.04em' }}>
+                  {sortedLeads.length} lead{sortedLeads.length === 1 ? '' : 's'} · Total
+                </td>
+                <td className="px-3 py-3 text-right text-[14px] font-bold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtMoney(tableGross)}
+                </td>
+                <td colSpan="3" />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Sources tab ──
+const LeadsSourcesTabView = ({ leads, stages }) => {
+  const stageById = new Map(stages.map(s => [s.id, s]))
+  const isWon = (l) => /win|won/i.test(stageById.get(l.stage_id)?.name || '')
+  const isLost = (l) => /lost/i.test(stageById.get(l.stage_id)?.name || '')
+
+  const grouped = {}
+  leads.forEach(l => {
+    const key = l.source || 'Other'
+    if (!grouped[key]) grouped[key] = { name: key, leads: 0, value: 0, won: 0, wonValue: 0, lost: 0, active: 0 }
+    grouped[key].leads += 1
+    grouped[key].value += parseFloat(l.value) || 0
+    if (isWon(l)) { grouped[key].won += 1; grouped[key].wonValue += parseFloat(l.value) || 0 }
+    else if (isLost(l)) grouped[key].lost += 1
+    else grouped[key].active += 1
+  })
+  const sources = Object.values(grouped).sort((a, b) => b.value - a.value)
+  const maxLeads = Math.max(1, ...sources.map(s => s.leads))
+
+  const totalLeads = leads.length
+  const totalPipeline = leads.reduce((s, l) => s + (isWon(l) || isLost(l) ? 0 : parseFloat(l.value) || 0), 0)
+  const totalClosed = sources.reduce((s, x) => s + x.wonValue, 0)
+  const topSource = sources[0]
+  const bestConv = sources
+    .filter(s => s.won + s.lost >= 3)
+    .map(s => ({ ...s, rate: s.won / (s.won + s.lost) }))
+    .sort((a, b) => b.rate - a.rate)[0]
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+        <KpiTile label="Total leads"     value={totalLeads}                          sub="this period"           accent="#2563EB" />
+        <KpiTile label="Pipeline value"  value={fmtMoney(totalPipeline)}             sub="active only"           accent="#16A34A" />
+        <KpiTile label="Closed value"    value={fmtMoney(totalClosed)}               sub="won"                   accent="#16A34A" />
+        <KpiTile label="Top source"      value={topSource?.name || '—'}              sub={topSource ? `${topSource.leads} leads` : ''} accent="#7C3AED" />
+        <KpiTile label="Best conversion" value={bestConv ? `${(bestConv.rate * 100).toFixed(0)}%` : '—'} sub={bestConv ? bestConv.name : 'needs sample'} accent="#D97706" />
+        <KpiTile label="Sources"         value={sources.length}                       sub="distinct channels"     accent="#0F172A" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-5">
+        {sources.map((s, idx) => {
+          const total = s.won + s.lost
+          const winRate = total > 0 ? (s.won / total) * 100 : null
+          const winColor = winRate == null ? 'var(--sf-text-muted)' : winRate >= 50 ? '#16A34A' : winRate >= 25 ? '#D97706' : '#DC2626'
+          const meta = sourceMeta(s.name)
+          const wonW = (s.won / maxLeads) * 100
+          const activeW = (s.active / maxLeads) * 100
+          const lostW = (s.lost / maxLeads) * 100
+          return (
+            <div key={s.name} className="bg-white rounded-[12px] border border-[var(--sf-border-light)] shadow-sm p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div
+                  className="flex-shrink-0 rounded-md inline-flex items-center justify-center"
+                  style={{ width: 38, height: 38, background: meta.bg, color: meta.color, fontSize: 14, fontWeight: 700 }}
+                >
+                  {s.name[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[14px] font-bold text-[var(--sf-text-primary)] truncate">{s.name}</span>
+                    <span className="inline-flex items-center px-1.5 py-[1px] rounded-md text-[10px] font-bold" style={{ background: 'var(--sf-bg-page)', color: 'var(--sf-text-muted)' }}>
+                      #{idx + 1}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div>
+                  <div className="text-[22px] font-bold text-[var(--sf-text-primary)] leading-none" style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{s.leads}</div>
+                  <div className="text-[10px] uppercase text-[var(--sf-text-muted)] mt-1" style={{ letterSpacing: '.05em' }}>Leads</div>
+                </div>
+                <div>
+                  <div className="text-[22px] font-bold leading-none" style={{ color: '#16A34A', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{fmtMoney(s.value)}</div>
+                  <div className="text-[10px] uppercase text-[var(--sf-text-muted)] mt-1" style={{ letterSpacing: '.05em' }}>Pipeline</div>
+                </div>
+                <div>
+                  <div className="text-[22px] font-bold leading-none" style={{ color: winColor, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
+                    {winRate == null ? '—' : `${Math.round(winRate)}%`}
+                  </div>
+                  <div className="text-[10px] uppercase text-[var(--sf-text-muted)] mt-1" style={{ letterSpacing: '.05em' }}>Win rate</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-[11px] text-[var(--sf-text-muted)] mb-1.5">
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: '#16A34A' }} /> Won {s.won}</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: '#2563EB' }} /> Active {s.active}</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: '#CBD5E1' }} /> Lost {s.lost}</span>
+              </div>
+              <div className="w-full h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--sf-bg-page)' }}>
+                {wonW > 0 && <div style={{ width: `${wonW}%`, background: '#16A34A' }} />}
+                {activeW > 0 && <div style={{ width: `${activeW}%`, background: '#2563EB' }} />}
+                {lostW > 0 && <div style={{ width: `${lostW}%`, background: '#CBD5E1' }} />}
+              </div>
+            </div>
+          )
+        })}
+        {sources.length === 0 && (
+          <div className="md:col-span-2 xl:col-span-3 bg-white rounded-[12px] border border-[var(--sf-border-light)] shadow-sm p-8 text-center text-[12.5px] text-[var(--sf-text-muted)]">
+            No source attribution yet — set <b>source</b> on leads to see this breakdown.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Owners tab ──
+const LeadsOwnersTabView = ({ leads, teamMembers, stages }) => {
+  const stageById = new Map(stages.map(s => [s.id, s]))
+  const isWon = (l) => /win|won/i.test(stageById.get(l.stage_id)?.name || '')
+  const isLost = (l) => /lost/i.test(stageById.get(l.stage_id)?.name || '')
+
+  const memberById = new Map(teamMembers.map(m => [m.id, m]))
+  const memberLabel = (id) => {
+    const m = memberById.get(id)
+    if (!m) return 'Unassigned'
+    return `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || 'Cleaner'
+  }
+  const memberInitials = (id) => {
+    const m = memberById.get(id)
+    if (!m) return '—'
+    return `${m.first_name?.[0] || ''}${m.last_name?.[0] || ''}`.toUpperCase() || '—'
+  }
+
+  const grouped = {}
+  leads.forEach(l => {
+    const id = l.assigned_to_user_id || l.assigned_to || 'unassigned'
+    if (!grouped[id]) grouped[id] = { id, leads: 0, value: 0, won: 0, wonValue: 0, lost: 0, active: 0, activeValue: 0 }
+    grouped[id].leads += 1
+    grouped[id].value += parseFloat(l.value) || 0
+    if (isWon(l)) { grouped[id].won += 1; grouped[id].wonValue += parseFloat(l.value) || 0 }
+    else if (isLost(l)) grouped[id].lost += 1
+    else { grouped[id].active += 1; grouped[id].activeValue += parseFloat(l.value) || 0 }
+  })
+  const rows = Object.values(grouped).sort((a, b) => b.activeValue - a.activeValue)
+
+  const unassignedCount = grouped['unassigned']?.leads || 0
+  const topPerformer = rows.find(r => r.id !== 'unassigned' && r.won > 0)
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+        <KpiTile label="Owners assigned" value={rows.filter(r => r.id !== 'unassigned').length} sub="active reps" accent="#2563EB" />
+        <KpiTile label="Top performer"   value={topPerformer ? memberLabel(topPerformer.id).split(' ')[0] : '—'} sub={topPerformer ? `${topPerformer.won} won` : 'no wins yet'} accent="#16A34A" />
+        <KpiTile label="Avg per rep"     value={rows.length > 0 ? (leads.length / rows.length).toFixed(1) : '0'} sub="active leads / rep" accent="#7C3AED" />
+        <KpiTile label="Unassigned"      value={unassignedCount} sub="needs owner" accent="#DC2626" />
+        <KpiTile label="Avg response"    value="—" sub="needs touch tracking" accent="#D97706" />
+        <KpiTile label="Overdue f/u"     value="—" sub="needs touch tracking" accent="#475569" />
+      </div>
+
+      <div className="bg-white rounded-[12px] border border-[var(--sf-border-light)] shadow-sm overflow-x-auto">
+        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+          <thead style={{ background: 'var(--sf-bg-page)', borderBottom: '1px solid var(--sf-border-light)' }}>
+            <tr>
+              <th className="px-4 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em' }}>Owner</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 80 }}>Leads</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 100 }}>Active</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 120 }}>Pipeline</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 120 }}>Closed</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 100 }}>Win rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const total = r.won + r.lost
+              const winRate = total > 0 ? (r.won / total) * 100 : null
+              const winColor = winRate == null ? 'var(--sf-text-muted)' : winRate >= 50 ? '#16A34A' : winRate >= 25 ? '#D97706' : '#DC2626'
+              const isUnassigned = r.id === 'unassigned'
+              return (
+                <tr key={r.id} style={{ borderBottom: '1px solid var(--sf-border-light)' }}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className="flex-shrink-0 rounded-full inline-flex items-center justify-center"
+                        style={{
+                          width: 30, height: 30,
+                          background: isUnassigned ? 'var(--sf-bg-page)' : 'rgba(37,99,235,0.15)',
+                          color: isUnassigned ? 'var(--sf-text-muted)' : 'var(--sf-blue-500)',
+                          fontSize: 11, fontWeight: 700,
+                        }}
+                      >
+                        {isUnassigned ? '?' : memberInitials(r.id)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-[var(--sf-text-primary)] truncate">
+                          {isUnassigned ? 'Unassigned' : memberLabel(r.id)}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-right text-[13px] font-bold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>{r.leads}</td>
+                  <td className="px-3 py-3 text-right text-[12.5px] text-[var(--sf-text-secondary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>{r.active}</td>
+                  <td className="px-3 py-3 text-right text-[13px] font-semibold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.activeValue)}</td>
+                  <td className="px-3 py-3 text-right text-[13px]" style={{ fontVariantNumeric: 'tabular-nums', color: r.wonValue > 0 ? '#16A34A' : 'var(--sf-text-muted)', fontWeight: r.wonValue > 0 ? 700 : 400 }}>
+                    {r.wonValue > 0 ? fmtMoney(r.wonValue) : '—'}
+                  </td>
+                  <td className="px-3 py-3 text-right text-[13px] font-bold" style={{ color: winColor, fontVariantNumeric: 'tabular-nums' }}>
+                    {winRate == null ? '—' : `${Math.round(winRate)}%`}
+                  </td>
+                </tr>
+              )
+            })}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan="6" className="px-6 py-12 text-center text-[12.5px] text-[var(--sf-text-muted)]">
+                  No leads to attribute yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 const LeadsPipeline = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -49,6 +612,10 @@ const LeadsPipeline = () => {
   const [pipeline, setPipeline] = useState(null);
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  // LeadsDesign tabs — Pipeline (existing kanban) · List · Sources · Owners
+  const [leadsTab, setLeadsTab] = useState('pipeline');
+  const [listSelected, setListSelected] = useState(new Set());
+  const [listSort, setListSort] = useState('age'); // 'age' | 'value' | 'stage'
   const [teamMembers, setTeamMembers] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
@@ -260,12 +827,12 @@ const LeadsPipeline = () => {
     window.addEventListener('mouseup', onUp);
   };
 
-  // Click on a card: first click selects (enabling drag), second click opens details
+  // Click on a card: first click selects (enabling drag), second click opens
+  // the full-screen detail page at /lead/:id
   const handleCardClick = (lead) => {
     if (selectedCardId === lead.id) {
-      setSelectedLead(lead);
-      setShowLeadDetailsModal(true);
       setSelectedCardId(null);
+      navigate(`/lead/${lead.id}`);
     } else {
       setSelectedCardId(lead.id);
     }
@@ -1085,12 +1652,29 @@ const LeadsPipeline = () => {
         <div className="w-full px-4 lg:px-6 py-4">
           {/* Title row */}
           <div className="mb-5">
-            <p className="text-xs text-[var(--sf-text-muted)] mb-1">
-              <span>Leads</span>
-              <span className="mx-1.5">/</span>
-              <span className="text-[var(--sf-text-primary)] font-medium">Pipeline</span>
+            <p className="text-[10.5px] font-bold uppercase text-[var(--sf-text-muted)] mb-1" style={{ letterSpacing: '.06em' }}>
+              <span>Customers</span>
+              <span className="mx-1.5 text-[var(--sf-text-muted)]">›</span>
+              <span className="text-[var(--sf-text-primary)]">Leads</span>
             </p>
-            <h1 className="text-xl font-bold text-[var(--sf-text-primary)]">Lead Stage</h1>
+            <h1 className="text-[22px] font-bold text-[var(--sf-text-primary)]" style={{ letterSpacing: '-0.02em' }}>Leads</h1>
+            <p className="text-[13px] text-[var(--sf-text-secondary)] mt-1">
+              {(() => {
+                const stages = pipeline?.stages || []
+                const wonIds = new Set(stages.filter(s => /win|won/i.test(s.name)).map(s => s.id))
+                const lostIds = new Set(stages.filter(s => /lost/i.test(s.name)).map(s => s.id))
+                const active = leads.filter(l => !wonIds.has(l.stage_id) && !lostIds.has(l.stage_id))
+                const newThisWeek = leads.filter(l => {
+                  const d = new Date(l.created_at)
+                  return !Number.isNaN(d.getTime()) && (Date.now() - d.getTime()) <= 7 * 24 * 60 * 60 * 1000
+                }).length
+                const totalVal = active.reduce((s, l) => s + (parseFloat(l.value) || parseFloat(l.estimated_value) || 0), 0)
+                if (leadsTab === 'sources') return 'Channel attribution · conversion + value contribution per source'
+                if (leadsTab === 'owners')  return 'Sales rep leaderboard · win rate, response time, pipeline value'
+                if (leadsTab === 'list')    return `${leads.length} leads · sort, filter, bulk actions`
+                return `${active.length} leads in pipeline · $${Math.round(totalVal).toLocaleString()} potential · ${newThisWeek} new this week`
+              })()}
+            </p>
           </div>
           {/* Search + Buttons row — all on one line */}
           <div className="flex items-center gap-3">
@@ -1257,11 +1841,144 @@ const LeadsPipeline = () => {
         </div>
       </div>
       
+      {/* LeadsDesign tabs — Pipeline · List · Sources · Owners */}
+      <div className="hidden md:flex items-center gap-0 px-4 lg:px-6 border-b border-[var(--sf-border-light)] bg-white flex-shrink-0">
+        {[
+          { id: 'pipeline', label: 'Pipeline', count: leads.length },
+          { id: 'list',     label: 'List',     count: leads.length },
+          { id: 'sources',  label: 'Sources',  count: new Set(leads.map(l => l.source).filter(Boolean)).size },
+          { id: 'owners',   label: 'Owners',   count: new Set(leads.map(l => l.assigned_to_user_id || l.assigned_to).filter(Boolean)).size },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setLeadsTab(t.id)}
+            className={`relative px-4 py-3 text-[13px] font-semibold transition-colors border-b-2 ${
+              leadsTab === t.id
+                ? 'text-[var(--sf-text-primary)] border-[var(--sf-blue-500)]'
+                : 'text-[var(--sf-text-secondary)] border-transparent hover:text-[var(--sf-text-primary)]'
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {t.label}
+              {t.count > 0 && (
+                <span
+                  className="inline-flex items-center px-1.5 py-[1px] rounded-md"
+                  style={{
+                    background: leadsTab === t.id ? 'rgba(37,99,235,0.10)' : 'var(--sf-bg-page)',
+                    color: leadsTab === t.id ? 'var(--sf-blue-500)' : 'var(--sf-text-muted)',
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                  }}
+                >
+                  {t.count}
+                </span>
+              )}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Pipeline KPI strip — design pack §1 toolbar */}
+      {leadsTab === 'pipeline' && (() => {
+        const stages = pipeline?.stages || []
+        const wonIds = new Set(stages.filter(s => /win|won/i.test(s.name)).map(s => s.id))
+        const lostIds = new Set(stages.filter(s => /lost/i.test(s.name)).map(s => s.id))
+        const isWon = (l) => wonIds.has(l.stage_id)
+        const isLost = (l) => lostIds.has(l.stage_id)
+        const isClosed = (l) => isWon(l) || isLost(l)
+        const active = leads.filter(l => !isClosed(l))
+        const closedThisMonth = leads.filter(l => {
+          if (!isClosed(l)) return false
+          const d = new Date(l.updated_at || l.created_at)
+          if (Number.isNaN(d.getTime())) return false
+          const now = new Date()
+          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+        })
+        const wonThisMonth = closedThisMonth.filter(isWon)
+        const winRate = closedThisMonth.length ? Math.round((wonThisMonth.length / closedThisMonth.length) * 100) : 0
+        const activeValue = active.reduce((s, l) => s + (parseFloat(l.value) || parseFloat(l.estimated_value) || 0), 0)
+        const wonValue = wonThisMonth.reduce((s, l) => s + (parseFloat(l.value) || parseFloat(l.estimated_value) || 0), 0)
+        const dealValues = active.map(l => parseFloat(l.value) || parseFloat(l.estimated_value) || 0).filter(v => v > 0)
+        const avgDeal = dealValues.length ? dealValues.reduce((a, b) => a + b, 0) / dealValues.length : 0
+        const newThisWeek = leads.filter(l => {
+          const d = new Date(l.created_at)
+          if (Number.isNaN(d.getTime())) return false
+          return (Date.now() - d.getTime()) <= 7 * 24 * 60 * 60 * 1000
+        }).length
+        const fmt = (v) => `$${Math.round(v).toLocaleString()}`
+        const fmtShort = (v) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`
+        // Avg time to close = avg days for won leads this month
+        const closedAges = wonThisMonth.map(l => {
+          const c = new Date(l.created_at)
+          const u = new Date(l.updated_at || l.created_at)
+          return Math.max(0, (u - c) / (24 * 60 * 60 * 1000))
+        }).filter(d => d > 0)
+        const avgClose = closedAges.length ? closedAges.reduce((a, b) => a + b, 0) / closedAges.length : 0
+
+        return (
+          <div className="hidden md:grid gap-3 px-4 lg:px-6 pt-4 pb-2 flex-shrink-0" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+            <KpiTile label="In pipeline"     value={fmtShort(activeValue)}      sub={`${active.length} active`}                         accent="#2563EB" />
+            <KpiTile label="Won this month"  value={fmtShort(wonValue)}         sub={`${wonThisMonth.length} closed-won`}               accent="#16A34A" />
+            <KpiTile label="Win rate"        value={`${winRate}%`}              sub={`${wonThisMonth.length}/${closedThisMonth.length} of closed`} accent="#7C3AED" />
+            <KpiTile label="Avg deal size"   value={fmtShort(avgDeal)}          sub={`${dealValues.length} valued leads`}               accent="#D97706" />
+            <KpiTile label="Avg time to close" value={avgClose > 0 ? `${avgClose.toFixed(1)}d` : '—'} sub={`${newThisWeek} new this week`} accent="#0D9488" />
+          </div>
+        )
+      })()}
+
+      {/* Filter chip row — design pack §Pipeline toolbar */}
+      {leadsTab === 'pipeline' && (
+        <div className="hidden md:flex items-center gap-2 px-4 lg:px-6 pt-2 pb-3 flex-shrink-0">
+          {[
+            { id: 'source',   icon: Tag,      label: filters.source ? `Source: ${filters.source}` : 'Source',     active: !!filters.source },
+            { id: 'owner',    icon: UserIcon, label: 'Owner',     active: false },
+            { id: 'priority', icon: Flag,     label: 'Priority',  active: false },
+            { id: 'value',    icon: DollarSign, label: filters.priceMin || filters.priceMax ? `Value: $${filters.priceMin || 0}–${filters.priceMax || '∞'}` : 'Value', active: !!(filters.priceMin || filters.priceMax) },
+          ].map(c => (
+            <button
+              key={c.id}
+              onClick={() => setShowFilterDropdown(true)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold border transition-colors ${
+                c.active
+                  ? 'bg-[var(--sf-blue-50)] border-[var(--sf-blue-500)] text-[var(--sf-blue-500)]'
+                  : 'bg-white border-[var(--sf-border-light)] text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-hover)]'
+              }`}
+            >
+              <c.icon className="w-[13px] h-[13px]" />
+              <span>{c.label}</span>
+            </button>
+          ))}
+          <div className="flex-1" />
+          {/* Kanban / List view toggle */}
+          <div className="inline-flex items-center gap-0 p-[2px] rounded-md bg-[var(--sf-bg-page)] border border-[var(--sf-border-light)]">
+            <button
+              onClick={() => setLeadsTab('pipeline')}
+              className={`px-2 py-1 rounded text-[var(--sf-text-secondary)] transition-colors ${
+                leadsTab === 'pipeline' ? 'bg-white shadow-sm text-[var(--sf-text-primary)]' : 'hover:text-[var(--sf-text-primary)]'
+              }`}
+              title="Kanban view"
+            >
+              <LayoutGrid className="w-[14px] h-[14px]" />
+            </button>
+            <button
+              onClick={() => setLeadsTab('list')}
+              className={`px-2 py-1 rounded text-[var(--sf-text-secondary)] transition-colors ${
+                leadsTab === 'list' ? 'bg-white shadow-sm text-[var(--sf-text-primary)]' : 'hover:text-[var(--sf-text-primary)]'
+              }`}
+              title="List view"
+            >
+              <List className="w-[14px] h-[14px]" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pipeline Board - Desktop & Tablet: horizontal layout (native scroll + drag-to-pan) */}
+      {leadsTab === 'pipeline' && (
       <div
         ref={pipelineScrollRef}
         onMouseDown={handleBoardMouseDown}
-        className="pipeline-scrollbar hidden sm:block w-full max-w-full min-w-0 min-h-0 px-3 lg:px-6 pt-5 pb-3 overflow-x-auto overflow-y-hidden flex-1"
+        className="pipeline-scrollbar hidden sm:block w-full max-w-full min-w-0 min-h-0 px-3 lg:px-6 pt-3 pb-3 overflow-x-auto overflow-y-hidden flex-1"
       >
         <div
           className="flex gap-4 pb-4"
@@ -1292,46 +2009,43 @@ const LeadsPipeline = () => {
                 >
                   <div className="w-0.5 h-12 bg-[var(--sf-border)] rounded-full opacity-0 group-hover/resize:opacity-100 group-hover/resize:bg-[var(--sf-blue-500)] transition-opacity" />
                 </div>
-                {/* Stage Header — colored top border accent */}
+                {/* Stage Header — design pack §PipelineCol layout */}
                 <div
-                  className="rounded-t-xl overflow-hidden"
+                  className="bg-white px-3 py-2.5 border border-[var(--sf-border-light)] rounded-t-[10px] flex items-center"
                   style={{ borderTop: `3px solid ${stage.color}` }}
                 >
-                  <div className="bg-white px-4 pt-3 pb-4 border-b border-x border-[var(--sf-border-light)] rounded-t-xl">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <h3 className="font-semibold text-sm text-[var(--sf-text-primary)] truncate">{stage.name}</h3>
-                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white flex-shrink-0" style={{ backgroundColor: stage.color }}>
-                          {stageLeads.length}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowCreateLeadModal(true); }}
-                          className="w-6 h-6 flex items-center justify-center rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-blue-500)] hover:bg-[var(--sf-bg-hover)] transition-colors"
-                          title="Add lead"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowEditStageModal(true); }}
-                          className="w-6 h-6 flex items-center justify-center rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-hover)] transition-colors"
-                          title="Stage options"
-                        >
-                          <MoreVertical className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-xl font-bold text-[var(--sf-text-primary)] mt-2">
-                      $ {totalValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </p>
-                  </div>
+                  <span className="text-[12.5px] font-bold text-[var(--sf-text-primary)] truncate">{stage.name}</span>
+                  <span className="ml-1.5 text-[10.5px] font-semibold text-[var(--sf-text-muted)] px-1.5 py-[1px] rounded-[9px] bg-[var(--sf-bg-page)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {stageLeads.length}
+                  </span>
+                  <div className="flex-1" />
+                  <span className="text-[11px] font-semibold text-[var(--sf-text-muted)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowCreateLeadModal(true); }}
+                    className="ml-1 p-[3px] rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-blue-500)] hover:bg-[var(--sf-bg-hover)] transition-colors"
+                    title="Add lead"
+                  >
+                    <Plus className="w-[13px] h-[13px]" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowEditStageModal(true); }}
+                    className="p-[3px] rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-hover)] transition-colors"
+                    title="Stage options"
+                  >
+                    <MoreVertical className="w-[13px] h-[13px]" />
+                  </button>
                 </div>
 
-                {/* Leads in Stage */}
-                <div className="flex-1 p-2 space-y-2.5 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
+                {/* Leads in Stage — design pack §LeadCard layout */}
+                <div className="flex-1 px-2.5 pt-2.5 pb-2 space-y-2 overflow-y-auto bg-[var(--sf-bg-page)] border-x border-b border-[var(--sf-border-light)] rounded-b-[10px]" style={{ maxHeight: 'calc(100vh - 290px)' }}>
                   {stageLeads.map((lead) => {
                     const isSelected = selectedCardId === lead.id;
+                    const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.email || 'Lead';
+                    const ownerName = lead.assigned_to_name || (lead.assigned_to_user_id ? `Owner ${lead.assigned_to_user_id}` : 'Unassigned');
+                    const ownerInitials = (ownerName.match(/\b[A-Z]/g) || []).join('').slice(0, 2).toUpperCase() || 'OW';
+                    const isHighPriority = (lead.priority || '').toLowerCase() === 'high';
                     return (
                     <div
                       key={lead.id}
@@ -1342,74 +2056,76 @@ const LeadsPipeline = () => {
                       }}
                       onDragEnd={() => setSelectedCardId(null)}
                       onClick={(e) => { e.stopPropagation(); handleCardClick(lead); }}
-                      className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-all group ${
+                      className={`bg-white rounded-lg border shadow-sm hover:shadow-md transition-all ${
                         isSelected
                           ? 'border-[var(--sf-blue-500)] ring-2 ring-[var(--sf-blue-500)] cursor-grab'
                           : 'border-[var(--sf-border-light)] cursor-pointer'
                       }`}
+                      style={{ borderLeft: `3px solid ${stage.color}` }}
                     >
-                      {/* Card top accent line */}
-                      <div className="h-[2px] rounded-t-xl" style={{ backgroundColor: stage.color, opacity: 0.4 }} />
-
-                      <div className="p-3.5">
-                        {/* Name + drag handle */}
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-sm text-[var(--sf-text-primary)] truncate leading-tight">
-                              {lead.first_name} {lead.last_name}
-                            </h4>
-                            {lead.company && (
-                              <p className="text-xs text-[var(--sf-text-muted)] flex items-center mt-0.5 truncate">
-                                <Building className="w-3 h-3 mr-1 flex-shrink-0 text-[var(--sf-text-muted)]" />
-                                <span className="truncate">{lead.company}</span>
-                              </p>
-                            )}
+                      <div className="p-[10px_11px]">
+                        {/* Row 1: avatar + name/id + more */}
+                        <div className="flex items-start gap-2">
+                          <div
+                            className="flex items-center justify-center rounded-full flex-shrink-0 text-white font-semibold"
+                            style={{ width: 24, height: 24, fontSize: 10, background: stage.color }}
+                          >
+                            {(leadName.match(/\b[A-Za-z]/g) || []).join('').slice(0, 2).toUpperCase()}
                           </div>
-                          <GripVertical className="w-3.5 h-3.5 text-[var(--sf-border)] group-hover:text-[var(--sf-text-muted)] flex-shrink-0 ml-2 transition-colors" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[12.5px] font-semibold text-[var(--sf-text-primary)]" style={{ lineHeight: 1.2 }}>{leadName}</span>
+                              {isHighPriority && (
+                                <span className="rounded-full flex-shrink-0" style={{ width: 6, height: 6, background: 'var(--sf-red)' }} />
+                              )}
+                            </div>
+                            <div className="text-[10.5px] text-[var(--sf-text-muted)] mt-[1px]" style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, SFMono-Regular, monospace)' }}>
+                              L-{String(lead.id || '').slice(-6).padStart(3, '0')}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); }}
+                            className="p-[2px] -mt-[2px] -mr-1 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)]"
+                          >
+                            <MoreVertical className="w-[13px] h-[13px]" />
+                          </button>
                         </div>
 
-                        {/* Value */}
-                        {lead.value && (
-                          <div className="flex items-center mb-2.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-xs font-semibold">
-                              <DollarSign className="w-3 h-3" />
-                              {parseFloat(lead.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
+                        {/* Optional notes (2-line clamp) */}
+                        {(lead.notes || lead.message) && (
+                          <div className="text-[11px] text-[var(--sf-text-secondary)] mt-[7px]" style={{
+                            lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box',
+                            WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                          }}>
+                            {lead.notes || lead.message}
                           </div>
                         )}
 
-                        {/* Divider */}
-                        <div className="border-t border-[var(--sf-border-light)] my-2" />
-
-                        {/* Contact info */}
-                        <div className="space-y-1.5 text-xs text-[var(--sf-text-secondary)]">
-                          {lead.email && (
-                            <div className="flex items-center gap-1.5 truncate">
-                              <Mail className="w-3 h-3 flex-shrink-0 text-[var(--sf-text-muted)]" />
-                              <span className="truncate">{lead.email}</span>
-                            </div>
-                          )}
-                          {lead.phone && (
-                            <div className="flex items-center gap-1.5 truncate">
-                              <Phone className="w-3 h-3 flex-shrink-0 text-[var(--sf-text-muted)]" />
-                              <span className="truncate">{formatPhoneNumber(lead.phone)}</span>
-                            </div>
-                          )}
+                        {/* Row 2: source tag + value */}
+                        <div className="flex items-center gap-1.5 mt-[9px] pt-[8px] border-t border-[var(--sf-border-light)]">
+                          <span
+                            className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-semibold text-[var(--sf-text-secondary)] bg-[var(--sf-bg-page)]"
+                            style={{ letterSpacing: '.02em' }}
+                          >
+                            {lead.source || 'Direct'}
+                          </span>
+                          <div className="flex-1" />
+                          <span className="text-[11.5px] font-bold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {lead.value ? `$${Math.round(parseFloat(lead.value)).toLocaleString()}` : '—'}
+                          </span>
                         </div>
 
-                        {/* Timestamps + Source */}
-                        <div className="mt-2.5 pt-2 border-t border-[var(--sf-border-light)]">
-                          <div className="flex items-center gap-1.5 text-[10px] text-[var(--sf-text-muted)]">
-                            <Clock className="w-3 h-3 flex-shrink-0" />
-                            <span>Created {lead.created_at ? new Date(lead.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>
+                        {/* Row 3: owner mini + age */}
+                        <div className="flex items-center gap-1.5 mt-[7px] text-[10.5px] text-[var(--sf-text-muted)]">
+                          <div
+                            className="flex items-center justify-center rounded-full flex-shrink-0 text-white font-semibold"
+                            style={{ width: 14, height: 14, fontSize: 8, background: 'var(--sf-ink-2)' }}
+                          >
+                            {ownerInitials}
                           </div>
-                          {lead.source && (
-                            <div className="mt-1.5">
-                              <span className="inline-flex items-center text-[10px] font-medium bg-[var(--sf-bg-page)] text-[var(--sf-text-muted)] px-2 py-0.5 rounded-full border border-[var(--sf-border-light)]">
-                                {lead.source}
-                              </span>
-                            </div>
-                          )}
+                          <span className="flex-1 truncate">{ownerName}</span>
+                          <Clock className="w-[10px] h-[10px] flex-shrink-0" />
+                          <span style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, SFMono-Regular, monospace)' }}>{ageLabel(lead)}</span>
                         </div>
                       </div>
                     </div>
@@ -1417,14 +2133,8 @@ const LeadsPipeline = () => {
                   })}
 
                   {stageLeads.length === 0 && (
-                    <div className="text-center py-10 text-[var(--sf-text-muted)]">
-                      <button
-                        onClick={() => setShowCreateLeadModal(true)}
-                        className="w-12 h-12 rounded-xl bg-white border-2 border-dashed border-[var(--sf-border)] flex items-center justify-center mx-auto mb-3 hover:border-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] transition-colors"
-                      >
-                        <Plus className="w-5 h-5" strokeWidth={2} />
-                      </button>
-                      <p className="text-xs">No leads in this stage</p>
+                    <div className="text-center py-6 text-[11.5px] text-[var(--sf-text-muted)] italic">
+                      Drop leads here
                     </div>
                   )}
                 </div>
@@ -1433,7 +2143,31 @@ const LeadsPipeline = () => {
           })}
         </div>
       </div>
+      )}
 
+      {/* List / Sources / Owners tabs (desktop) */}
+      {leadsTab !== 'pipeline' && (
+        <div className="hidden sm:block flex-1 overflow-y-auto px-4 lg:px-6 py-5">
+          {leadsTab === 'list' && (
+            <LeadsListTabView
+              leads={leads}
+              teamMembers={teamMembers}
+              stages={pipeline?.stages || []}
+              selected={listSelected}
+              setSelected={setListSelected}
+              sort={listSort}
+              setSort={setListSort}
+              onOpenLead={(lead) => navigate(`/lead/${lead.id}`)}
+            />
+          )}
+          {leadsTab === 'sources' && (
+            <LeadsSourcesTabView leads={leads} stages={pipeline?.stages || []} />
+          )}
+          {leadsTab === 'owners' && (
+            <LeadsOwnersTabView leads={leads} teamMembers={teamMembers} stages={pipeline?.stages || []} />
+          )}
+        </div>
+      )}
 
       {/* Mobile: header + search + accordion layout */}
       <div className="sm:hidden flex-shrink-0 bg-white border-b border-[var(--sf-border-light)] sticky top-0 z-10 px-4 py-3">
@@ -1507,10 +2241,7 @@ const LeadsPipeline = () => {
                       key={lead.id}
                       draggable
                       onDragStart={() => handleDragStart(lead, stage)}
-                      onClick={() => {
-                        setSelectedLead(lead);
-                        setShowLeadDetailsModal(true);
-                      }}
+                      onClick={() => navigate(`/lead/${lead.id}`)}
                       className="bg-[var(--sf-bg-page)] rounded-xl border border-[var(--sf-border-light)] p-3.5 cursor-pointer mt-2.5 first:mt-2.5"
                     >
                       <div className="flex items-start justify-between mb-2">

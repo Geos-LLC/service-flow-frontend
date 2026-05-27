@@ -40,7 +40,7 @@ const ALL_SIDEBAR_ITEMS = [
 
   { icon: Users,           label: "Customers",      path: "/customers",      section: "customers", aliases: ["/customer/"] },
   { icon: Target,          label: "Leads",          path: "/leads",          section: "customers" },
-  { icon: CalendarDays,    label: "Tasks",          path: "/calendar",       section: "customers" },
+  { icon: CalendarDays,    label: "Tasks",          path: "/tasks",          section: "customers" },
 
   { icon: UserCheck,       label: "Team",           path: "/team",           section: "operations", aliases: ["/team/"] },
   { icon: Receipt,         label: "Payroll",        path: "/payroll",        section: "operations" },
