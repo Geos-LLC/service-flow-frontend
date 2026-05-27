@@ -370,6 +370,24 @@ function computeMetrics(d) {
     ? d.jobs.reduce((s, j) => s + (Number(j.service_duration) || 0), 0) / d.jobs.length
     : 0
 
+  // ── Tips, incentives, ratings, refunds — all read from real fields
+  const totalTips = d.jobs.reduce((s, j) => s + (parseFloat(j.tip_amount) || 0), 0)
+  const totalIncentives = d.jobs.reduce((s, j) => s + (parseFloat(j.incentive_amount) || 0), 0)
+  const ratedJobs = d.jobs.filter((j) => {
+    const r = parseFloat(j.customer_rating ?? j.rating)
+    return r > 0
+  })
+  const avgRating = ratedJobs.length
+    ? ratedJobs.reduce((s, j) => s + (parseFloat(j.customer_rating ?? j.rating) || 0), 0) / ratedJobs.length
+    : 0
+  const refundedInvoices = d.allInvoices.filter((inv) => (inv.status || "").toLowerCase() === "refunded")
+  const refundedInPeriod = refundedInvoices.filter((inv) => {
+    const dt = new Date(inv.updated_at || inv.created_at)
+    return dt >= d.start && dt <= d.end
+  })
+  const refundAmount = refundedInPeriod.reduce((s, inv) =>
+    s + (parseFloat(inv.refund_amount) || parseFloat(inv.total_amount) || parseFloat(inv.amount) || 0), 0)
+
   // ── Customers
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
@@ -574,6 +592,36 @@ function computeMetrics(d) {
     else weekBuckets[idx].oneTime += v
   })
 
+  // ── Reactivated customers — prefer backend's recurring conversion API,
+  // otherwise fall back to gap detection on the customers list (created
+  // > 90d ago, has at least one job in this period)
+  const reactivatedFromAPI =
+    d.recurringData?.summary?.reactivatedCount ??
+    d.recurringData?.summary?.reactivated ??
+    null
+  const reactivatedFallback = (() => {
+    const cutoff = new Date(d.start); cutoff.setDate(cutoff.getDate() - 90)
+    let count = 0
+    d.customers.forEach((c) => {
+      const created = c.created_at ? new Date(c.created_at) : null
+      if (!created || created > cutoff) return
+      if (jobsByCustomer[c.id]) count += 1
+    })
+    return count
+  })()
+  const reactivatedCount = reactivatedFromAPI != null ? Number(reactivatedFromAPI) : reactivatedFallback
+
+  // ── Utilization estimate — total job-hours / (workers * 40 * weeksInPeriod)
+  const totalJobHours = d.jobs.reduce((s, j) => s + ((Number(j.service_duration) || 0) / 60), 0)
+  const periodDays = Math.max(1, Math.round((d.end - d.start) / (24 * 60 * 60 * 1000)) + 1)
+  const weeksInPeriod = Math.max(1, periodDays / 7)
+  const workerCount = (d.teamMembers || []).filter((m) => {
+    const r = (m.role || "").toLowerCase()
+    return /worker|technician/.test(r) || m.is_service_provider
+  }).length || 1
+  const availableHours = workerCount * 40 * weeksInPeriod
+  const utilizationPct = availableHours > 0 ? Math.min(100, Math.round((totalJobHours / availableHours) * 100)) : 0
+
   // ── Conversion funnel + summary (prefer API; fallback compute)
   const conv = d.conversionData || {}
   const cs = conv.summary || {}
@@ -594,6 +642,10 @@ function computeMetrics(d) {
     scheduledCount, completedCount, cancelledCount, pendingCount, inProgressCount, confirmedCount,
     avgJobValue, avgDurationMin,
     activeCustomers, newCustomers, repeatRate, avgLTV,
+    totalTips, totalIncentives, avgRating, ratedJobsCount: ratedJobs.length,
+    refundAmount, refundCount: refundedInPeriod.length,
+    reactivatedCount,
+    utilizationPct, totalJobHours, availableHours, workerCount, weeksInPeriod,
     daily: { values: dailyValues, labels: dailyLabels },
     monthly, weekday, services, territories, sources, cancelList,
     teamRows, topCustomers, weekBuckets,
@@ -800,7 +852,7 @@ const RevenueTab = ({ m }) => {
         <SfKPI label="ARPC"           value={money(arpc)} sub="avg per customer"                  accent={T.purple} />
         <SfKPI label="Cash collected" value={moneyShort(m.cashCollected)} sub={`${pct(m.cashCollected, m.totalRevenue)}% collection`} accent={T.teal} />
         <SfKPI label="Outstanding AR" value={moneyShort(m.outstandingAR)} sub={`${m.outstandingCount} invoices`} accent={T.amber} />
-        <SfKPI label="Refunds"        value="—" sub="not yet tracked" accent={T.red} />
+        <SfKPI label="Refunds"        value={m.refundAmount > 0 ? moneyShort(m.refundAmount) : "$0"} sub={`${m.refundCount} issued · ${m.totalRevenue > 0 ? ((m.refundAmount / m.totalRevenue) * 100).toFixed(1) : 0}%`} accent={T.red} />
       </div>
 
       {/* Daily revenue hero */}
@@ -1155,8 +1207,18 @@ const TeamTab = ({ m }) => {
         <SfKPI label="Workers active" value={workers.length} sub="all members" accent={T.blue} />
         <SfKPI label="Avg jobs / worker" value={Math.round(avgJobs)} sub="this period" accent={T.purple} />
         <SfKPI label="Avg rev / worker" value={moneyShort(avgRev)} sub="this period" accent={T.green} />
-        <SfKPI label="Avg rating" value="—" sub="not yet tracked" accent={T.amber} />
-        <SfKPI label="Utilization" value="—" sub="needs schedule data" accent={T.teal} />
+        <SfKPI
+          label="Avg rating"
+          value={m.avgRating > 0 ? m.avgRating.toFixed(2) : "—"}
+          sub={m.ratedJobsCount > 0 ? `${m.ratedJobsCount} rated job${m.ratedJobsCount === 1 ? "" : "s"}` : "no ratings yet"}
+          accent={T.amber}
+        />
+        <SfKPI
+          label="Utilization"
+          value={m.utilizationPct > 0 ? `${m.utilizationPct}%` : "—"}
+          sub={m.totalJobHours > 0 ? `${m.totalJobHours.toFixed(0)}h / ${Math.round(m.availableHours)}h` : "no job hours logged"}
+          accent={T.teal}
+        />
         <SfKPI label="On-time arrival" value="—" sub="needs check-in data" accent={T.green} />
       </div>
 
@@ -1336,7 +1398,12 @@ const CustomersTab = ({ m, data }) => {
         <SfKPI label="Churn rate" value={`${churnRate}%`} sub={`${lost} lost`} accent={T.red} />
         <SfKPI label="Avg LTV" value={money(m.avgLTV)} sub="lifetime spend" accent={T.purple} />
         <SfKPI label="Recurring share" value={`${recurringShare}%`} sub="of active" accent={T.teal} />
-        <SfKPI label="Reactivated" value="—" sub="needs win-back wiring" accent={T.amber} />
+        <SfKPI
+          label="Reactivated"
+          value={m.reactivatedCount > 0 ? m.reactivatedCount : "0"}
+          sub={m.reactivatedCount > 0 ? "returned after 90d+ gap" : "no win-backs this period"}
+          accent={T.amber}
+        />
       </div>
 
       {/* Cohort matrix */}
@@ -1477,7 +1544,12 @@ const SalaryTab = ({ m }) => {
         <SfKPI label="Hourly payroll" value={moneyShort(hourly)} sub={`${sum.hourlyOnlyCount || 0} hourly`} accent={T.purple} />
         <SfKPI label="Commission" value={moneyShort(commission)} sub={`${sum.commissionOnlyCount || 0} commission`} accent={T.amber} />
         <SfKPI label="Hybrid" value={sum.hybridCount || 0} sub="hourly + commission" accent={T.teal} />
-        <SfKPI label="Tips + bonus" value="—" sub="not yet broken out" accent={T.red} />
+        <SfKPI
+          label="Tips + bonus"
+          value={(m.totalTips + m.totalIncentives) > 0 ? moneyShort(m.totalTips + m.totalIncentives) : "$0"}
+          sub={m.totalTips > 0 || m.totalIncentives > 0 ? `${moneyShort(m.totalTips)} tips · ${moneyShort(m.totalIncentives)} bonus` : "no tips logged"}
+          accent={T.red}
+        />
       </div>
 
       {/* Dual-bar payroll vs revenue */}
