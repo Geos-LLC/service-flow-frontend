@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import SettingsRailLayout from "../../components/settings-rail-layout"
 import { openPhoneAPI, leadbridgeAPI, whatsappAPI, communicationsAPI, territoriesAPI, locationsAPI, leadAutomationAPI, connectedEmailAPI } from "../../services/api"
+import LeadBridgeSemanticDiagnostics from "../../components/LeadBridgeSemanticDiagnostics"
 import {
   ChevronLeft, Phone, PhoneCall, Star, ThumbsUp, Mail,
   MessageSquare, MessageCircle, Info, Check, X, ExternalLink,
@@ -649,6 +650,12 @@ const CommunicationHub = () => {
                         <div className="bg-green-50 rounded-lg p-3 text-xs text-green-700">
                           Synced {lbSyncProgress.synced} conversations, {lbSyncProgress.messages} messages
                         </div>
+                      </div>
+                    )}
+                    {/* LeadBridge semantic diagnostics — Phase 1.5 read-only visibility */}
+                    {isLeadBridge && lbConnected && (
+                      <div className="px-4 pb-4">
+                        <LeadBridgeSemanticDiagnostics />
                       </div>
                     )}
                     {/* WhatsApp sync progress */}
