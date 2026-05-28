@@ -349,9 +349,12 @@ function computeMetrics(d) {
   if (!d) return null
 
   // ── Revenue
+  // Job revenue is the operational truth: every completed/scheduled job has a
+  // price even when the invoice hasn't been raised yet. Invoice revenue is for
+  // cash-collection metrics only. Using max() so we never under-report.
   const invoiceRevenue = d.invoices.reduce((s, inv) => s + (parseFloat(inv.total_amount) || parseFloat(inv.amount) || 0), 0)
   const jobRevenue = d.jobs.reduce((s, j) => s + jobPrice(j), 0)
-  const totalRevenue = invoiceRevenue > 0 ? invoiceRevenue : jobRevenue
+  const totalRevenue = Math.max(invoiceRevenue, jobRevenue)
 
   // ── Job counts
   const completedJobs = d.jobs.filter((j) => j.status === "completed" || j.status === "paid")
@@ -417,7 +420,10 @@ function computeMetrics(d) {
     dailyMap[fmtDateLocal(dayCursor)] = 0
     dayCursor.setDate(dayCursor.getDate() + 1)
   }
-  const seedFromInvoices = invoiceRevenue > 0
+  // Daily trend reflects the operational revenue — same source as the
+  // headline KPI, scheduled-job pricing. Invoice spikes lag and would
+  // create misleading single-day peaks.
+  const seedFromInvoices = invoiceRevenue > jobRevenue
   if (seedFromInvoices) {
     d.invoices.forEach((inv) => {
       const k = fmtDateLocal(new Date(inv.created_at))
