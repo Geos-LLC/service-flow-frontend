@@ -357,7 +357,20 @@ function computeMetrics(d) {
   const totalRevenue = Math.max(invoiceRevenue, jobRevenue)
 
   // ── Job counts
-  const completedJobs = d.jobs.filter((j) => j.status === "completed" || j.status === "paid")
+  // "Completed" is the operational truth — explicitly completed/paid, OR a
+  // job whose scheduled_date is in the past and isn't cancelled or still
+  // pending. That matches what the owner means by "jobs done" and avoids
+  // under-counting when status fields lag.
+  const nowMs = Date.now()
+  const completedJobs = d.jobs.filter((j) => {
+    const s = (j.status || "").toLowerCase()
+    if (s === "completed" || s === "paid") return true
+    if (s === "cancelled" || s === "pending") return false
+    const ds = j.scheduled_date ? String(j.scheduled_date).split(" ")[0] : null
+    if (!ds) return false
+    const dt = new Date(ds)
+    return !Number.isNaN(dt.getTime()) && dt.getTime() <= nowMs
+  })
   const scheduledCount = d.jobs.length
   const completedCount = completedJobs.length
   const cancelledCount = d.jobs.filter((j) => j.status === "cancelled").length
