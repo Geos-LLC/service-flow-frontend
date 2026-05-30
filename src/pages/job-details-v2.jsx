@@ -42,6 +42,7 @@ import { formatTime as formatTimeShared } from "../utils/formatTime"
 import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
 import JobExpensesSection from "../components/job-expenses-section"
+import AssignJobModal from "../components/assign-job-modal"
 import {
   SfCard,
   SfCardHeader,
@@ -213,6 +214,7 @@ const JobDetailsV2 = () => {
   const [busy, setBusy] = useState(false)
   const [showLeadPicker, setShowLeadPicker] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [showAssignModal, setShowAssignModal] = useState(false)
   const moreMenuRef = useRef(null)
 
   // Edit job drawer
@@ -385,6 +387,42 @@ const JobDetailsV2 = () => {
     if (!job) return
     await jobsAPI.deleteIncentive(job.id, incentiveId)
     await loadJob()
+  }
+
+  const onAssignTeam = async (teamMemberIds, forceBook = false) => {
+    if (!job) return
+    const ids = Array.isArray(teamMemberIds) ? teamMemberIds : (teamMemberIds ? [teamMemberIds] : [])
+    const normalized = ids.map((id) => Number(id)).filter((id) => id && !isNaN(id))
+    try {
+      if (normalized.length > 0) {
+        const primary = normalized[0]
+        await jobsAPI.assignMultipleTeamMembers(job.id, normalized, primary, forceBook)
+      } else {
+        const current = Array.from(
+          new Set((job.team_assignments || []).map((ta) => Number(ta.team_member_id)).filter(Boolean))
+        )
+        const fallback = job.assigned_team_member_id || job.team_member_id
+        if (current.length === 0 && fallback) current.push(Number(fallback))
+        await Promise.all(current.map((id) => jobsAPI.removeTeamMember(job.id, id)))
+      }
+      setShowAssignModal(false)
+      await loadJob()
+    } catch (e) {
+      const status = e?.response?.status
+      const data = e?.response?.data
+      if (status === 409 && data?.canForceBook) {
+        const warnings = (data.conflicts || []).flatMap((c) =>
+          (c.warnings || []).map((w) => `${c.memberLabel}: ${w}`)
+        )
+        const warningText = warnings.length > 0 ? warnings.join("\n- ") : (data.error || "Scheduling conflict")
+        const proceed = window.confirm(
+          `Scheduling conflicts detected:\n- ${warningText}\n\nDo you want to override and assign anyway?`
+        )
+        if (proceed) return onAssignTeam(teamMemberIds, true)
+        return
+      }
+      alert(data?.error || e?.message || "Could not update team assignment.")
+    }
   }
 
   const onSetLead = async (newLeadId) => {
@@ -972,7 +1010,12 @@ const JobDetailsV2 = () => {
               title="Assignment"
               right={
                 assignees.length > 0 && (
-                  <SfButton variant="ghost" size="sm" icon={RotateCw}>
+                  <SfButton
+                    variant="ghost"
+                    size="sm"
+                    icon={RotateCw}
+                    onClick={() => setShowAssignModal(true)}
+                  >
                     Reassign
                   </SfButton>
                 )
@@ -985,6 +1028,7 @@ const JobDetailsV2 = () => {
                   size="md"
                   icon={Plus}
                   className="w-full justify-center"
+                  onClick={() => setShowAssignModal(true)}
                 >
                   Assign team
                 </SfButton>
@@ -1201,6 +1245,13 @@ const JobDetailsV2 = () => {
         saving={savingEdit}
         onClose={() => setEditOpen(false)}
         onSave={onSaveEdit}
+      />
+
+      <AssignJobModal
+        job={job}
+        isOpen={showAssignModal}
+        onClose={() => setShowAssignModal(false)}
+        onAssign={onAssignTeam}
       />
     </div>
   )
