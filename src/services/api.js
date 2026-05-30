@@ -921,6 +921,24 @@ export const jobsAPI = {
     }
   },
 
+  // Multi-line per-cleaner incentives on a job.
+  listIncentives: async (jobId) => {
+    const response = await api.get(`/jobs/${jobId}/incentives`);
+    return response.data;
+  },
+  addIncentive: async (jobId, payload) => {
+    const response = await api.post(`/jobs/${jobId}/incentives`, payload);
+    return response.data;
+  },
+  updateIncentive: async (jobId, incentiveId, payload) => {
+    const response = await api.patch(`/jobs/${jobId}/incentives/${incentiveId}`, payload);
+    return response.data;
+  },
+  deleteIncentive: async (jobId, incentiveId) => {
+    const response = await api.delete(`/jobs/${jobId}/incentives/${incentiveId}`);
+    return response.data;
+  },
+
   convertToRecurring: async (id, data) => {
     try {
       const response = await api.post(`/jobs/${id}/convert-to-recurring`, data);

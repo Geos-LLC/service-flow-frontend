@@ -2594,6 +2594,20 @@ const Payroll = () => {
                                           </td>
                                           <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
                                             <EditableCell value={job.incentive || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { incentiveAmount: val, teamMemberId: member.teamMember.id }); await fetchPayrollData(); }} />
+                                            {Array.isArray(job.incentiveLines) && job.incentiveLines.length > 0 && (
+                                              <div className="mt-0.5 flex flex-col items-end gap-0.5">
+                                                {job.incentiveLines.map((ln, i) => (
+                                                  <div
+                                                    key={i}
+                                                    className="text-[10.5px] text-[var(--sf-ink-3)] leading-tight max-w-[180px] truncate"
+                                                    title={`${ln.description || 'No description'} — ${formatCurrency(ln.amount || 0)}`}
+                                                  >
+                                                    {ln.description || <span className="italic">No description</span>}
+                                                    <span className="ml-1 text-[var(--sf-purple)] font-medium">{formatCurrency(ln.amount || 0)}</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
                                           </td>
                                           <td className="py-2 pr-4 text-right text-orange-600">
                                             <EditableCell value={Math.abs(job.cashCollected || 0)} format="dollar" onSave={async (val) => { await ledgerAPI.updateCashCollected(job.id, member.teamMember.id, val); await fetchPayrollData(); }} />
