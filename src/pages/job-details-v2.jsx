@@ -369,6 +369,24 @@ const JobDetailsV2 = () => {
     await loadJob()
   }
 
+  // Multi-line incentives — each line is per-cleaner with an optional
+  // description. The Financials card calls these from its inline editor.
+  const onAddIncentive = async (payload) => {
+    if (!job) return
+    await jobsAPI.addIncentive(job.id, payload)
+    await loadJob()
+  }
+  const onUpdateIncentive = async (incentiveId, payload) => {
+    if (!job) return
+    await jobsAPI.updateIncentive(job.id, incentiveId, payload)
+    await loadJob()
+  }
+  const onDeleteIncentive = async (incentiveId) => {
+    if (!job) return
+    await jobsAPI.deleteIncentive(job.id, incentiveId)
+    await loadJob()
+  }
+
   const onSetLead = async (newLeadId) => {
     if (!job) return
     setBusy(true)
@@ -822,7 +840,12 @@ const JobDetailsV2 = () => {
               <FinancialsCard
                 job={job}
                 invoice={invoice}
+                assignees={assignees}
+                memberNameById={memberNameById}
                 onSaveField={onSaveFinancialField}
+                onAddIncentive={onAddIncentive}
+                onUpdateIncentive={onUpdateIncentive}
+                onDeleteIncentive={onDeleteIncentive}
               />
 
               {/* Expenses & reimbursements */}
@@ -1184,16 +1207,31 @@ const JobDetailsV2 = () => {
 }
 
 // ── Financials card ────────────────────────────────────────
-// Service price (read-only) + Tip + Incentive (inline editable) +
-// Total. Each editor is a click-to-reveal input that PUTs the single
-// field to /api/jobs/:id and bubbles a refresh via onSaveField.
+// Service price (read-only) + Tip (inline editable) + Incentives
+// (multi-line per-cleaner list, each with an optional description) +
+// Total. Tip uses the single-field PUT; incentive lines hit the
+// dedicated /jobs/:id/incentives endpoints so descriptions and
+// per-cleaner targeting persist.
 
-const FinancialsCard = ({ job, invoice, onSaveField }) => {
+const FinancialsCard = ({
+  job,
+  invoice,
+  assignees = [],
+  memberNameById,
+  onSaveField,
+  onAddIncentive,
+  onUpdateIncentive,
+  onDeleteIncentive,
+}) => {
   const servicePrice = parseFloat(job?.service_price || 0)
   const additionalFees = parseFloat(job?.additional_fees || 0)
   const discount = parseFloat(job?.discount || 0)
   const tip = parseFloat(job?.tip_amount || 0)
-  const incentive = parseFloat(job?.incentive_amount || 0)
+  const incentiveLines = Array.isArray(job?.incentives) ? job.incentives : []
+  const incentiveTotal = incentiveLines.reduce(
+    (s, ln) => s + (parseFloat(ln?.amount) || 0),
+    0,
+  )
   const jobTotal = parseFloat(
     invoice?.total_amount || invoice?.amount || job?.total || job?.total_amount || 0
   )
@@ -1203,7 +1241,7 @@ const FinancialsCard = ({ job, invoice, onSaveField }) => {
     <SfCard>
       <SfCardHeader
         title="Financials"
-        subtitle="Tip and incentive feed payroll. Edit anytime."
+        subtitle="Tip and incentives feed payroll. Edit anytime."
       />
       <div className="flex flex-col">
         <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} muted />
@@ -1226,13 +1264,14 @@ const FinancialsCard = ({ job, invoice, onSaveField }) => {
           accent="var(--sf-green-dark)"
           accentSoft="var(--sf-green-soft)"
         />
-        <FinancialEditableRow
-          label="Incentive"
-          fieldKey="incentive_amount"
-          value={incentive}
-          onSave={onSaveField}
-          accent="var(--sf-purple)"
-          accentSoft="var(--sf-purple-soft)"
+        <IncentivesSection
+          incentives={incentiveLines}
+          total={incentiveTotal}
+          assignees={assignees}
+          memberNameById={memberNameById}
+          onAdd={onAddIncentive}
+          onUpdate={onUpdateIncentive}
+          onDelete={onDeleteIncentive}
         />
         <div
           className="flex items-center justify-between mt-1 pt-3"
@@ -1245,6 +1284,332 @@ const FinancialsCard = ({ job, invoice, onSaveField }) => {
         </div>
       </div>
     </SfCard>
+  )
+}
+
+// Multi-line incentive editor. Renders the existing per-cleaner
+// incentive rows, an "Add incentive" affordance, and an inline form
+// (cleaner picker + description + amount). Each save/delete bubbles
+// up through callbacks the parent wires to the /jobs/:id/incentives
+// endpoints.
+const IncentivesSection = ({
+  incentives,
+  total,
+  assignees,
+  memberNameById,
+  onAdd,
+  onUpdate,
+  onDelete,
+}) => {
+  const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [busyId, setBusyId] = useState(null)
+  const accent = "var(--sf-purple)"
+  const accentSoft = "var(--sf-purple-soft)"
+
+  const nameFor = (id) => {
+    if (memberNameById?.get) {
+      const n = memberNameById.get(String(id)) || memberNameById.get(id)
+      if (n) return n
+    }
+    const a = assignees.find((x) => String(x.id) === String(id))
+    return a?.name || "Cleaner"
+  }
+
+  const handleDelete = async (id) => {
+    if (!onDelete) return
+    setBusyId(id)
+    try {
+      await onDelete(id)
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not remove incentive.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="py-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[12.5px] text-[var(--sf-ink-2)]">Incentives</span>
+        {incentives.length > 0 && (
+          <span
+            className="text-[13px] font-semibold"
+            style={{
+              color: accent,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {formatMoney(total)}
+          </span>
+        )}
+      </div>
+
+      {incentives.length > 0 && (
+        <div className="flex flex-col mt-1.5 rounded-[8px] overflow-hidden" style={{ border: "1px solid var(--sf-border-soft)" }}>
+          {incentives.map((line, idx) => (
+            <IncentiveLineRow
+              key={line.id}
+              line={line}
+              isLast={idx === incentives.length - 1}
+              editing={editingId === line.id}
+              busy={busyId === line.id}
+              assignees={assignees}
+              nameFor={nameFor}
+              accent={accent}
+              onEditStart={() => setEditingId(line.id)}
+              onEditCancel={() => setEditingId(null)}
+              onSave={async (payload) => {
+                await onUpdate(line.id, payload)
+                setEditingId(null)
+              }}
+              onDelete={() => handleDelete(line.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {adding ? (
+        <div
+          className="mt-2 p-2.5 rounded-[8px]"
+          style={{ background: accentSoft, border: `1px solid ${accent}` }}
+        >
+          <IncentiveLineForm
+            assignees={assignees}
+            accent={accent}
+            onCancel={() => setAdding(false)}
+            onSubmit={async (payload) => {
+              await onAdd(payload)
+              setAdding(false)
+            }}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-md text-[12px] font-medium transition-colors"
+          style={{ color: accent }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = accentSoft
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent"
+          }}
+        >
+          <Plus size={12} />
+          {incentives.length === 0 ? "Add incentive" : "Add another incentive"}
+        </button>
+      )}
+    </div>
+  )
+}
+
+const IncentiveLineRow = ({
+  line,
+  isLast,
+  editing,
+  busy,
+  assignees,
+  nameFor,
+  accent,
+  onEditStart,
+  onEditCancel,
+  onSave,
+  onDelete,
+}) => {
+  if (editing) {
+    return (
+      <div
+        className="p-2.5"
+        style={{
+          borderBottom: isLast ? "none" : "1px solid var(--sf-border-soft)",
+          background: "var(--sf-panel-soft)",
+        }}
+      >
+        <IncentiveLineForm
+          initial={line}
+          assignees={assignees}
+          accent={accent}
+          onCancel={onEditCancel}
+          onSubmit={onSave}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 px-2.5 py-2"
+      style={{
+        borderBottom: isLast ? "none" : "1px solid var(--sf-border-soft)",
+      }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-[12.5px] font-medium text-[var(--sf-ink)] truncate">
+          {line.description || <span className="text-[var(--sf-ink-3)] italic">No description</span>}
+        </div>
+        <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5 truncate">
+          {nameFor(line.team_member_id)}
+        </div>
+      </div>
+      <div
+        className="text-[13px] font-semibold"
+        style={{ color: accent, fontVariantNumeric: "tabular-nums" }}
+      >
+        {formatMoney(parseFloat(line.amount) || 0)}
+      </div>
+      <button
+        type="button"
+        onClick={onEditStart}
+        disabled={busy}
+        title="Edit"
+        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-[var(--sf-ink-3)] hover:bg-[var(--sf-panel-soft)] hover:text-[var(--sf-ink-2)] transition-colors"
+      >
+        <Pencil size={12} />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={busy}
+        title="Remove"
+        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-[var(--sf-ink-3)] hover:bg-[var(--sf-red-soft)] hover:text-[var(--sf-red-dark)] transition-colors"
+        style={{ opacity: busy ? 0.5 : 1 }}
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
+  )
+}
+
+const IncentiveLineForm = ({ initial, assignees, accent, onCancel, onSubmit }) => {
+  const [teamMemberId, setTeamMemberId] = useState(
+    initial?.team_member_id ? String(initial.team_member_id) : (assignees[0]?.id || ""),
+  )
+  const [description, setDescription] = useState(initial?.description || "")
+  const [amount, setAmount] = useState(
+    initial?.amount != null ? parseFloat(initial.amount).toFixed(2) : "",
+  )
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState("")
+
+  const save = async () => {
+    const parsed = parseFloat(amount)
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setErr("Enter a positive amount.")
+      return
+    }
+    if (!teamMemberId) {
+      setErr("Pick a cleaner.")
+      return
+    }
+    setSaving(true)
+    setErr("")
+    try {
+      await onSubmit({
+        teamMemberId,
+        description: description.trim() || null,
+        amount: parsed,
+      })
+    } catch (e) {
+      setErr(e?.response?.data?.error || e?.message || "Could not save incentive.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-start">
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description (e.g. Customer praise bonus)"
+          style={{
+            width: "100%",
+            padding: "6px 8px",
+            fontSize: 12.5,
+            border: "1px solid var(--sf-border)",
+            borderRadius: 6,
+            outline: "none",
+            background: "var(--sf-panel)",
+          }}
+        />
+        <div className="relative">
+          <span
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-[var(--sf-ink-3)]"
+            style={{ pointerEvents: "none" }}
+          >
+            $
+          </span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setAmount(v)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save()
+              if (e.key === "Escape") onCancel()
+            }}
+            placeholder="0.00"
+            style={{
+              width: 110,
+              padding: "6px 8px 6px 18px",
+              fontSize: 12.5,
+              border: "1px solid var(--sf-border)",
+              borderRadius: 6,
+              outline: "none",
+              fontVariantNumeric: "tabular-nums",
+              background: "var(--sf-panel)",
+            }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <select
+          value={teamMemberId}
+          onChange={(e) => setTeamMemberId(e.target.value)}
+          style={{
+            padding: "6px 8px",
+            fontSize: 12.5,
+            border: "1px solid var(--sf-border)",
+            borderRadius: 6,
+            outline: "none",
+            background: "var(--sf-panel)",
+            minWidth: 160,
+          }}
+        >
+          {assignees.length === 0 && <option value="">No cleaner assigned</option>}
+          {assignees.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name || "Cleaner"}
+            </option>
+          ))}
+        </select>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="px-2.5 py-1 rounded-md text-[12px] font-medium text-white disabled:opacity-60"
+          style={{ background: accent }}
+        >
+          {saving ? "…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2 py-1 rounded-md text-[12px] text-[var(--sf-ink-3)] hover:bg-[var(--sf-panel-soft)]"
+        >
+          Cancel
+        </button>
+      </div>
+      {err && <div className="text-[11px] text-[var(--sf-red-dark)]">{err}</div>}
+    </div>
   )
 }
 
