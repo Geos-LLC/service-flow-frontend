@@ -2437,7 +2437,7 @@ const Payroll = () => {
                                       {member.teamMember.commissionPercentage > 0 && (
                                         <tr>
                                           <td className="py-2 pr-4 text-[var(--sf-ink)]">Commission</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">Total revenue: {formatCurrency(payrollData?.totalBusinessRevenue || 0)}</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">Total revenue: {formatCurrency(member.commissionRevenueBase || 0)}</td>
                                           <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{member.teamMember.commissionPercentage}%</td>
                                           <td className="py-2 text-right font-semibold text-purple-700">{formatCurrency(member.commissionSalary)}</td>
                                         </tr>
