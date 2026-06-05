@@ -56,7 +56,21 @@ const AddTeamMemberModal = ({ isOpen, onClose, onSuccess, userId, member = null,
   const [fullNameInput, setFullNameInput] = useState("") // Local state for full name input to preserve spaces
   const [payRates, setPayRates] = useState([])
   const [showAddRate, setShowAddRate] = useState(false)
+  const [editingRateId, setEditingRateId] = useState(null)
   const [newRate, setNewRate] = useState({ hourlyRate: '', commissionPercentage: '', effectiveFrom: '', note: '' })
+  const [payRateStatus, setPayRateStatus] = useState(null) // { kind: 'success' | 'error', message }
+
+  // Build the recalc summary message from the backend's `recalculated` payload.
+  const buildRecalcMessage = (recalculated, baseAction) => {
+    if (!recalculated) return `${baseAction}.`
+    const n = recalculated.jobsRebuilt || 0
+    const delta = recalculated.totalDelta || 0
+    if (n === 0) return `${baseAction}. No unpaid jobs needed recalculation.`
+    const sign = delta >= 0 ? '+' : '−'
+    const abs = Math.abs(delta).toFixed(2)
+    const noun = n === 1 ? 'unpaid job' : 'unpaid jobs'
+    return `${baseAction}. Recalculated ${n} ${noun} (${sign}$${abs} to balance).`
+  }
 
   // Load pay rate history when editing
   useEffect(() => {
@@ -68,6 +82,13 @@ const AddTeamMemberModal = ({ isOpen, onClose, onSuccess, userId, member = null,
       setPayRates([])
     }
   }, [isOpen, isEditing, member?.id])
+
+  // Auto-clear the pay-rate status banner after 6s.
+  useEffect(() => {
+    if (!payRateStatus) return
+    const t = setTimeout(() => setPayRateStatus(null), 6000)
+    return () => clearTimeout(t)
+  }, [payRateStatus])
 
   useEffect(() => {
     if (isOpen && member && isEditing) {
@@ -723,18 +744,36 @@ const AddTeamMemberModal = ({ isOpen, onClose, onSuccess, userId, member = null,
                       <Clock className="w-3.5 h-3.5 mr-1.5 text-[var(--sf-text-muted)]" />
                       Pay Rate History
                     </h4>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddRate(!showAddRate)}
-                      className="text-xs text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] flex items-center"
-                    >
-                      <Plus className="w-3 h-3 mr-0.5" />
-                      Add Rate Change
-                    </button>
+                    {!editingRateId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddRate(prev => !prev)
+                          setNewRate({ hourlyRate: '', commissionPercentage: '', effectiveFrom: '', note: '' })
+                        }}
+                        className="text-xs text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] flex items-center"
+                      >
+                        <Plus className="w-3 h-3 mr-0.5" />
+                        Add Rate Change
+                      </button>
+                    )}
                   </div>
 
-                  {showAddRate && (
+                  {payRateStatus && (
+                    <div className={`mb-2 px-2 py-1.5 rounded text-xs border ${
+                      payRateStatus.kind === 'success'
+                        ? 'bg-green-50 border-green-200 text-green-800'
+                        : 'bg-red-50 border-red-200 text-red-800'
+                    }`}>
+                      {payRateStatus.message}
+                    </div>
+                  )}
+
+                  {(showAddRate || editingRateId) && (
                     <div className="p-3 bg-[var(--sf-bg-page)] rounded-lg mb-2 space-y-2">
+                      <div className="text-xs font-medium text-[var(--sf-text-secondary)]">
+                        {editingRateId ? 'Edit Rate' : 'New Rate'}
+                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="block text-xs text-[var(--sf-text-secondary)] mb-0.5">Hourly Rate</label>
@@ -784,7 +823,11 @@ const AddTeamMemberModal = ({ isOpen, onClose, onSuccess, userId, member = null,
                       <div className="flex justify-end gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => { setShowAddRate(false); setNewRate({ hourlyRate: '', commissionPercentage: '', effectiveFrom: '', note: '' }) }}
+                          onClick={() => {
+                            setShowAddRate(false)
+                            setEditingRateId(null)
+                            setNewRate({ hourlyRate: '', commissionPercentage: '', effectiveFrom: '', note: '' })
+                          }}
                           className="text-xs px-3 py-1 text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]"
                         >
                           Cancel
@@ -794,24 +837,31 @@ const AddTeamMemberModal = ({ isOpen, onClose, onSuccess, userId, member = null,
                           onClick={async () => {
                             if (!newRate.effectiveFrom) return
                             try {
-                              await teamAPI.addPayRate(member.id, {
+                              const body = {
                                 hourlyRate: newRate.hourlyRate ? parseFloat(newRate.hourlyRate) : null,
                                 commissionPercentage: newRate.commissionPercentage ? parseFloat(newRate.commissionPercentage) : null,
                                 effectiveFrom: newRate.effectiveFrom,
                                 note: newRate.note || null
-                              })
+                              }
+                              const resp = editingRateId
+                                ? await teamAPI.updatePayRate(member.id, editingRateId, body)
+                                : await teamAPI.addPayRate(member.id, body)
+                              const action = editingRateId ? 'Rate updated' : 'Rate added'
+                              setPayRateStatus({ kind: 'success', message: buildRecalcMessage(resp?.recalculated, action) })
+
                               const data = await teamAPI.getPayRates(member.id)
                               setPayRates(data.payRates || [])
                               setShowAddRate(false)
+                              setEditingRateId(null)
                               setNewRate({ hourlyRate: '', commissionPercentage: '', effectiveFrom: '', note: '' })
-                              // Update current form values to match latest rate
                               const latest = (data.payRates || [])[0]
                               if (latest) {
                                 handleInputChange('hourlyRate', latest.hourly_rate ? parseFloat(latest.hourly_rate) : null)
                                 handleInputChange('commissionPercentage', latest.commission_percentage ? parseFloat(latest.commission_percentage) : null)
                               }
                             } catch (err) {
-                              console.error('Error adding pay rate:', err)
+                              console.error('Error saving pay rate:', err)
+                              setPayRateStatus({ kind: 'error', message: err?.response?.data?.error || 'Failed to save rate' })
                             }
                           }}
                           className="text-xs px-3 py-1 bg-[var(--sf-blue-500)] text-white rounded hover:bg-[var(--sf-blue-600)]"
@@ -840,28 +890,51 @@ const AddTeamMemberModal = ({ isOpen, onClose, onSuccess, userId, member = null,
                             {idx === 0 && <span className="ml-1.5 text-[var(--sf-blue-500)] font-medium">(current)</span>}
                             {rate.note && <span className="text-[var(--sf-text-muted)] ml-1.5">— {rate.note}</span>}
                           </div>
-                          {payRates.length > 1 && (
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingRateId(rate.id)
+                                setShowAddRate(false)
+                                setNewRate({
+                                  hourlyRate: rate.hourly_rate != null ? String(parseFloat(rate.hourly_rate)) : '',
+                                  commissionPercentage: rate.commission_percentage != null ? String(parseFloat(rate.commission_percentage)) : '',
+                                  effectiveFrom: String(rate.effective_from).split('T')[0].split(' ')[0],
+                                  note: rate.note || '',
+                                })
+                              }}
+                              className="text-[var(--sf-text-muted)] hover:text-[var(--sf-blue-500)] p-0.5"
+                              title="Edit rate"
+                            >
+                              <Edit className="w-3 h-3" />
+                            </button>
                             <button
                               type="button"
                               onClick={async () => {
                                 try {
-                                  await teamAPI.deletePayRate(member.id, rate.id)
+                                  const resp = await teamAPI.deletePayRate(member.id, rate.id)
+                                  setPayRateStatus({ kind: 'success', message: buildRecalcMessage(resp?.recalculated, 'Rate deleted') })
                                   const data = await teamAPI.getPayRates(member.id)
                                   setPayRates(data.payRates || [])
                                   const latest = (data.payRates || [])[0]
                                   if (latest) {
                                     handleInputChange('hourlyRate', latest.hourly_rate ? parseFloat(latest.hourly_rate) : null)
                                     handleInputChange('commissionPercentage', latest.commission_percentage ? parseFloat(latest.commission_percentage) : null)
+                                  } else {
+                                    handleInputChange('hourlyRate', null)
+                                    handleInputChange('commissionPercentage', null)
                                   }
                                 } catch (err) {
                                   console.error('Error deleting pay rate:', err)
+                                  setPayRateStatus({ kind: 'error', message: err?.response?.data?.error || 'Failed to delete rate' })
                                 }
                               }}
                               className="text-[var(--sf-text-muted)] hover:text-red-500 p-0.5"
+                              title="Delete rate"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
-                          )}
+                          </div>
                         </div>
                       ))}
                     </div>
