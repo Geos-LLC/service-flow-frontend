@@ -43,6 +43,7 @@ import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
 import JobExpensesSection from "../components/job-expenses-section"
 import AssignJobModal from "../components/assign-job-modal"
+import ServiceModifiersForm from "../components/service-modifiers-form"
 import {
   SfCard,
   SfCardHeader,
@@ -2385,18 +2386,127 @@ const EditServiceDrawer = ({ open, job, services, saving, onClose, onSave }) => 
 }
 
 // ── Edit finance drawer ────────────────────────────────────
-// Right-side drawer for editing the Financials card amounts: service
-// price, additional fees, taxes, discount. Tip and incentives are
-// edited inline on the Financials card itself.
+// Right-side drawer for editing the Financials card amounts and the
+// pricing parameters: service price, modifiers (rooms / add-ons /
+// pets / whatever lives on the service template), additional fees,
+// taxes, discount. Tip and incentives are edited inline on the
+// Financials card itself.
+
+// Parse the job's stored service_modifiers (array of {…modifier,
+// selectedOptions:[…]}) into the {modifierId: selectedData} shape the
+// ServiceModifiersForm component expects.
+const parseJobModifiers = (raw) => {
+  if (!raw) return { modifiers: [], selected: {} }
+  let arr = raw
+  if (typeof raw === "string") {
+    try {
+      arr = JSON.parse(raw)
+    } catch {
+      return { modifiers: [], selected: {} }
+    }
+  }
+  if (!Array.isArray(arr)) return { modifiers: [], selected: {} }
+
+  const selected = {}
+  arr.forEach((m) => {
+    if (!m?.id) return
+    const opts = Array.isArray(m.selectedOptions) ? m.selectedOptions : []
+    if (m.selectionType === "quantity") {
+      const quantities = {}
+      opts.forEach((o) => {
+        if (o?.id && (o.selectedQuantity || 0) > 0) quantities[o.id] = o.selectedQuantity
+      })
+      selected[m.id] = { quantities }
+    } else if (m.selectionType === "multi") {
+      selected[m.id] = { selections: opts.filter((o) => o?.id).map((o) => o.id) }
+    } else {
+      const first = opts[0]
+      if (first?.id) selected[m.id] = { selection: first.id }
+    }
+  })
+  return { modifiers: arr, selected }
+}
+
+// Convert the form's {modifierId: selectedData} state back into the
+// array-with-selectedOptions shape the backend stores in
+// service_modifiers (and recomputes totals from on update).
+const rebuildJobModifiers = (modifiers, selected) => {
+  return (modifiers || []).map((m) => {
+    const data = selected?.[m.id]
+    const selectedOptions = []
+    let modifierPrice = 0
+    let modifierDuration = 0
+
+    if (m.selectionType === "quantity") {
+      const quantities = data?.quantities || {}
+      Object.entries(quantities).forEach(([optionId, qty]) => {
+        const opt = (m.options || []).find((o) => String(o.id) === String(optionId))
+        if (opt && qty > 0) {
+          const price = parseFloat(opt.price) || 0
+          const duration = parseFloat(opt.duration) || 0
+          modifierPrice += price * qty
+          modifierDuration += duration * qty
+          selectedOptions.push({
+            ...opt,
+            selectedQuantity: qty,
+            totalPrice: price * qty,
+            totalDuration: duration * qty,
+          })
+        }
+      })
+    } else if (m.selectionType === "multi") {
+      ;(data?.selections || []).forEach((optionId) => {
+        const opt = (m.options || []).find((o) => String(o.id) === String(optionId))
+        if (opt) {
+          const price = parseFloat(opt.price) || 0
+          const duration = parseFloat(opt.duration) || 0
+          modifierPrice += price
+          modifierDuration += duration
+          selectedOptions.push({ ...opt, selected: true, totalPrice: price, totalDuration: duration })
+        }
+      })
+    } else {
+      const sel = data?.selection
+      if (sel) {
+        const opt = (m.options || []).find((o) => String(o.id) === String(sel))
+        if (opt) {
+          const price = parseFloat(opt.price) || 0
+          const duration = parseFloat(opt.duration) || 0
+          modifierPrice += price
+          modifierDuration += duration
+          selectedOptions.push({ ...opt, selected: true, totalPrice: price, totalDuration: duration })
+        }
+      }
+    }
+
+    return {
+      ...m,
+      selectedOptions,
+      totalModifierPrice: modifierPrice,
+      totalModifierDuration: modifierDuration,
+    }
+  })
+}
+
+const sumSelectedModifierPrice = (modifiers, selected) =>
+  rebuildJobModifiers(modifiers, selected).reduce(
+    (s, m) => s + (parseFloat(m.totalModifierPrice) || 0),
+    0,
+  )
 
 const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
   const initial = useMemo(() => {
     if (!job) return null
+    const { modifiers, selected } = parseJobModifiers(job.service_modifiers)
     return {
       servicePrice: job.service_price != null ? String(job.service_price) : "",
       additionalFees: job.additional_fees != null ? String(job.additional_fees) : "",
       taxes: job.taxes != null ? String(job.taxes) : "",
       discount: job.discount != null ? String(job.discount) : "",
+      bedrooms: job.bedrooms != null ? String(job.bedrooms) : "",
+      bathroom_count: job.bathroom_count != null ? String(job.bathroom_count) : "",
+      modifiers,
+      selectedModifiers: selected,
     }
   }, [job])
 
@@ -2411,8 +2521,9 @@ const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const num = (s) => (s === "" ? 0 : parseFloat(s) || 0)
+  const modifierTotal = sumSelectedModifierPrice(form.modifiers, form.selectedModifiers)
   const previewTotal =
-    num(form.servicePrice) + num(form.additionalFees) + num(form.taxes) - num(form.discount)
+    num(form.servicePrice) + modifierTotal + num(form.additionalFees) + num(form.taxes) - num(form.discount)
 
   const onSubmit = (e) => {
     e?.preventDefault?.()
@@ -2420,14 +2531,22 @@ const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
     const additionalFees = form.additionalFees === "" ? null : parseFloat(form.additionalFees)
     const taxes = form.taxes === "" ? null : parseFloat(form.taxes)
     const discount = form.discount === "" ? null : parseFloat(form.discount)
+    const rebuiltModifiers = rebuildJobModifiers(form.modifiers, form.selectedModifiers)
+    const modPrice = rebuiltModifiers.reduce(
+      (s, m) => s + (parseFloat(m.totalModifierPrice) || 0),
+      0,
+    )
     const computedTotal =
-      (servicePrice || 0) + (additionalFees || 0) + (taxes || 0) - (discount || 0)
+      (servicePrice || 0) + modPrice + (additionalFees || 0) + (taxes || 0) - (discount || 0)
     onSave({
       service_price: servicePrice,
       price: servicePrice,
       additionalFees,
       taxes,
       discount,
+      bedrooms: form.bedrooms === "" ? null : parseInt(form.bedrooms, 10),
+      bathroom_count: form.bathroom_count === "" ? null : parseInt(form.bathroom_count, 10),
+      serviceModifiers: rebuiltModifiers,
       total: computedTotal,
       total_amount: computedTotal,
     })
@@ -2454,7 +2573,7 @@ const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
           top: 0,
           right: 0,
           bottom: 0,
-          width: "min(460px, 100vw)",
+          width: "min(620px, 100vw)",
           background: "var(--sf-panel)",
           borderLeft: "1px solid var(--sf-border-soft)",
           boxShadow: "var(--sf-shadow-l)",
@@ -2494,6 +2613,75 @@ const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
                 placeholder="0.00"
               />
             </Field>
+
+            <DrawerSectionDivider label="Property" />
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Bedrooms">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.bedrooms}
+                  onChange={(e) => setField("bedrooms", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Bathrooms">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.bathroom_count}
+                  onChange={(e) => setField("bathroom_count", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            {Array.isArray(form.modifiers) && form.modifiers.length > 0 && (
+              <>
+                <DrawerSectionDivider label="Add-ons & options" />
+                <div className="text-[11px] text-[var(--sf-ink-3)] -mt-1">
+                  Selecting options here updates the modifier total and recalculates the job's
+                  grand total when you save.
+                </div>
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    background: "var(--sf-panel-soft)",
+                    border: "1px solid var(--sf-border-soft)",
+                  }}
+                >
+                  <ServiceModifiersForm
+                    modifiers={form.modifiers}
+                    selectedModifiers={form.selectedModifiers}
+                    onModifiersChange={(next) => setField("selectedModifiers", next)}
+                  />
+                  <div
+                    className="flex items-center justify-between"
+                    style={{
+                      marginTop: 6,
+                      paddingTop: 8,
+                      borderTop: "1px dashed var(--sf-border-soft)",
+                    }}
+                  >
+                    <span className="text-[12px] font-semibold text-[var(--sf-ink-2)]">
+                      Modifier total
+                    </span>
+                    <span
+                      className="text-[13px] font-bold text-[var(--sf-ink)]"
+                      style={{ fontVariantNumeric: "tabular-nums" }}
+                    >
+                      ${modifierTotal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <DrawerSectionDivider label="Fees, taxes & discount" />
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Additional fees ($)">
