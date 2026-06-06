@@ -214,8 +214,10 @@ const JobDetailsV2 = () => {
   const [busy, setBusy] = useState(false)
   const [showLeadPicker, setShowLeadPicker] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const moreMenuRef = useRef(null)
+  const statusMenuRef = useRef(null)
 
   // Edit job drawer
   const [editOpen, setEditOpen] = useState(false)
@@ -233,6 +235,18 @@ const JobDetailsV2 = () => {
     document.addEventListener("mousedown", onClick)
     return () => document.removeEventListener("mousedown", onClick)
   }, [showMoreMenu])
+
+  // Close status menu on outside click
+  useEffect(() => {
+    if (!showStatusMenu) return
+    const onClick = (e) => {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target)) {
+        setShowStatusMenu(false)
+      }
+    }
+    document.addEventListener("mousedown", onClick)
+    return () => document.removeEventListener("mousedown", onClick)
+  }, [showStatusMenu])
 
   const loadJob = useCallback(async () => {
     if (!jobId) return
@@ -593,14 +607,130 @@ const JobDetailsV2 = () => {
               Edit
             </SfButton>
             {!isCompletedStatus && !isCancelledStatus && (
-              <SfButton variant="danger" size="md" onClick={onCancel} disabled={busy}>
-                Cancel
-              </SfButton>
-            )}
-            {!isCompletedStatus && !isCancelledStatus && (
-              <SfButton variant="primary" size="md" icon={Check} onClick={onMarkComplete} disabled={busy}>
-                Mark complete
-              </SfButton>
+              <div
+                className="relative inline-flex"
+                ref={statusMenuRef}
+                style={{ borderRadius: 10, boxShadow: "0 1px 2px rgba(37,99,235,.3)" }}
+              >
+                <button
+                  type="button"
+                  onClick={onMarkComplete}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5"
+                  style={{
+                    padding: "8px 14px",
+                    background: "var(--sf-blue)",
+                    color: "#fff",
+                    border: "1px solid transparent",
+                    borderTopLeftRadius: 10,
+                    borderBottomLeftRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    fontFamily: "var(--sf-font-ui)",
+                    cursor: busy ? "not-allowed" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Check size={15} strokeWidth={2.2} />
+                  Mark complete
+                </button>
+                <button
+                  type="button"
+                  aria-label="More status options"
+                  onClick={() => setShowStatusMenu((v) => !v)}
+                  disabled={busy}
+                  style={{
+                    padding: "8px 8px",
+                    background: "var(--sf-blue)",
+                    color: "#fff",
+                    border: "1px solid transparent",
+                    borderLeft: "1px solid rgba(255,255,255,.25)",
+                    borderTopRightRadius: 10,
+                    borderBottomRightRadius: 10,
+                    cursor: busy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <ChevronDown size={15} strokeWidth={2.2} />
+                </button>
+                {showStatusMenu && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 w-52 rounded-[10px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] py-1.5 z-50"
+                    style={{ boxShadow: "var(--sf-shadow-l)" }}
+                  >
+                    {[
+                      { key: "confirmed",   label: "Mark as En Route",    dot: "var(--sf-blue)" },
+                      { key: "in_progress", label: "Mark as In Progress", dot: "var(--sf-amber)" },
+                      { key: "completed",   label: "Mark as Complete",    dot: "var(--sf-green)" },
+                    ].map((a) => (
+                      <button
+                        key={a.key}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setShowStatusMenu(false)
+                          onChangeStatus(a.key)
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-panel-soft)] transition-colors"
+                        style={{ color: "var(--sf-ink-2)" }}
+                      >
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: a.dot,
+                            flexShrink: 0,
+                          }}
+                        />
+                        {a.label}
+                      </button>
+                    ))}
+                    <div style={{ height: 1, background: "var(--sf-border-soft)", margin: "4px 0" }} />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setShowStatusMenu(false)
+                        onOpenEdit()
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-panel-soft)] transition-colors"
+                      style={{ color: "var(--sf-ink-2)" }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "var(--sf-purple)",
+                          flexShrink: 0,
+                        }}
+                      />
+                      Reschedule
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setShowStatusMenu(false)
+                        onCancel()
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-red-soft)] transition-colors"
+                      style={{ color: "var(--sf-red-dark)" }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "var(--sf-red)",
+                          flexShrink: 0,
+                        }}
+                      />
+                      Cancel Job
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* More actions menu */}
@@ -1245,14 +1375,7 @@ const JobDetailsV2 = () => {
           {/* Timeline */}
           <SfCard>
             <SfCardHeader title="Timeline" />
-            <Timeline
-              job={job}
-              status={status}
-              onChangeStatus={onChangeStatus}
-              onReschedule={onOpenEdit}
-              onCancel={onCancel}
-              busy={busy}
-            />
+            <Timeline job={job} status={status} />
           </SfCard>
         </div>
       </div>
@@ -3498,34 +3621,9 @@ const TimelineStep = ({ icon: Icon, title, when, who, active, done, last }) => (
   </div>
 )
 
-const TIMELINE_STATUS_ACTIONS = [
-  { key: "confirmed",   label: "Mark as En Route",    dot: "var(--sf-blue)" },
-  { key: "in_progress", label: "Mark as In Progress", dot: "var(--sf-amber)" },
-  { key: "completed",   label: "Mark as Complete",    dot: "var(--sf-green)" },
-]
-
-const Timeline = ({ job, status, onChangeStatus, onReschedule, onCancel, busy }) => {
+const Timeline = ({ job, status }) => {
   const isCancelledStatus = (job.status || "").toLowerCase().includes("cancel")
   const isCompleted = ["completed", "complete", "done"].includes((job.status || "").toLowerCase())
-  const terminal = isCancelledStatus || isCompleted
-
-  const statusBtnStyle = (dot, danger = false) => ({
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    width: "100%",
-    padding: "7px 10px",
-    fontSize: 12.5,
-    fontWeight: 600,
-    color: danger ? "var(--sf-red-dark)" : "var(--sf-ink-2)",
-    background: "var(--sf-panel)",
-    border: `1px solid ${danger ? "var(--sf-red-soft)" : "var(--sf-border-2)"}`,
-    borderRadius: 8,
-    cursor: busy ? "not-allowed" : "pointer",
-    opacity: busy ? 0.6 : 1,
-    fontFamily: "var(--sf-font-ui)",
-    textAlign: "left",
-  })
 
   const steps = [
     {
@@ -3575,76 +3673,6 @@ const Timeline = ({ job, status, onChangeStatus, onReschedule, onCancel, busy })
 
   return (
     <div>
-      {/* Status actions */}
-      {!terminal && onChangeStatus && (
-        <div
-          className="flex flex-col gap-1.5"
-          style={{
-            paddingBottom: 12,
-            marginBottom: 12,
-            borderBottom: "1px dashed var(--sf-border-soft)",
-          }}
-        >
-          {TIMELINE_STATUS_ACTIONS.map((a) => (
-            <button
-              key={a.key}
-              type="button"
-              disabled={busy}
-              onClick={() => onChangeStatus(a.key)}
-              style={statusBtnStyle(a.dot)}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: a.dot,
-                  flexShrink: 0,
-                }}
-              />
-              {a.label}
-            </button>
-          ))}
-          {onReschedule && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onReschedule}
-              style={statusBtnStyle("var(--sf-purple)")}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "var(--sf-purple)",
-                  flexShrink: 0,
-                }}
-              />
-              Reschedule
-            </button>
-          )}
-          {onCancel && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onCancel}
-              style={statusBtnStyle(null, true)}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "var(--sf-red)",
-                  flexShrink: 0,
-                }}
-              />
-              Cancel Job
-            </button>
-          )}
-        </div>
-      )}
       {steps.map((s, i) => (
         <TimelineStep key={i} {...s} />
       ))}
