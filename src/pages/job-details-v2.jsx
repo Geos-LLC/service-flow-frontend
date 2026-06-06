@@ -302,6 +302,19 @@ const JobDetailsV2 = () => {
     }
   }
 
+  const onChangeStatus = async (newStatus) => {
+    if (!job) return
+    setBusy(true)
+    try {
+      await jobsAPI.updateStatus(job.id, newStatus)
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not update status.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const onCancel = async () => {
     if (!job) return
     const reason = window.prompt("Reason for cancellation (optional):")
@@ -1232,7 +1245,14 @@ const JobDetailsV2 = () => {
           {/* Timeline */}
           <SfCard>
             <SfCardHeader title="Timeline" />
-            <Timeline job={job} status={status} />
+            <Timeline
+              job={job}
+              status={status}
+              onChangeStatus={onChangeStatus}
+              onReschedule={onOpenEdit}
+              onCancel={onCancel}
+              busy={busy}
+            />
           </SfCard>
         </div>
       </div>
@@ -1844,6 +1864,19 @@ const RECURRENCE_OPTIONS = [
   { value: "quarterly",  label: "Quarterly" },
 ]
 
+const skillsToString = (skills) => {
+  if (!skills) return ""
+  if (Array.isArray(skills)) return skills.join(", ")
+  return String(skills)
+}
+
+const stringToSkills = (str) => {
+  if (str == null) return null
+  const trimmed = String(str).trim()
+  if (!trimmed) return []
+  return trimmed.split(",").map((s) => s.trim()).filter(Boolean)
+}
+
 const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
   const initial = useMemo(() => {
     if (!job) return null
@@ -1859,6 +1892,16 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       bathroom_count: job.bathroom_count != null ? String(job.bathroom_count) : "",
       recurringFrequency: job.recurring_frequency || "",
       notes: job.notes || "",
+      internalNotes: job.internal_notes || "",
+      workers: job.workers_needed != null ? String(job.workers_needed) : "",
+      skills: skillsToString(job.skills),
+      additionalFees: job.additional_fees != null ? String(job.additional_fees) : "",
+      taxes: job.taxes != null ? String(job.taxes) : "",
+      discount: job.discount != null ? String(job.discount) : "",
+      addressStreet: job.service_address_street || "",
+      addressCity: job.service_address_city || "",
+      addressState: job.service_address_state || "",
+      addressZip: job.service_address_zip || "",
     }
   }, [job])
 
@@ -1892,6 +1935,18 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       recurringJob: form.recurringFrequency ? true : false,
       recurringFrequency: form.recurringFrequency || null,
       notes: form.notes,
+      internalNotes: form.internalNotes,
+      workers: form.workers === "" ? null : parseInt(form.workers, 10),
+      skills: stringToSkills(form.skills),
+      additionalFees: form.additionalFees === "" ? null : parseFloat(form.additionalFees),
+      taxes: form.taxes === "" ? null : parseFloat(form.taxes),
+      discount: form.discount === "" ? null : parseFloat(form.discount),
+      serviceAddress: {
+        street: form.addressStreet || null,
+        city: form.addressCity || null,
+        state: form.addressState || null,
+        zipCode: form.addressZip || null,
+      },
     }
     onSave(patch)
   }
@@ -2053,6 +2108,111 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
               </select>
             </Field>
 
+            <DrawerSectionDivider label="Service address" />
+
+            <Field label="Street">
+              <input
+                type="text"
+                value={form.addressStreet}
+                onChange={(e) => setField("addressStreet", e.target.value)}
+                style={inputStyle}
+                placeholder="123 Main St"
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="City">
+                <input
+                  type="text"
+                  value={form.addressCity}
+                  onChange={(e) => setField("addressCity", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="State">
+                <input
+                  type="text"
+                  value={form.addressState}
+                  onChange={(e) => setField("addressState", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            <Field label="ZIP code">
+              <input
+                type="text"
+                value={form.addressZip}
+                onChange={(e) => setField("addressZip", e.target.value)}
+                style={inputStyle}
+              />
+            </Field>
+
+            <DrawerSectionDivider label="Crew & requirements" />
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Workers needed">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.workers}
+                  onChange={(e) => setField("workers", e.target.value)}
+                  style={inputStyle}
+                  placeholder="1"
+                />
+              </Field>
+              <Field label="Skills (comma-separated)">
+                <input
+                  type="text"
+                  value={form.skills}
+                  onChange={(e) => setField("skills", e.target.value)}
+                  style={inputStyle}
+                  placeholder="deep clean, pets"
+                />
+              </Field>
+            </div>
+
+            <DrawerSectionDivider label="Pricing breakdown" />
+
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Additional fees ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.additionalFees}
+                  onChange={(e) => setField("additionalFees", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Taxes ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.taxes}
+                  onChange={(e) => setField("taxes", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Discount ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.discount}
+                  onChange={(e) => setField("discount", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+            </div>
+
+            <DrawerSectionDivider label="Notes" />
+
             <Field label="Customer note">
               <textarea
                 rows={3}
@@ -2060,6 +2220,16 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
                 onChange={(e) => setField("notes", e.target.value)}
                 style={{ ...inputStyle, resize: "vertical", minHeight: 72 }}
                 placeholder="Notes visible on the job…"
+              />
+            </Field>
+
+            <Field label="Internal note (team-only)">
+              <textarea
+                rows={3}
+                value={form.internalNotes}
+                onChange={(e) => setField("internalNotes", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", minHeight: 72 }}
+                placeholder="Notes visible only to the team…"
               />
             </Field>
           </div>
@@ -2089,6 +2259,18 @@ const Field = ({ label, children }) => (
     </span>
     {children}
   </label>
+)
+
+const DrawerSectionDivider = ({ label }) => (
+  <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+    <span
+      className="text-[11px] font-bold uppercase"
+      style={{ color: "var(--sf-ink-3)", letterSpacing: ".06em" }}
+    >
+      {label}
+    </span>
+    <div style={{ flex: 1, height: 1, background: "var(--sf-border-soft)" }} />
+  </div>
 )
 
 const inputStyle = {
@@ -3316,9 +3498,34 @@ const TimelineStep = ({ icon: Icon, title, when, who, active, done, last }) => (
   </div>
 )
 
-const Timeline = ({ job, status }) => {
+const TIMELINE_STATUS_ACTIONS = [
+  { key: "confirmed",   label: "Mark as En Route",    dot: "var(--sf-blue)" },
+  { key: "in_progress", label: "Mark as In Progress", dot: "var(--sf-amber)" },
+  { key: "completed",   label: "Mark as Complete",    dot: "var(--sf-green)" },
+]
+
+const Timeline = ({ job, status, onChangeStatus, onReschedule, onCancel, busy }) => {
   const isCancelledStatus = (job.status || "").toLowerCase().includes("cancel")
   const isCompleted = ["completed", "complete", "done"].includes((job.status || "").toLowerCase())
+  const terminal = isCancelledStatus || isCompleted
+
+  const statusBtnStyle = (dot, danger = false) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    padding: "7px 10px",
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: danger ? "var(--sf-red-dark)" : "var(--sf-ink-2)",
+    background: "var(--sf-panel)",
+    border: `1px solid ${danger ? "var(--sf-red-soft)" : "var(--sf-border-2)"}`,
+    borderRadius: 8,
+    cursor: busy ? "not-allowed" : "pointer",
+    opacity: busy ? 0.6 : 1,
+    fontFamily: "var(--sf-font-ui)",
+    textAlign: "left",
+  })
 
   const steps = [
     {
@@ -3368,6 +3575,76 @@ const Timeline = ({ job, status }) => {
 
   return (
     <div>
+      {/* Status actions */}
+      {!terminal && onChangeStatus && (
+        <div
+          className="flex flex-col gap-1.5"
+          style={{
+            paddingBottom: 12,
+            marginBottom: 12,
+            borderBottom: "1px dashed var(--sf-border-soft)",
+          }}
+        >
+          {TIMELINE_STATUS_ACTIONS.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              disabled={busy}
+              onClick={() => onChangeStatus(a.key)}
+              style={statusBtnStyle(a.dot)}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: a.dot,
+                  flexShrink: 0,
+                }}
+              />
+              {a.label}
+            </button>
+          ))}
+          {onReschedule && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onReschedule}
+              style={statusBtnStyle("var(--sf-purple)")}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "var(--sf-purple)",
+                  flexShrink: 0,
+                }}
+              />
+              Reschedule
+            </button>
+          )}
+          {onCancel && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+              style={statusBtnStyle(null, true)}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "var(--sf-red)",
+                  flexShrink: 0,
+                }}
+              />
+              Cancel Job
+            </button>
+          )}
+        </div>
+      )}
       {steps.map((s, i) => (
         <TimelineStep key={i} {...s} />
       ))}
