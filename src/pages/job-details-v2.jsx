@@ -2614,37 +2614,12 @@ const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
               />
             </Field>
 
-            <DrawerSectionDivider label="Property" />
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Bedrooms">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={form.bedrooms}
-                  onChange={(e) => setField("bedrooms", e.target.value)}
-                  style={inputStyle}
-                />
-              </Field>
-              <Field label="Bathrooms">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={form.bathroom_count}
-                  onChange={(e) => setField("bathroom_count", e.target.value)}
-                  style={inputStyle}
-                />
-              </Field>
-            </div>
-
-            {Array.isArray(form.modifiers) && form.modifiers.length > 0 && (
+            {Array.isArray(form.modifiers) && form.modifiers.length > 0 ? (
               <>
-                <DrawerSectionDivider label="Add-ons & options" />
+                <DrawerSectionDivider label="Service parameters" />
                 <div className="text-[11px] text-[var(--sf-ink-3)] -mt-1">
-                  Selecting options here updates the modifier total and recalculates the job's
-                  grand total when you save.
+                  Rooms, add-ons, pets — every option the service template carries. Changes update
+                  the modifier total and the job's grand total when you save.
                 </div>
                 <div
                   style={{
@@ -2677,6 +2652,36 @@ const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
                       ${modifierTotal.toFixed(2)}
                     </span>
                   </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <DrawerSectionDivider label="Property" />
+                <div className="text-[11px] text-[var(--sf-ink-3)] -mt-1">
+                  This job has no service modifiers configured. Bedrooms and bathrooms below are
+                  stored as plain attributes — they don't drive the total.
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Bedrooms">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.bedrooms}
+                      onChange={(e) => setField("bedrooms", e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="Bathrooms">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.bathroom_count}
+                      onChange={(e) => setField("bathroom_count", e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
                 </div>
               </>
             )}
