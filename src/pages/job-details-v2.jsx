@@ -92,10 +92,25 @@ const formatMoney = (n) => `$${(Number.isFinite(n) ? n : 0).toLocaleString(undef
 const jobStatusLabel = (raw) => {
   const s = (raw || "").toLowerCase()
   if (s.includes("progress") || s === "in_progress") return "In progress"
-  if (s === "en_route" || s === "en route" || s === "enroute") return "En route"
+  if (s === "en_route" || s === "en route" || s === "enroute" || s === "confirmed") return "En route"
   if (s === "completed" || s === "complete" || s === "done") return "Completed"
   if (s === "cancelled" || s === "canceled") return "Cancelled"
   return "Scheduled"
+}
+
+// Map the current status to the next sensible primary action. Returns
+// null when the job is already terminal (completed / cancelled).
+const nextStatusAction = (raw) => {
+  const s = (raw || "").toLowerCase()
+  if (s === "completed" || s === "complete" || s === "done") return null
+  if (s === "cancelled" || s === "canceled") return null
+  if (s.includes("progress") || s === "in_progress") {
+    return { label: "Mark complete", status: "completed" }
+  }
+  if (s === "en_route" || s === "en route" || s === "enroute" || s === "confirmed") {
+    return { label: "Mark in progress", status: "in-progress" }
+  }
+  return { label: "Mark en route", status: "en_route" }
 }
 
 const assigneesFor = (job) => {
@@ -518,6 +533,7 @@ const JobDetailsV2 = () => {
   const isLive = onShiftStatuses.has((job.status || "").toLowerCase())
   const isCancelledStatus = (job.status || "").toLowerCase().includes("cancel")
   const isCompletedStatus = ["completed", "complete", "done"].includes((job.status || "").toLowerCase())
+  const nextAction = nextStatusAction(job.status)
   const customerName =
     customer?.name ||
     `${customer?.first_name || job.customer_first_name || ""} ${customer?.last_name || job.customer_last_name || ""}`.trim() ||
@@ -622,7 +638,7 @@ const JobDetailsV2 = () => {
             >
               Edit
             </SfButton>
-            {!isCompletedStatus && !isCancelledStatus && (
+            {nextAction && (
               <div
                 className="relative inline-flex"
                 ref={statusMenuRef}
@@ -630,7 +646,11 @@ const JobDetailsV2 = () => {
               >
                 <button
                   type="button"
-                  onClick={onMarkComplete}
+                  onClick={() =>
+                    nextAction.status === "completed"
+                      ? onMarkComplete()
+                      : onChangeStatus(nextAction.status)
+                  }
                   disabled={busy}
                   className="inline-flex items-center gap-1.5"
                   style={{
@@ -648,7 +668,7 @@ const JobDetailsV2 = () => {
                   }}
                 >
                   <Check size={15} strokeWidth={2.2} />
-                  Mark complete
+                  {nextAction.label}
                 </button>
                 <button
                   type="button"
@@ -674,8 +694,8 @@ const JobDetailsV2 = () => {
                     style={{ boxShadow: "var(--sf-shadow-l)" }}
                   >
                     {[
-                      { key: "confirmed",   label: "Mark as En Route",    dot: "var(--sf-blue)" },
-                      { key: "in_progress", label: "Mark as In Progress", dot: "var(--sf-amber)" },
+                      { key: "en_route",    label: "Mark as En Route",    dot: "var(--sf-blue)" },
+                      { key: "in-progress", label: "Mark as In Progress", dot: "var(--sf-amber)" },
                       { key: "completed",   label: "Mark as Complete",    dot: "var(--sf-green)" },
                     ].map((a) => (
                       <button
