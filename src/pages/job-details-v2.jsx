@@ -1466,6 +1466,7 @@ const FinancialsCard = ({
 }) => {
   const servicePrice = parseFloat(job?.service_price || 0)
   const additionalFees = parseFloat(job?.additional_fees || 0)
+  const taxes = parseFloat(job?.taxes || 0)
   const discount = parseFloat(job?.discount || 0)
   const tip = parseFloat(job?.tip_amount || 0)
   const incentiveLines = Array.isArray(job?.incentives) ? job.incentives : []
@@ -1476,13 +1477,38 @@ const FinancialsCard = ({
   const jobTotal = parseFloat(
     invoice?.total_amount || invoice?.amount || job?.total || job?.total_amount || 0
   )
-  const grand = (jobTotal || servicePrice + additionalFees - discount) + tip
+  const grand = (jobTotal || servicePrice + additionalFees + taxes - discount) + tip
+
+  // Flatten service_modifiers → [{label, price}] for inline display
+  const modifierLines = []
+  const rawMods = job?.service_modifiers
+  let modsArr = rawMods
+  if (typeof rawMods === "string") {
+    try { modsArr = JSON.parse(rawMods) } catch { modsArr = null }
+  }
+  if (Array.isArray(modsArr)) {
+    modsArr.forEach((m) => {
+      const opts = Array.isArray(m?.selectedOptions) ? m.selectedOptions : []
+      opts.forEach((o) => {
+        const optPrice = parseFloat(o?.price || 0)
+        const qty = parseInt(o?.selectedQuantity || 0, 10)
+        const optLabel = o?.label || o?.name || o?.description || "Option"
+        if (qty > 0) {
+          modifierLines.push({
+            label: `${qty} × ${optLabel}`,
+            price: optPrice * qty,
+          })
+        } else if (o?.selected) {
+          modifierLines.push({ label: optLabel, price: optPrice })
+        }
+      })
+    })
+  }
 
   return (
     <SfCard>
       <SfCardHeader
         title="Financials"
-        subtitle="Tip and incentives feed payroll. Edit anytime."
         right={
           onEditFinance && (
             <button
@@ -1508,9 +1534,22 @@ const FinancialsCard = ({
         }
       />
       <div className="flex flex-col">
-        <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} muted />
+        <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} />
+        {modifierLines.map((ln, i) => (
+          <FinancialRow
+            key={i}
+            label={ln.label}
+            value={`+ ${formatMoney(ln.price)}`}
+            muted
+            small
+            indent
+          />
+        ))}
         {additionalFees > 0 && (
-          <FinancialRow label="Additional fees" value={formatMoney(additionalFees)} muted />
+          <FinancialRow label="Additional fees" value={`+ ${formatMoney(additionalFees)}`} muted />
+        )}
+        {taxes > 0 && (
+          <FinancialRow label="Taxes" value={`+ ${formatMoney(taxes)}`} muted />
         )}
         {discount > 0 && (
           <FinancialRow
@@ -1538,8 +1577,12 @@ const FinancialsCard = ({
           onDelete={onDeleteIncentive}
         />
         <div
-          className="flex items-center justify-between mt-1 pt-3"
-          style={{ borderTop: "1px solid var(--sf-border-soft)" }}
+          className="flex items-center justify-between"
+          style={{
+            marginTop: 6,
+            paddingTop: 8,
+            borderTop: "1px solid var(--sf-border-soft)",
+          }}
         >
           <span className="text-[13px] font-semibold text-[var(--sf-ink)]">Total</span>
           <span className="text-[15px] font-bold text-[var(--sf-ink)]" style={{ fontVariantNumeric: "tabular-nums" }}>
@@ -1593,7 +1636,7 @@ const IncentivesSection = ({
   }
 
   return (
-    <div className="py-2">
+    <div style={{ padding: "3px 0" }}>
       <div className="flex items-center justify-between">
         <span className="text-[12.5px] text-[var(--sf-ink-2)]">Incentives</span>
         {incentives.length > 0 && (
@@ -1877,13 +1920,19 @@ const IncentiveLineForm = ({ initial, assignees, accent, onCancel, onSubmit }) =
   )
 }
 
-const FinancialRow = ({ label, value, muted, tone }) => (
-  <div className="flex items-center justify-between py-2">
-    <span className="text-[12.5px]" style={{ color: muted ? "var(--sf-ink-3)" : "var(--sf-ink-2)" }}>
+const FinancialRow = ({ label, value, muted, tone, indent, small }) => (
+  <div className="flex items-center justify-between" style={{ padding: small ? "2px 0" : "3px 0" }}>
+    <span
+      className={small ? "text-[11.5px]" : "text-[12.5px]"}
+      style={{
+        color: muted ? "var(--sf-ink-3)" : "var(--sf-ink-2)",
+        paddingLeft: indent ? 10 : 0,
+      }}
+    >
       {label}
     </span>
     <span
-      className="text-[13px] font-medium"
+      className={small ? "text-[12px] font-medium" : "text-[13px] font-medium"}
       style={{ color: tone || "var(--sf-ink)", fontVariantNumeric: "tabular-nums" }}
     >
       {value}
@@ -1931,7 +1980,7 @@ const FinancialEditableRow = ({ label, fieldKey, value, onSave, accent, accentSo
 
   if (editing) {
     return (
-      <div className="py-2">
+      <div style={{ padding: "3px 0" }}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[12.5px] text-[var(--sf-ink-2)]">{label}</span>
           <div className="flex items-center gap-1.5">
@@ -1993,7 +2042,7 @@ const FinancialEditableRow = ({ label, fieldKey, value, onSave, accent, accentSo
   }
 
   return (
-    <div className="flex items-center justify-between py-2">
+    <div className="flex items-center justify-between" style={{ padding: "3px 0" }}>
       <span className="text-[12.5px] text-[var(--sf-ink-2)]">{label}</span>
       {value > 0 ? (
         <button
