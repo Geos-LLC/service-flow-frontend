@@ -1479,8 +1479,11 @@ const FinancialsCard = ({
   )
   const grand = (jobTotal || servicePrice + additionalFees + taxes - discount) + tip
 
-  // Flatten service_modifiers → [{label, price}] for inline display
+  // Flatten service_modifiers → [{label, price}] for inline display.
+  // Labels read like "4 Bathrooms" / "3 Bedrooms" / "Pets" so they
+  // mirror the booking summary the customer would see.
   const modifierLines = []
+  let modifiersTotal = 0
   const rawMods = job?.service_modifiers
   let modsArr = rawMods
   if (typeof rawMods === "string") {
@@ -1494,16 +1497,18 @@ const FinancialsCard = ({
         const qty = parseInt(o?.selectedQuantity || 0, 10)
         const optLabel = o?.label || o?.name || o?.description || "Option"
         if (qty > 0) {
-          modifierLines.push({
-            label: `${qty} × ${optLabel}`,
-            price: optPrice * qty,
-          })
+          const total = optPrice * qty
+          modifierLines.push({ label: `${qty} ${optLabel}`, price: total })
+          modifiersTotal += total
         } else if (o?.selected) {
           modifierLines.push({ label: optLabel, price: optPrice })
+          modifiersTotal += optPrice
         }
       })
     })
   }
+  const serviceGroupTotal = (servicePrice || 0) + modifiersTotal
+  const serviceName = job?.service_name || "Service"
 
   return (
     <SfCard>
@@ -1534,30 +1539,56 @@ const FinancialsCard = ({
         }
       />
       <div className="flex flex-col">
-        <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} />
-        {modifierLines.map((ln, i) => (
-          <FinancialRow
-            key={i}
-            label={ln.label}
-            value={`+ ${formatMoney(ln.price)}`}
-            muted
-            small
-            indent
-          />
-        ))}
-        {additionalFees > 0 && (
-          <FinancialRow label="Additional fees" value={`+ ${formatMoney(additionalFees)}`} muted />
-        )}
-        {taxes > 0 && (
-          <FinancialRow label="Taxes" value={`+ ${formatMoney(taxes)}`} muted />
-        )}
-        {discount > 0 && (
-          <FinancialRow
-            label="Discount"
-            value={`− ${formatMoney(discount)}`}
-            muted
-            tone="var(--sf-green-dark)"
-          />
+        {/* Service group header: name + rolled-up price */}
+        <div
+          className="flex items-start justify-between"
+          style={{ padding: "3px 0" }}
+        >
+          <span className="text-[13px] font-semibold text-[var(--sf-ink)]">
+            {serviceName}
+          </span>
+          <span
+            className="text-[13px] font-semibold text-[var(--sf-ink)]"
+            style={{ fontVariantNumeric: "tabular-nums" }}
+          >
+            {formatMoney(serviceGroupTotal || jobTotal)}
+          </span>
+        </div>
+        {/* Sub-items: base + each modifier option, indented, price in parens */}
+        <div className="flex flex-col" style={{ paddingLeft: 10 }}>
+          {servicePrice > 0 && (
+            <span className="text-[11.5px] text-[var(--sf-ink-3)]" style={{ padding: "1px 0" }}>
+              Base Price ({formatMoney(servicePrice)})
+            </span>
+          )}
+          {modifierLines.map((ln, i) => (
+            <span
+              key={i}
+              className="text-[11.5px] text-[var(--sf-ink-3)]"
+              style={{ padding: "1px 0" }}
+            >
+              {ln.label} ({formatMoney(ln.price)})
+            </span>
+          ))}
+        </div>
+
+        {(additionalFees > 0 || taxes > 0 || discount > 0) && (
+          <div style={{ marginTop: 6 }}>
+            {additionalFees > 0 && (
+              <FinancialRow label="Additional fees" value={`+ ${formatMoney(additionalFees)}`} muted />
+            )}
+            {taxes > 0 && (
+              <FinancialRow label="Taxes" value={`+ ${formatMoney(taxes)}`} muted />
+            )}
+            {discount > 0 && (
+              <FinancialRow
+                label="Discount"
+                value={`− ${formatMoney(discount)}`}
+                muted
+                tone="var(--sf-green-dark)"
+              />
+            )}
+          </div>
         )}
         <FinancialEditableRow
           label="Tip"
