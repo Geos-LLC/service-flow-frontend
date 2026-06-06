@@ -29,7 +29,9 @@ import {
   User,
   AlertCircle
 } from 'lucide-react'
-import { teamAPI, territoriesAPI, staffLocationsAPI } from '../services/api'
+import { teamAPI, territoriesAPI, staffLocationsAPI, jobsAPI } from '../services/api'
+import { normalizeAPIResponse } from '../utils/dataHandler'
+import { formatTime as formatTimeShared } from '../utils/formatTime'
 import DateOverrideModal from '../components/date-override-modal'
 import AddTeamMemberModal from '../components/add-team-member-modal'
 import { getImageUrl } from '../utils/imageUtils'
@@ -88,6 +90,9 @@ const TeamMemberDetails = () => {
     revenueGenerated: 0
   })
   const [recentJobs, setRecentJobs] = useState([])
+  const [memberJobs, setMemberJobs] = useState([])
+  const [memberJobsLoading, setMemberJobsLoading] = useState(true)
+  const [memberJobsTab, setMemberJobsTab] = useState('upcoming') // 'upcoming' | 'past' | 'all'
   const [allTeamMembers, setAllTeamMembers] = useState([]) // For map display
   const [staffLocationsEnabled, setStaffLocationsEnabled] = useState(true) // Global setting for staff locations
   
@@ -120,11 +125,47 @@ const TeamMemberDetails = () => {
       fetchAvailableTerritories()
       fetchAllTeamMembers() // Fetch all members for map
       fetchStaffLocationsSetting() // Fetch global setting
+      fetchMemberJobs()
     } else if (user?.teamMemberId) {
       // If no memberId in URL but user is a team member, navigate to their own profile
       navigate(`/team/${user.teamMemberId}`, { replace: true })
     }
   }, [memberId, user?.teamMemberId])
+
+  // Fetch jobs assigned to this member.
+  // Pulls a wide window (~6 months back, 6 months forward) and lets the
+  // section's tabs slice it into upcoming / past / all.
+  const fetchMemberJobs = async () => {
+    if (!memberId || !user?.id) return
+    setMemberJobsLoading(true)
+    try {
+      const today = new Date()
+      const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const start = new Date(today); start.setMonth(start.getMonth() - 6)
+      const end = new Date(today); end.setMonth(end.getMonth() + 6)
+      const range = `${fmt(start)} to ${fmt(end)}`
+      // jobsAPI.getAll(userId, status, search, page, limit, dateFilter, dateRange, sortBy, sortOrder, teamMember)
+      const resp = await jobsAPI.getAll(user.id, '', '', 1, 500, null, range, 'scheduled_date', 'DESC', memberId)
+      const list = normalizeAPIResponse(resp, 'jobs')
+      // Backend may not honor teamMember filter on every deploy — defend client-side.
+      const mine = list.filter((j) => {
+        const ids = []
+        if (Array.isArray(j.assigned_providers)) j.assigned_providers.forEach((p) => ids.push(String(p?.id || p?.team_member_id || p?.provider_id || '')))
+        if (Array.isArray(j.team_members)) j.team_members.forEach((m) => ids.push(String(m?.id || m?.team_member_id || '')))
+        if (Array.isArray(j.job_team_assignments)) j.job_team_assignments.forEach((a) => ids.push(String(a?.team_member_id || a?.id || '')))
+        if (Array.isArray(j.team_assignments)) j.team_assignments.forEach((a) => ids.push(String(a?.team_member_id || a?.id || '')))
+        if (j.team_member_id) ids.push(String(j.team_member_id))
+        if (j.assigned_to) ids.push(String(j.assigned_to))
+        return ids.includes(String(memberId))
+      })
+      setMemberJobs(mine)
+    } catch (e) {
+      console.error('Error fetching jobs for team member:', e)
+      setMemberJobs([])
+    } finally {
+      setMemberJobsLoading(false)
+    }
+  }
 
   // Fetch global staff locations setting
   const fetchStaffLocationsSetting = async () => {
@@ -1444,6 +1485,16 @@ const TeamMemberDetails = () => {
                 </div>
               </div>
 
+              {/* Jobs Card */}
+              <TeamMemberJobsSection
+                jobs={memberJobs}
+                loading={memberJobsLoading}
+                tab={memberJobsTab}
+                onTabChange={setMemberJobsTab}
+                onJobClick={(id) => navigate(`/job/${id}`)}
+                onViewAll={() => navigate(`/jobs?teamMember=${memberId}`)}
+              />
+
               {/* Availability Card */}
               <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-4 sm:p-6">
                 <div className="mb-4 sm:mb-6">
@@ -2149,4 +2200,188 @@ const TeamMemberDetails = () => {
   )
 }
 
-export default TeamMemberDetails 
+// ── Jobs Section ─────────────────────────────────────────────
+// Shows jobs assigned to this team member with Upcoming / Past / All
+// slices and a link out to the Jobs page pre-filtered to this member.
+
+const tmTodayYMD = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const tmJobDate = (j) => String(j.scheduled_date || '').split('T')[0].split(' ')[0]
+
+const tmIsCancelled = (j) => {
+  const s = (j.status || '').toLowerCase()
+  return s === 'cancelled' || s === 'canceled'
+}
+
+const tmIsPast = (j) => {
+  const s = (j.status || '').toLowerCase()
+  if (s === 'completed' || s === 'complete' || s === 'done' || s === 'finished') return true
+  return tmJobDate(j) < tmTodayYMD() && !tmIsCancelled(j)
+}
+
+const tmFormatDateShort = (s) => {
+  if (!s) return '—'
+  const [y, m, d] = s.split('-').map(Number)
+  if (!y) return '—'
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+const tmStatusBadge = (raw) => {
+  const s = (raw || '').toLowerCase()
+  if (s.includes('progress')) return { label: 'In progress', fg: '#0E7490', bg: '#CFFAFE' }
+  if (s === 'en_route' || s === 'enroute' || s === 'en route') return { label: 'En route', fg: '#7C2D12', bg: '#FFEDD5' }
+  if (s === 'completed' || s === 'complete' || s === 'done') return { label: 'Completed', fg: '#15803D', bg: '#ECFDF5' }
+  if (s === 'cancelled' || s === 'canceled') return { label: 'Cancelled', fg: '#9F1239', bg: '#FFE4E6' }
+  return { label: 'Scheduled', fg: '#1D4ED8', bg: '#DBEAFE' }
+}
+
+const TeamMemberJobsSection = ({ jobs, loading, tab, onTabChange, onJobClick, onViewAll }) => {
+  const today = tmTodayYMD()
+
+  const counts = {
+    upcoming: jobs.filter((j) => tmJobDate(j) >= today && !tmIsCancelled(j)).length,
+    past: jobs.filter(tmIsPast).length,
+    all: jobs.length,
+  }
+
+  let visible = jobs
+  if (tab === 'upcoming') visible = jobs.filter((j) => tmJobDate(j) >= today && !tmIsCancelled(j))
+  else if (tab === 'past') visible = jobs.filter(tmIsPast)
+
+  // Upcoming: soonest first. Past/All: most recent first.
+  visible = [...visible].sort((a, b) => {
+    const ad = tmJobDate(a)
+    const bd = tmJobDate(b)
+    if (tab === 'upcoming') return ad.localeCompare(bd)
+    return bd.localeCompare(ad)
+  })
+
+  const TABS = [
+    { id: 'upcoming', label: 'Upcoming', count: counts.upcoming },
+    { id: 'past', label: 'Past', count: counts.past },
+    { id: 'all', label: 'All', count: counts.all },
+  ]
+
+  return (
+    <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-4 sm:p-6">
+      <div className="flex items-start justify-between mb-4 sm:mb-6 gap-3 flex-wrap">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--sf-text-primary)] mb-2">Jobs</h3>
+          <p className="text-sm text-[var(--sf-text-secondary)]">
+            Jobs assigned to this team member across the past and next six months.
+          </p>
+        </div>
+        <button
+          onClick={onViewAll}
+          className="text-sm text-[var(--sf-blue-500)] hover:underline font-medium whitespace-nowrap"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          View all in Jobs →
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        {TABS.map((t) => {
+          const active = tab === t.id
+          return (
+            <button
+              key={t.id}
+              onClick={() => onTabChange(t.id)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium"
+              style={{
+                background: active ? 'var(--sf-blue-soft, #DBEAFE)' : 'transparent',
+                color: active ? 'var(--sf-blue-dark, #1D4ED8)' : 'var(--sf-text-secondary, #475569)',
+                border: `1px solid ${active ? 'var(--sf-blue-soft-2, #BFDBFE)' : 'var(--sf-border-light, #E2E8F0)'}`,
+                cursor: 'pointer',
+              }}
+            >
+              {t.label}
+              <span
+                className="inline-flex items-center justify-center min-w-[18px] px-1.5 rounded text-[11px] font-semibold"
+                style={{
+                  background: active ? 'var(--sf-blue-500, #3B82F6)' : 'var(--sf-bg-page, #F1F5F9)',
+                  color: active ? '#fff' : 'var(--sf-text-secondary, #475569)',
+                }}
+              >
+                {t.count}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div className="py-10 text-center text-sm text-[var(--sf-text-muted)]">Loading jobs…</div>
+      ) : visible.length === 0 ? (
+        <div className="py-10 text-center text-sm text-[var(--sf-text-muted)]">
+          {tab === 'upcoming' ? 'No upcoming jobs assigned.' : tab === 'past' ? 'No past jobs in this window.' : 'No jobs assigned in this window.'}
+        </div>
+      ) : (
+        <div className="divide-y divide-[var(--sf-border-light)] border border-[var(--sf-border-light)] rounded-lg overflow-hidden">
+          {visible.slice(0, 15).map((j) => {
+            const date = tmJobDate(j)
+            const customer = j.customer_name || `${j.customer_first_name || ''} ${j.customer_last_name || ''}`.trim() || '—'
+            const status = tmStatusBadge(j.status)
+            const value = parseFloat(j.total || j.service_price || 0)
+            const addr = j.service_address || j.customer_address || ''
+            const idDisp = j.id ? `#${String(j.id).slice(-4)}` : ''
+            let timeStr = ''
+            if (j.scheduled_date && j.scheduled_date.includes('T')) {
+              const d = new Date(j.scheduled_date)
+              if (!isNaN(d)) timeStr = formatTimeShared(d)
+            }
+            return (
+              <button
+                key={j.id}
+                onClick={() => onJobClick(j.id)}
+                className="w-full text-left flex items-center gap-3 px-3 py-3 hover:bg-[var(--sf-bg-page,#F8FAFC)] transition-colors"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                <div style={{ width: 110 }} className="flex-shrink-0">
+                  <div className="text-[11px] text-[var(--sf-text-muted)] font-mono">{idDisp}</div>
+                  <div className="text-sm font-semibold text-[var(--sf-text-primary)]">{tmFormatDateShort(date)}</div>
+                  {timeStr && <div className="text-xs text-[var(--sf-text-secondary)]">{timeStr}</div>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-[var(--sf-text-primary)] truncate">{customer}</div>
+                  <div className="text-xs text-[var(--sf-text-secondary)] truncate">
+                    {j.service_name || 'Service'}
+                    {addr && <> · {addr.split(',')[0]}</>}
+                  </div>
+                </div>
+                <div className="hidden sm:block text-sm font-semibold text-[var(--sf-text-primary)]" style={{ width: 70, textAlign: 'right' }}>
+                  {value ? `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                </div>
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap"
+                  style={{ color: status.fg, background: status.bg }}
+                >
+                  {status.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {visible.length > 15 && (
+        <div className="mt-3 text-center">
+          <button
+            onClick={onViewAll}
+            className="text-sm text-[var(--sf-blue-500)] hover:underline font-medium"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            View all {visible.length} jobs →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default TeamMemberDetails

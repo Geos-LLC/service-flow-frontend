@@ -18,6 +18,7 @@ import {
   CalendarRange,
   RotateCw,
   UserX,
+  User as UserIcon,
   CheckCircle2,
   AlertCircle,
   X as XIcon,
@@ -271,6 +272,14 @@ const JobsV2 = () => {
   const [onlyRecurring, setOnlyRecurring] = useState(false)
   const [onlyUnassigned, setOnlyUnassigned] = useState(false)
 
+  // Team member filter (URL-persisted so other pages can deep-link in)
+  const [teamMemberFilter, setTeamMemberFilter] = useState(
+    searchParams.get("teamMember") || ""
+  )
+  const [teamMemberPickerOpen, setTeamMemberPickerOpen] = useState(false)
+  const [teamMemberSearch, setTeamMemberSearch] = useState("")
+  const teamMemberPickerRef = useRef(null)
+
   // Custom date range (overrides tab when active)
   const [dateRange, setDateRange] = useState({ from: "", to: "" })
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -290,6 +299,16 @@ const JobsV2 = () => {
     }, { replace: true })
   }, [tab, setSearchParams])
 
+  // Sync teamMemberFilter → URL
+  useEffect(() => {
+    setSearchParams((sp) => {
+      const next = new URLSearchParams(sp)
+      if (teamMemberFilter) next.set("teamMember", teamMemberFilter)
+      else next.delete("teamMember")
+      return next
+    }, { replace: true })
+  }, [teamMemberFilter, setSearchParams])
+
   // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 200)
@@ -307,6 +326,18 @@ const JobsV2 = () => {
     document.addEventListener("mousedown", onClick)
     return () => document.removeEventListener("mousedown", onClick)
   }, [datePickerOpen])
+
+  // Close team-member picker on outside click
+  useEffect(() => {
+    if (!teamMemberPickerOpen) return
+    const onClick = (e) => {
+      if (teamMemberPickerRef.current && !teamMemberPickerRef.current.contains(e.target)) {
+        setTeamMemberPickerOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", onClick)
+    return () => document.removeEventListener("mousedown", onClick)
+  }, [teamMemberPickerOpen])
 
   // Compute the API fetch window. Default covers ~5 months centered on
   // today; custom date range expands the window as needed.
@@ -391,9 +422,10 @@ const JobsV2 = () => {
     return tabFiltered.filter((j) => {
       if (onlyRecurring && j.is_recurring !== true) return false
       if (onlyUnassigned && isAssigned(j)) return false
+      if (teamMemberFilter && !assigneeIdsOf(j).includes(String(teamMemberFilter))) return false
       return true
     })
-  }, [tabFiltered, onlyRecurring, onlyUnassigned])
+  }, [tabFiltered, onlyRecurring, onlyUnassigned, teamMemberFilter])
 
   // Search
   const searched = useMemo(() => {
@@ -429,7 +461,7 @@ const JobsV2 = () => {
   // Pagination
   useEffect(() => {
     setPage(1)
-  }, [tab, debouncedSearch, sortMode, locationId, onlyRecurring, onlyUnassigned, dateRange.from, dateRange.to, pageSize])
+  }, [tab, debouncedSearch, sortMode, locationId, onlyRecurring, onlyUnassigned, teamMemberFilter, dateRange.from, dateRange.to, pageSize])
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const pageStart = (currentPage - 1) * pageSize
@@ -624,6 +656,81 @@ const JobsV2 = () => {
         >
           Unassigned
         </SfFilterChip>
+
+        {/* Team member filter */}
+        <div className="relative" ref={teamMemberPickerRef}>
+          <SfFilterChip
+            icon={UserIcon}
+            active={Boolean(teamMemberFilter)}
+            onClick={() => setTeamMemberPickerOpen((v) => !v)}
+          >
+            {teamMemberFilter
+              ? (memberNameById.get(String(teamMemberFilter)) || "Team member")
+              : "Team member"}
+          </SfFilterChip>
+          {teamMemberPickerOpen && (
+            <div
+              className="absolute left-0 top-full mt-1.5 z-50 rounded-[10px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] p-2"
+              style={{ boxShadow: "var(--sf-shadow-l)", minWidth: 260, maxWidth: 320 }}
+            >
+              <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-md border border-[var(--sf-border-soft)] bg-[var(--sf-panel-alt)]">
+                <SearchIcon size={12} className="text-[var(--sf-ink-3)]" />
+                <input
+                  autoFocus
+                  value={teamMemberSearch}
+                  onChange={(e) => setTeamMemberSearch(e.target.value)}
+                  placeholder="Search team member…"
+                  className="flex-1 bg-transparent border-none outline-none text-[12px] text-[var(--sf-ink)]"
+                  style={{ fontFamily: "var(--sf-font-ui)", padding: 0, boxShadow: "none" }}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setTeamMemberFilter("")
+                  setTeamMemberPickerOpen(false)
+                  setTeamMemberSearch("")
+                }}
+                className="w-full text-left px-2 py-1.5 rounded-md text-[12px] font-semibold hover:bg-[var(--sf-panel-soft)]"
+                style={{ background: !teamMemberFilter ? "var(--sf-blue-soft)" : "transparent", color: !teamMemberFilter ? "var(--sf-blue-dark)" : "var(--sf-ink-2)", border: "none", cursor: "pointer", fontFamily: "var(--sf-font-ui)" }}
+              >
+                All team members
+              </button>
+              <div className="max-h-64 overflow-y-auto mt-1">
+                {teamMembers
+                  .filter((m) => {
+                    if (!teamMemberSearch) return true
+                    const n = (m.name || `${m.first_name || ""} ${m.last_name || ""}`).toLowerCase()
+                    return n.includes(teamMemberSearch.toLowerCase())
+                  })
+                  .map((m) => {
+                    const id = String(m.id)
+                    const name = m.name || `${m.first_name || ""} ${m.last_name || ""}`.trim() || m.email || "Team member"
+                    const selected = teamMemberFilter === id
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => {
+                          setTeamMemberFilter(id)
+                          setTeamMemberPickerOpen(false)
+                          setTeamMemberSearch("")
+                        }}
+                        className="w-full text-left px-2 py-1.5 rounded-md text-[12px] hover:bg-[var(--sf-panel-soft)] flex items-center gap-2"
+                        style={{ background: selected ? "var(--sf-blue-soft)" : "transparent", color: selected ? "var(--sf-blue-dark)" : "var(--sf-ink)", fontWeight: selected ? 700 : 500, border: "none", cursor: "pointer", fontFamily: "var(--sf-font-ui)" }}
+                      >
+                        <SfAvatar initials={sfInitials(name)} color={m.color || "var(--sf-ink-2)"} size={22} />
+                        <span className="truncate">{name}</span>
+                      </button>
+                    )
+                  })}
+                {teamMembers.length === 0 && (
+                  <div className="px-2 py-3 text-center text-[11.5px] text-[var(--sf-ink-3)]">
+                    No team members
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="flex-1" />
         <span className="text-[11.5px] text-[var(--sf-ink-3)] font-medium hidden md:inline">Sort:</span>
