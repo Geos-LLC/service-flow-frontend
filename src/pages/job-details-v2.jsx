@@ -223,6 +223,8 @@ const JobDetailsV2 = () => {
   const [editOpen, setEditOpen] = useState(false)
   const [editServices, setEditServices] = useState([])
   const [savingEdit, setSavingEdit] = useState(false)
+  const [financeEditOpen, setFinanceEditOpen] = useState(false)
+  const [savingFinanceEdit, setSavingFinanceEdit] = useState(false)
 
   // Close more-actions menu on outside click
   useEffect(() => {
@@ -387,6 +389,20 @@ const JobDetailsV2 = () => {
       alert(e?.response?.data?.error || e?.message || "Could not save changes.")
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  const onSaveFinanceEdit = async (patch) => {
+    if (!job) return
+    setSavingFinanceEdit(true)
+    try {
+      await jobsAPI.update(job.id, patch)
+      setFinanceEditOpen(false)
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not save changes.")
+    } finally {
+      setSavingFinanceEdit(false)
     }
   }
 
@@ -1027,6 +1043,7 @@ const JobDetailsV2 = () => {
                 onAddIncentive={onAddIncentive}
                 onUpdateIncentive={onUpdateIncentive}
                 onDeleteIncentive={onDeleteIncentive}
+                onEditFinance={() => setFinanceEditOpen(true)}
               />
 
               {/* Expenses & reimbursements */}
@@ -1381,13 +1398,21 @@ const JobDetailsV2 = () => {
       </div>
       )}
 
-      <EditJobDrawer
+      <EditServiceDrawer
         open={editOpen}
         job={job}
         services={editServices}
         saving={savingEdit}
         onClose={() => setEditOpen(false)}
         onSave={onSaveEdit}
+      />
+
+      <EditFinanceDrawer
+        open={financeEditOpen}
+        job={job}
+        saving={savingFinanceEdit}
+        onClose={() => setFinanceEditOpen(false)}
+        onSave={onSaveFinanceEdit}
       />
 
       <AssignJobModal
@@ -1416,6 +1441,7 @@ const FinancialsCard = ({
   onAddIncentive,
   onUpdateIncentive,
   onDeleteIncentive,
+  onEditFinance,
 }) => {
   const servicePrice = parseFloat(job?.service_price || 0)
   const additionalFees = parseFloat(job?.additional_fees || 0)
@@ -1436,6 +1462,29 @@ const FinancialsCard = ({
       <SfCardHeader
         title="Financials"
         subtitle="Tip and incentives feed payroll. Edit anytime."
+        right={
+          onEditFinance && (
+            <button
+              type="button"
+              onClick={onEditFinance}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors"
+              style={{
+                color: "var(--sf-ink-2)",
+                background: "transparent",
+                border: "1px solid var(--sf-border-soft)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--sf-panel-soft)"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent"
+              }}
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
+          )
+        }
       />
       <div className="flex flex-col">
         <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} muted />
@@ -2000,7 +2049,7 @@ const stringToSkills = (str) => {
   return trimmed.split(",").map((s) => s.trim()).filter(Boolean)
 }
 
-const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
+const EditServiceDrawer = ({ open, job, services, saving, onClose, onSave }) => {
   const initial = useMemo(() => {
     if (!job) return null
     const { date, time } = splitJobDateTime(job.scheduled_date)
@@ -2010,7 +2059,6 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       scheduledDate: date,
       scheduledTime: time,
       duration: String(parseInt(job.duration || job.estimated_duration || 0, 10) || ""),
-      total: String(parseFloat(job.total || job.total_amount || job.service_price || 0) || ""),
       bedrooms: job.bedrooms != null ? String(job.bedrooms) : "",
       bathroom_count: job.bathroom_count != null ? String(job.bathroom_count) : "",
       recurringFrequency: job.recurring_frequency || "",
@@ -2018,9 +2066,6 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       internalNotes: job.internal_notes || "",
       workers: job.workers_needed != null ? String(job.workers_needed) : "",
       skills: skillsToString(job.skills),
-      additionalFees: job.additional_fees != null ? String(job.additional_fees) : "",
-      taxes: job.taxes != null ? String(job.taxes) : "",
-      discount: job.discount != null ? String(job.discount) : "",
       addressStreet: job.service_address_street || "",
       addressCity: job.service_address_city || "",
       addressState: job.service_address_state || "",
@@ -2051,8 +2096,6 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       scheduledDate: form.scheduledDate || null,
       scheduledTime: form.scheduledTime || null,
       duration: form.duration === "" ? null : parseInt(form.duration, 10),
-      total: form.total === "" ? null : parseFloat(form.total),
-      total_amount: form.total === "" ? null : parseFloat(form.total),
       bedrooms: form.bedrooms === "" ? null : parseInt(form.bedrooms, 10),
       bathroom_count: form.bathroom_count === "" ? null : parseInt(form.bathroom_count, 10),
       recurringJob: form.recurringFrequency ? true : false,
@@ -2061,9 +2104,6 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       internalNotes: form.internalNotes,
       workers: form.workers === "" ? null : parseInt(form.workers, 10),
       skills: stringToSkills(form.skills),
-      additionalFees: form.additionalFees === "" ? null : parseFloat(form.additionalFees),
-      taxes: form.taxes === "" ? null : parseFloat(form.taxes),
-      discount: form.discount === "" ? null : parseFloat(form.discount),
       serviceAddress: {
         street: form.addressStreet || null,
         city: form.addressCity || null,
@@ -2109,7 +2149,7 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
           style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
         >
           <div>
-            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit job</div>
+            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit service</div>
             <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
               #{job.id} · {job.service_name || "Service"}
             </div>
@@ -2169,30 +2209,17 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
               </Field>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Duration (minutes)">
-                <input
-                  type="number"
-                  min="0"
-                  step="15"
-                  value={form.duration}
-                  onChange={(e) => setField("duration", e.target.value)}
-                  placeholder="e.g. 120"
-                  style={inputStyle}
-                />
-              </Field>
-              <Field label="Total ($)">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.total}
-                  onChange={(e) => setField("total", e.target.value)}
-                  placeholder="0.00"
-                  style={inputStyle}
-                />
-              </Field>
-            </div>
+            <Field label="Duration (minutes)">
+              <input
+                type="number"
+                min="0"
+                step="15"
+                value={form.duration}
+                onChange={(e) => setField("duration", e.target.value)}
+                placeholder="e.g. 120"
+                style={inputStyle}
+              />
+            </Field>
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Bedrooms">
@@ -2296,44 +2323,6 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
               </Field>
             </div>
 
-            <DrawerSectionDivider label="Pricing breakdown" />
-
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Additional fees ($)">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.additionalFees}
-                  onChange={(e) => setField("additionalFees", e.target.value)}
-                  style={inputStyle}
-                  placeholder="0.00"
-                />
-              </Field>
-              <Field label="Taxes ($)">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.taxes}
-                  onChange={(e) => setField("taxes", e.target.value)}
-                  style={inputStyle}
-                  placeholder="0.00"
-                />
-              </Field>
-              <Field label="Discount ($)">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.discount}
-                  onChange={(e) => setField("discount", e.target.value)}
-                  style={inputStyle}
-                  placeholder="0.00"
-                />
-              </Field>
-            </div>
-
             <DrawerSectionDivider label="Notes" />
 
             <Field label="Customer note">
@@ -2359,6 +2348,196 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
         </div>
 
         {/* Footer */}
+        <div
+          className="flex items-center justify-end gap-2"
+          style={{ padding: "12px 18px", borderTop: "1px solid var(--sf-border-soft)" }}
+        >
+          <SfButton variant="ghost" size="md" onClick={onClose} type="button">
+            Cancel
+          </SfButton>
+          <SfButton variant="primary" size="md" type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </SfButton>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ── Edit finance drawer ────────────────────────────────────
+// Right-side drawer for editing the Financials card amounts: service
+// price, additional fees, taxes, discount. Tip and incentives are
+// edited inline on the Financials card itself.
+
+const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
+  const initial = useMemo(() => {
+    if (!job) return null
+    return {
+      servicePrice: job.service_price != null ? String(job.service_price) : "",
+      additionalFees: job.additional_fees != null ? String(job.additional_fees) : "",
+      taxes: job.taxes != null ? String(job.taxes) : "",
+      discount: job.discount != null ? String(job.discount) : "",
+    }
+  }, [job])
+
+  const [form, setForm] = useState(initial)
+
+  useEffect(() => {
+    if (open && initial) setForm(initial)
+  }, [open, initial])
+
+  if (!open || !job || !form) return null
+
+  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const num = (s) => (s === "" ? 0 : parseFloat(s) || 0)
+  const previewTotal =
+    num(form.servicePrice) + num(form.additionalFees) + num(form.taxes) - num(form.discount)
+
+  const onSubmit = (e) => {
+    e?.preventDefault?.()
+    const servicePrice = form.servicePrice === "" ? null : parseFloat(form.servicePrice)
+    const additionalFees = form.additionalFees === "" ? null : parseFloat(form.additionalFees)
+    const taxes = form.taxes === "" ? null : parseFloat(form.taxes)
+    const discount = form.discount === "" ? null : parseFloat(form.discount)
+    const computedTotal =
+      (servicePrice || 0) + (additionalFees || 0) + (taxes || 0) - (discount || 0)
+    onSave({
+      service_price: servicePrice,
+      price: servicePrice,
+      additionalFees,
+      taxes,
+      discount,
+      total: computedTotal,
+      total_amount: computedTotal,
+    })
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        background: "rgba(15,23,42,.4)",
+        backdropFilter: "blur(4px)",
+        WebkitBackdropFilter: "blur(4px)",
+        fontFamily: "var(--sf-font-ui)",
+      }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={onSubmit}
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(460px, 100vw)",
+          background: "var(--sf-panel)",
+          borderLeft: "1px solid var(--sf-border-soft)",
+          boxShadow: "var(--sf-shadow-l)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+        >
+          <div>
+            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit finance</div>
+            <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+              #{job.id} · pricing breakdown
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-[var(--sf-panel-soft)] text-[var(--sf-ink-3)]"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto" style={{ padding: "18px" }}>
+          <div className="grid grid-cols-1 gap-3">
+            <Field label="Service price ($)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.servicePrice}
+                onChange={(e) => setField("servicePrice", e.target.value)}
+                style={inputStyle}
+                placeholder="0.00"
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Additional fees ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.additionalFees}
+                  onChange={(e) => setField("additionalFees", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Taxes ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.taxes}
+                  onChange={(e) => setField("taxes", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+            </div>
+
+            <Field label="Discount ($)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.discount}
+                onChange={(e) => setField("discount", e.target.value)}
+                style={inputStyle}
+                placeholder="0.00"
+              />
+            </Field>
+
+            <div
+              className="flex items-center justify-between"
+              style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "var(--sf-panel-soft)",
+                border: "1px solid var(--sf-border-soft)",
+              }}
+            >
+              <span className="text-[12.5px] font-semibold text-[var(--sf-ink-2)]">
+                New total (preview)
+              </span>
+              <span
+                className="text-[15px] font-bold text-[var(--sf-ink)]"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                ${previewTotal.toFixed(2)}
+              </span>
+            </div>
+            <div className="text-[11px] text-[var(--sf-ink-3)]">
+              Tip and incentives are edited inline on the Financials card and aren't included here.
+            </div>
+          </div>
+        </div>
+
         <div
           className="flex items-center justify-end gap-2"
           style={{ padding: "12px 18px", borderTop: "1px solid var(--sf-border-soft)" }}
