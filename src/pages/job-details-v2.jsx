@@ -1479,36 +1479,70 @@ const FinancialsCard = ({
   )
   const grand = (jobTotal || servicePrice + additionalFees + taxes - discount) + tip
 
-  // Flatten service_modifiers → [{label, price}] for inline display.
-  // Labels read like "4 Bathrooms" / "3 Bedrooms" / "Pets" so they
-  // mirror the booking summary the customer would see.
-  const modifierLines = []
-  let modifiersTotal = 0
+  // Parse the modifier array out of whatever shape Supabase returned.
   const rawMods = job?.service_modifiers
   let modsArr = rawMods
   if (typeof rawMods === "string") {
     try { modsArr = JSON.parse(rawMods) } catch { modsArr = null }
   }
-  if (Array.isArray(modsArr)) {
-    modsArr.forEach((m) => {
+  if (!Array.isArray(modsArr)) modsArr = []
+
+  // Multi-service support: service_name is comma-separated, service_ids
+  // is a parallel JSON array. Each modifier carries a serviceId tag
+  // (set on create), so we can attribute add-ons to the right service.
+  const serviceNames = job?.service_name && String(job.service_name).includes(", ")
+    ? String(job.service_name).split(", ").map((s) => s.trim()).filter(Boolean)
+    : [job?.service_name || "Service"]
+  let parsedServiceIds = job?.service_ids
+  if (typeof parsedServiceIds === "string") {
+    try { parsedServiceIds = JSON.parse(parsedServiceIds) } catch { parsedServiceIds = null }
+  }
+  if (!Array.isArray(parsedServiceIds)) parsedServiceIds = []
+
+  const flattenOptionsToLines = (modifiers) => {
+    const lines = []
+    let total = 0
+    modifiers.forEach((m) => {
       const opts = Array.isArray(m?.selectedOptions) ? m.selectedOptions : []
       opts.forEach((o) => {
         const optPrice = parseFloat(o?.price || 0)
         const qty = parseInt(o?.selectedQuantity || 0, 10)
         const optLabel = o?.label || o?.name || o?.description || "Option"
         if (qty > 0) {
-          const total = optPrice * qty
-          modifierLines.push({ label: `${qty} ${optLabel}`, price: total })
-          modifiersTotal += total
+          const t = optPrice * qty
+          lines.push({ label: `${qty} ${optLabel}`, price: t })
+          total += t
         } else if (o?.selected) {
-          modifierLines.push({ label: optLabel, price: optPrice })
-          modifiersTotal += optPrice
+          lines.push({ label: optLabel, price: optPrice })
+          total += optPrice
         }
       })
     })
+    return { lines, total }
   }
-  const serviceGroupTotal = (servicePrice || 0) + modifiersTotal
-  const serviceName = job?.service_name || "Service"
+
+  // Split the combined service_price evenly across services. Backend
+  // doesn't store a per-service breakdown so an even split is the
+  // honest fallback that still rolls up to the right grand total.
+  const numServices = Math.max(1, serviceNames.length)
+  const perServiceBase = (servicePrice || 0) / numServices
+
+  const serviceGroups = serviceNames.map((name, i) => {
+    const sid = parsedServiceIds[i]
+    const groupMods = modsArr.filter((m) => {
+      const mSid = m?.serviceId
+      if (mSid != null) return String(mSid) === String(sid)
+      // Modifiers with no serviceId tag attach to the first service
+      return i === 0
+    })
+    const { lines, total: modTotal } = flattenOptionsToLines(groupMods)
+    return {
+      name,
+      base: perServiceBase,
+      modLines: lines,
+      groupTotal: perServiceBase + modTotal,
+    }
+  })
 
   return (
     <SfCard>
@@ -1539,38 +1573,54 @@ const FinancialsCard = ({
         }
       />
       <div className="flex flex-col">
-        {/* Service group header: name + rolled-up price */}
-        <div
-          className="flex items-start justify-between"
-          style={{ padding: "3px 0" }}
-        >
-          <span className="text-[13px] font-semibold text-[var(--sf-ink)]">
-            {serviceName}
-          </span>
-          <span
-            className="text-[13px] font-semibold text-[var(--sf-ink)]"
-            style={{ fontVariantNumeric: "tabular-nums" }}
+        {/* One block per service: parent name + rolled-up group total, then
+            indented base + modifier sub-items. Multi-service jobs split
+            the combined service_price evenly across services since the
+            backend doesn't store a per-service breakdown. */}
+        {serviceGroups.map((g, i) => (
+          <div
+            key={i}
+            style={{
+              paddingTop: i === 0 ? 0 : 6,
+              marginTop: i === 0 ? 0 : 4,
+              borderTop: i === 0 ? "none" : "1px dashed var(--sf-border-soft)",
+            }}
           >
-            {formatMoney(serviceGroupTotal || jobTotal)}
-          </span>
-        </div>
-        {/* Sub-items: base + each modifier option, indented, price in parens */}
-        <div className="flex flex-col" style={{ paddingLeft: 10 }}>
-          {servicePrice > 0 && (
-            <span className="text-[11.5px] text-[var(--sf-ink-3)]" style={{ padding: "1px 0" }}>
-              Base Price ({formatMoney(servicePrice)})
-            </span>
-          )}
-          {modifierLines.map((ln, i) => (
-            <span
-              key={i}
-              className="text-[11.5px] text-[var(--sf-ink-3)]"
-              style={{ padding: "1px 0" }}
+            <div
+              className="flex items-start justify-between"
+              style={{ padding: "3px 0" }}
             >
-              {ln.label} ({formatMoney(ln.price)})
-            </span>
-          ))}
-        </div>
+              <span className="text-[13px] font-semibold text-[var(--sf-ink)]">
+                {g.name}
+              </span>
+              <span
+                className="text-[13px] font-semibold text-[var(--sf-ink)]"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {formatMoney(g.groupTotal)}
+              </span>
+            </div>
+            <div className="flex flex-col" style={{ paddingLeft: 10 }}>
+              {g.base > 0 && (
+                <span
+                  className="text-[11.5px] text-[var(--sf-ink-3)]"
+                  style={{ padding: "1px 0" }}
+                >
+                  Base Price ({formatMoney(g.base)})
+                </span>
+              )}
+              {g.modLines.map((ln, j) => (
+                <span
+                  key={j}
+                  className="text-[11.5px] text-[var(--sf-ink-3)]"
+                  style={{ padding: "1px 0" }}
+                >
+                  {ln.label} ({formatMoney(ln.price)})
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
 
         {(additionalFees > 0 || taxes > 0 || discount > 0) && (
           <div style={{ marginTop: 6 }}>
