@@ -1529,6 +1529,16 @@ export default function CreateJobPage() {
         userId: user.id,
         customerId: formData.customerId,
         serviceIds: selectedServices.map(service => service.id), // Multiple service IDs
+        // Full per-service payload (id, name, customized base price) so
+        // the backend can persist a service_line_items array on the
+        // job. Without this, jobs with 2+ services collapse to the
+        // first service's name + a combined service_price, and the
+        // Financials card can't render per-service blocks.
+        selectedServices: selectedServices.map(s => ({
+          id: s.id,
+          name: s.name || s.service_name,
+          price: s.price != null ? parseFloat(s.price) : null,
+        })),
         serviceId: selectedServices.length > 0 ? selectedServices[0].id : null, // Keep for backward compatibility
         teamMemberId: selectedTeamMembers.length > 0 ? selectedTeamMembers[0].id : formData.teamMemberId, // Primary team member
         teamMemberIds: selectedTeamMembers.map(member => member.id), // All selected team members

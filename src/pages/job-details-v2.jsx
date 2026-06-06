@@ -1487,17 +1487,32 @@ const FinancialsCard = ({
   }
   if (!Array.isArray(modsArr)) modsArr = []
 
-  // Multi-service support: service_name is comma-separated, service_ids
-  // is a parallel JSON array. Each modifier carries a serviceId tag
+  // Multi-service support. The canonical source is the new
+  // service_line_items jsonb (migration 065) — one entry per service
+  // line with its name and basePrice. Older jobs left that NULL, so
+  // we fall back to splitting service_name on ", " and reading
+  // service_ids the legacy way. Each modifier carries a serviceId tag
   // (set on create), so we can attribute add-ons to the right service.
-  const serviceNames = job?.service_name && String(job.service_name).includes(", ")
-    ? String(job.service_name).split(", ").map((s) => s.trim()).filter(Boolean)
-    : [job?.service_name || "Service"]
-  let parsedServiceIds = job?.service_ids
-  if (typeof parsedServiceIds === "string") {
-    try { parsedServiceIds = JSON.parse(parsedServiceIds) } catch { parsedServiceIds = null }
+  let lineItems = job?.service_line_items
+  if (typeof lineItems === "string") {
+    try { lineItems = JSON.parse(lineItems) } catch { lineItems = null }
   }
-  if (!Array.isArray(parsedServiceIds)) parsedServiceIds = []
+  const hasLineItems = Array.isArray(lineItems) && lineItems.length > 0
+  const serviceNames = hasLineItems
+    ? lineItems.map((li, i) => li?.name || `Service ${i + 1}`)
+    : (job?.service_name && String(job.service_name).includes(", ")
+        ? String(job.service_name).split(", ").map((s) => s.trim()).filter(Boolean)
+        : [job?.service_name || "Service"])
+  let parsedServiceIds
+  if (hasLineItems) {
+    parsedServiceIds = lineItems.map((li) => li?.serviceId ?? null)
+  } else {
+    parsedServiceIds = job?.service_ids
+    if (typeof parsedServiceIds === "string") {
+      try { parsedServiceIds = JSON.parse(parsedServiceIds) } catch { parsedServiceIds = null }
+    }
+    if (!Array.isArray(parsedServiceIds)) parsedServiceIds = []
+  }
 
   const flattenOptionsToLines = (modifiers) => {
     const lines = []
@@ -1521,11 +1536,11 @@ const FinancialsCard = ({
     return { lines, total }
   }
 
-  // Split the combined service_price evenly across services. Backend
-  // doesn't store a per-service breakdown so an even split is the
-  // honest fallback that still rolls up to the right grand total.
+  // Prefer the per-line basePrice from service_line_items. If the row
+  // came from before migration 065 the column is NULL, so fall back to
+  // splitting the combined service_price evenly across services.
   const numServices = Math.max(1, serviceNames.length)
-  const perServiceBase = (servicePrice || 0) / numServices
+  const evenSplitBase = (servicePrice || 0) / numServices
 
   const serviceGroups = serviceNames.map((name, i) => {
     const sid = parsedServiceIds[i]
@@ -1536,11 +1551,14 @@ const FinancialsCard = ({
       return i === 0
     })
     const { lines, total: modTotal } = flattenOptionsToLines(groupMods)
+    const lineBase = hasLineItems && lineItems[i]?.basePrice != null
+      ? parseFloat(lineItems[i].basePrice)
+      : evenSplitBase
     return {
       name,
-      base: perServiceBase,
+      base: lineBase,
       modLines: lines,
-      groupTotal: perServiceBase + modTotal,
+      groupTotal: lineBase + modTotal,
     }
   })
 
