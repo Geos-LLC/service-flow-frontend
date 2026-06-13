@@ -1940,6 +1940,7 @@ const Payroll = () => {
     })
     csv += `\nSummary\n`
     csv += `Total Business Revenue,${formatCurrency(payrollData?.totalBusinessRevenue || 0)}\n`
+    csv += `Net Business Revenue (less incentives),${formatCurrency(payrollData?.netBusinessRevenue ?? ((payrollData?.totalBusinessRevenue || 0) - (filteredSummary.totalIncentives || 0)))}\n`
     csv += `Total Team Members,${filteredSummary.totalTeamMembers}\n`
     csv += `Total Hours,${filteredSummary.totalHours}\n`
     csv += `Total Job Revenue,${formatCurrency(filteredSummary.totalJobRevenue || 0)}\n`
@@ -2522,9 +2523,19 @@ const Payroll = () => {
                                             ))}
                                           </tbody>
                                           <tfoot>
+                                            <tr className="border-t border-purple-200">
+                                              <td colSpan="6" className="py-1.5 text-right text-purple-700">Total Revenue</td>
+                                              <td className="py-1.5 text-right text-purple-800">{formatCurrency(payrollData?.totalBusinessRevenue || 0)}</td>
+                                            </tr>
+                                            {(payrollData?.summary?.totalIncentives || 0) > 0 && (
+                                              <tr>
+                                                <td colSpan="6" className="py-1.5 text-right text-purple-700">Less: Incentives</td>
+                                                <td className="py-1.5 text-right text-red-600">−{formatCurrency(payrollData?.summary?.totalIncentives || 0)}</td>
+                                              </tr>
+                                            )}
                                             <tr className="border-t border-purple-200 bg-purple-50">
-                                              <td colSpan="6" className="py-1.5 text-right font-semibold text-purple-700">Total Revenue</td>
-                                              <td className="py-1.5 text-right font-bold text-purple-800">{formatCurrency(payrollData?.totalBusinessRevenue || 0)}</td>
+                                              <td colSpan="6" className="py-1.5 text-right font-semibold text-purple-700">Net Revenue</td>
+                                              <td className="py-1.5 text-right font-bold text-purple-800">{formatCurrency(payrollData?.netBusinessRevenue ?? ((payrollData?.totalBusinessRevenue || 0) - (payrollData?.summary?.totalIncentives || 0)))}</td>
                                             </tr>
                                           </tfoot>
                                         </table>
@@ -2559,38 +2570,59 @@ const Payroll = () => {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {[...member.jobs].sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate)).map(job => (
-                                        <tr key={job.id} className="border-t border-[var(--sf-border-soft)]">
-                                          <td className="py-2 pr-4 text-[var(--sf-ink)] whitespace-nowrap">{formatShortDate(job.scheduledDate)}</td>
-                                          <td className="py-2 pr-4 font-medium"><span className="text-[var(--sf-text-active)] hover:underline cursor-pointer" onClick={(e) => { e.stopPropagation(); navigate(`/job/${job.id}`) }}>{job.customerName}</span></td>
+                                      {[...member.jobs].sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate)).map(job => {
+                                        const isCancelled = ['cancelled', 'canceled', 'cancel'].includes((job.status || '').toLowerCase())
+                                        return (
+                                        <tr key={job.id} className={`border-t border-[var(--sf-border-soft)] ${isCancelled ? 'bg-[var(--sf-bg-page)] text-[var(--sf-ink-3)]' : ''}`}>
+                                          <td className={`py-2 pr-4 whitespace-nowrap ${isCancelled ? 'line-through text-[var(--sf-ink-3)]' : 'text-[var(--sf-ink)]'}`}>{formatShortDate(job.scheduledDate)}</td>
+                                          <td className="py-2 pr-4 font-medium"><span className={`hover:underline cursor-pointer ${isCancelled ? 'text-[var(--sf-ink-3)] line-through' : 'text-[var(--sf-text-active)]'}`} onClick={(e) => { e.stopPropagation(); navigate(`/job/${job.id}`) }}>{job.customerName}</span></td>
                                           <td className="py-2 pr-4">
                                             <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
                                               job.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
                                               job.status === 'completed' ? 'bg-green-100 text-green-700' :
                                               job.status === 'in-progress' ? 'bg-blue-100 text-[var(--sf-blue-500)]' :
                                               job.status === 'scheduled' ? 'bg-yellow-100 text-yellow-700' :
+                                              isCancelled ? 'bg-red-50 text-red-700' :
                                               'bg-[var(--sf-bg-page)] text-[var(--sf-ink-2)]'
-                                            }`}>{job.status}</span>
+                                            }`}>{isCancelled ? 'Cancelled' : job.status}</span>
                                           </td>
                                           <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
-                                            <EditableCell value={job.hours} format="hours" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { hoursWorked: val }); await fetchPayrollData(); }} />
-                                            {job.hoursOverridden && <span className="text-[9px] text-orange-500 ml-0.5">*</span>}
+                                            {isCancelled ? (
+                                              <span className="text-[var(--sf-ink-3)]">—</span>
+                                            ) : (
+                                              <>
+                                                <EditableCell value={job.hours} format="hours" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { hoursWorked: val }); await fetchPayrollData(); }} />
+                                                {job.hoursOverridden && <span className="text-[9px] text-orange-500 ml-0.5">*</span>}
+                                              </>
+                                            )}
                                           </td>
                                           <td className="py-2 pr-4 text-right text-xs">
-                                            {job.realHours != null ? (
+                                            {isCancelled ? (
+                                              <span className="text-[var(--sf-ink-3)]">—</span>
+                                            ) : job.realHours != null ? (
                                               <span className={job.realHours > job.hours * 1.1 ? 'text-red-600 font-medium' : job.realHours < job.hours * 0.9 ? 'text-green-600 font-medium' : 'text-[var(--sf-ink-3)]'}>
                                                 {job.realHours.toFixed(1)}
                                               </span>
                                             ) : <span className="text-[var(--sf-ink-3)]">—</span>}
                                           </td>
                                           <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
-                                            <EditableCell value={job.fullRevenue || job.revenue || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { servicePrice: val }); await fetchPayrollData(); }} />
-                                            {job.memberCount > 1 && <span className="text-[var(--sf-ink-3)] text-xs ml-1">({formatCurrency(job.revenue)}/ea)</span>}
+                                            {isCancelled ? (
+                                              <span className="text-[var(--sf-ink-3)]">{formatCurrency(0)}</span>
+                                            ) : (
+                                              <>
+                                                <EditableCell value={job.fullRevenue || job.revenue || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { servicePrice: val }); await fetchPayrollData(); }} />
+                                                {job.memberCount > 1 && <span className="text-[var(--sf-ink-3)] text-xs ml-1">({formatCurrency(job.revenue)}/ea)</span>}
+                                              </>
+                                            )}
                                           </td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{formatCurrency(job.hourlySalary)}</td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{formatCurrency(job.commission)}</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{isCancelled ? <span className="text-[var(--sf-ink-3)]">{formatCurrency(0)}</span> : formatCurrency(job.hourlySalary)}</td>
+                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">{isCancelled ? <span className="text-[var(--sf-ink-3)]">{formatCurrency(0)}</span> : formatCurrency(job.commission)}</td>
                                           <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
-                                            <EditableCell value={job.tip || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { tipAmount: val * (job.memberCount || 1) }); await fetchPayrollData(); }} />
+                                            {isCancelled ? (
+                                              <span className="text-[var(--sf-ink-3)]">—</span>
+                                            ) : (
+                                              <EditableCell value={job.tip || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { tipAmount: val * (job.memberCount || 1) }); await fetchPayrollData(); }} />
+                                            )}
                                           </td>
                                           <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
                                             <EditableCell value={job.incentive || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { incentiveAmount: val, teamMemberId: member.teamMember.id }); await fetchPayrollData(); }} />
@@ -2614,7 +2646,8 @@ const Payroll = () => {
                                           </td>
                                           <td className="py-2 text-right text-[var(--sf-ink)] font-medium">{formatCurrency((job.hourlySalary || 0) + (job.commission || 0) + (job.tip || 0) + (job.incentive || 0) + (job.cashCollected || 0))}</td>
                                         </tr>
-                                      ))}
+                                        )
+                                      })}
                                     </tbody>
                                   </table>
                                 </div>
