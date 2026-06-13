@@ -1428,6 +1428,7 @@ const IncentivesSection = ({
           <IncentiveLineForm
             assignees={assignees}
             accent={accent}
+            nameFor={nameFor}
             onCancel={() => setAdding(false)}
             onSubmit={async (payload) => {
               await onAdd(payload)
@@ -1482,6 +1483,7 @@ const IncentiveLineRow = ({
           initial={line}
           assignees={assignees}
           accent={accent}
+          nameFor={nameFor}
           onCancel={onEditCancel}
           onSubmit={onSave}
         />
@@ -1533,7 +1535,9 @@ const IncentiveLineRow = ({
   )
 }
 
-const IncentiveLineForm = ({ initial, assignees, accent, onCancel, onSubmit }) => {
+const IncentiveLineForm = ({ initial, assignees, accent, nameFor, onCancel, onSubmit }) => {
+  const labelFor = (a) =>
+    (nameFor && nameFor(a.id)) || a.name || "Cleaner"
   const [teamMemberId, setTeamMemberId] = useState(
     initial?.team_member_id ? String(initial.team_member_id) : (assignees[0]?.id || ""),
   )
@@ -1637,7 +1641,7 @@ const IncentiveLineForm = ({ initial, assignees, accent, onCancel, onSubmit }) =
           {assignees.length === 0 && <option value="">No cleaner assigned</option>}
           {assignees.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name || "Cleaner"}
+              {labelFor(a)}
             </option>
           ))}
         </select>
