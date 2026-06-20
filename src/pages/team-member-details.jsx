@@ -1484,6 +1484,32 @@ const TeamMemberDetails = () => {
                   </button>
                 </div>
 
+                {/* Warning: availability not saved — the values displayed below are
+                    useState placeholders (Mon-Fri 9-6). They look configured but won't be
+                    used by scheduling, payroll, or job assignment until Edit Hours is saved. */}
+                {!memberAvailabilityRaw?.workingHours && (
+                  <div className="mt-4 sm:mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-amber-900">
+                        Availability not set
+                      </p>
+                      <p className="text-sm text-amber-800 mt-1">
+                        The hours shown below are placeholders, not saved settings.
+                        Scheduling, payroll, and job assignment treat this member as
+                        having no availability. Click <strong>Edit Hours</strong> and save
+                        to configure their schedule.
+                      </p>
+                      <button
+                        onClick={() => setShowWeeklyHoursModal(true)}
+                        className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-amber-900 underline hover:text-amber-700"
+                      >
+                        Set availability now
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Recurring Hours and Custom Availability Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 mt-4 sm:mt-6">
                   {/* Recurring Hours */}
@@ -1496,7 +1522,7 @@ const TeamMemberDetails = () => {
                       </div>
                     </div>
 
-                    <div className="space-y-0 border border-[var(--sf-border-light)] rounded-lg overflow-hidden">
+                    <div className={`space-y-0 border border-[var(--sf-border-light)] rounded-lg overflow-hidden ${!memberAvailabilityRaw?.workingHours ? 'opacity-50' : ''}`}>
                       {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map((day, index) => {
                         const { available = false, hours = '', timeSlots = [], start, end } = workingHours[day] || {};
                         return (
