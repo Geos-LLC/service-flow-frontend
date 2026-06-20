@@ -38,9 +38,16 @@ const moneyShort = (v) => {
   if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(1)}k`
   return `$${Math.round(n)}`
 }
+// 'YYYY-MM-DD' parsed as new Date(str) is UTC midnight, which renders as the
+// previous day in any timezone west of UTC. Parse as local midnight instead.
+const parseLocalDate = (s) => {
+  const [y, m, d] = String(s).split('-').map(Number)
+  if (!y || !m || !d) return new Date(NaN)
+  return new Date(y, m - 1, d)
+}
 const formatRange = (start, end) => {
   if (!start || !end) return "—"
-  const s = new Date(start), e = new Date(end)
+  const s = parseLocalDate(start), e = parseLocalDate(end)
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "—"
   return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
 }
