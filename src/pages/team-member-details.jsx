@@ -1623,6 +1623,12 @@ const TeamMemberDetails = () => {
                         <h4 className="text-xs font-semibold text-[var(--sf-text-primary)] uppercase tracking-wide">Recurring Hours</h4>
                         <HelpCircle className="w-4 h-4 text-[var(--sf-text-muted)]" />
                       </div>
+                      {memberAvailabilityRaw?.workingHours && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-medium">
+                          <CheckCircle className="w-3 h-3" />
+                          Active
+                        </span>
+                      )}
                     </div>
 
                     {!memberAvailabilityRaw?.workingHours ? (
@@ -1659,10 +1665,17 @@ const TeamMemberDetails = () => {
                                 index !== 6 ? 'border-b border-[var(--sf-border-light)]' : ''
                               }`}
                             >
-                              <span className="text-sm font-medium text-[var(--sf-text-primary)] capitalize w-24">
-                                {day}
+                              <span className="flex items-center gap-2 w-24">
+                                {available ? (
+                                  <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                                ) : (
+                                  <span className="w-3.5 h-3.5 rounded-full border border-[var(--sf-border-light)] flex-shrink-0" aria-hidden="true" />
+                                )}
+                                <span className="text-sm font-medium text-[var(--sf-text-primary)] capitalize">
+                                  {day}
+                                </span>
                               </span>
-                              <span className="text-sm text-[var(--sf-text-secondary)] text-right flex-1">
+                              <span className={`text-sm text-right flex-1 ${available ? 'text-[var(--sf-text-secondary)]' : 'text-[var(--sf-text-muted)] italic'}`}>
                                 {available ? (
                                   start && end ? (
                                     `${start} - ${end}`
