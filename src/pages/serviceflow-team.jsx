@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Sidebar from "../components/sidebar"
-import { Plus, Search, Filter, Users, TrendingUp, Calendar, DollarSign, Clock, Eye, Edit, Trash2, UserPlus, BarChart3, AlertCircle, MapPin, Loader2, Power, PowerOff, Zap, Settings, ChevronLeft, ChevronRight, HelpCircle, EyeOff, Mail } from "lucide-react"
+import { Plus, Search, Filter, Users, TrendingUp, Calendar, DollarSign, Clock, Eye, Edit, Trash2, UserPlus, BarChart3, AlertCircle, MapPin, Loader2, Power, PowerOff, Zap, Settings, ChevronLeft, ChevronRight, HelpCircle, EyeOff, Mail, RefreshCw } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { teamAPI, jobsAPI } from "../services/api"
 import { isAccountOwner } from "../utils/roleUtils"
@@ -96,6 +96,11 @@ const ServiceFlowTeam = () => {
   const [staffLocationsEnabled, setStaffLocationsEnabled] = useState(true)
   const [updatingLocationSetting, setUpdatingLocationSetting] = useState(false)
 
+  // Zenbooker team-only sync
+  const [zbStatus, setZbStatus] = useState(null) // null | 'connected' | 'disconnected'
+  const [syncingTeam, setSyncingTeam] = useState(false)
+  const zbPollRef = useRef(null)
+
   // Jobs for design-pack Teams/Performance views — fetched lazily when a
   // design tab is opened so the default Active list stays snappy.
   const [designJobs, setDesignJobs] = useState([])
@@ -160,6 +165,78 @@ const ServiceFlowTeam = () => {
       fetchStaffLocationsSetting()
     }
   }, [user])
+
+  // Load Zenbooker connection status — button is hidden unless 'connected'
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    api.get('/zenbooker/status')
+      .then(res => {
+        if (cancelled) return
+        setZbStatus(res.data?.status || 'disconnected')
+        if (res.data?.syncProgress?.status === 'running') {
+          setSyncingTeam(true)
+          startZbPolling()
+        }
+      })
+      .catch(() => { if (!cancelled) setZbStatus('disconnected') })
+    return () => {
+      cancelled = true
+      if (zbPollRef.current) { clearInterval(zbPollRef.current); zbPollRef.current = null }
+    }
+  }, [user?.id])
+
+  const startZbPolling = () => {
+    if (zbPollRef.current) clearInterval(zbPollRef.current)
+    let idleCount = 0
+    zbPollRef.current = setInterval(async () => {
+      try {
+        const res = await api.get('/zenbooker/sync/progress')
+        const s = res.data?.status
+        if (s === 'idle') {
+          idleCount++
+          if (idleCount < 5) return // backend ~10s to start
+        }
+        if (s !== 'running' && s !== 'idle') {
+          clearInterval(zbPollRef.current); zbPollRef.current = null
+          setSyncingTeam(false)
+          const tm = res.data?.results?.teamMembers
+          setNotification({
+            type: 'success',
+            message: tm
+              ? `Zenbooker team sync complete — ${tm.created} new, ${tm.skipped} existing.`
+              : 'Zenbooker team sync complete.',
+          })
+          setTimeout(() => setNotification(null), 4000)
+          fetchTeamMembers()
+        } else if (s === 'idle' && idleCount >= 5) {
+          clearInterval(zbPollRef.current); zbPollRef.current = null
+          setSyncingTeam(false)
+          setNotification({ type: 'error', message: 'Sync did not start — please try again.' })
+          setTimeout(() => setNotification(null), 5000)
+        }
+      } catch {
+        clearInterval(zbPollRef.current); zbPollRef.current = null
+        setSyncingTeam(false)
+      }
+    }, 2000)
+  }
+
+  const handleSyncTeamFromZenbooker = async () => {
+    if (syncingTeam) return
+    setSyncingTeam(true)
+    try {
+      await api.post('/zenbooker/sync', { entity: 'team' })
+      startZbPolling()
+    } catch (err) {
+      setSyncingTeam(false)
+      setNotification({
+        type: 'error',
+        message: err.response?.data?.error || 'Failed to start team sync',
+      })
+      setTimeout(() => setNotification(null), 5000)
+    }
+  }
 
   const fetchStaffLocationsSetting = async () => {
     try {
@@ -657,6 +734,18 @@ const ServiceFlowTeam = () => {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
                       <h1 className="text-xl sm:text-2xl font-semibold text-[var(--sf-text-primary)]">Team Members</h1>
                       <div className="flex items-center gap-2 sm:gap-3">
+                        {zbStatus === 'connected' && (
+                          <button
+                            onClick={handleSyncTeamFromZenbooker}
+                            disabled={syncingTeam}
+                            title="Pull new and updated team members from Zenbooker"
+                            className="inline-flex items-center px-3 sm:px-4 py-2 text-sm font-medium rounded-lg border border-[var(--sf-border-light)] text-[var(--sf-text-primary)] bg-white hover:bg-[var(--sf-bg-page)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--sf-blue-500)] transition-colors disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-4 h-4 mr-1.5 sm:mr-2 ${syncingTeam ? 'animate-spin' : ''}`} />
+                            <span className="hidden sm:inline">{syncingTeam ? 'Syncing…' : 'Sync from Zenbooker'}</span>
+                            <span className="sm:hidden">{syncingTeam ? 'Sync…' : 'Sync ZB'}</span>
+                          </button>
+                        )}
                         {isAccountOwner(user) && (
                           <button
                             onClick={handleToggleStaffLocations}
