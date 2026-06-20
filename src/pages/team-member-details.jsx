@@ -95,6 +95,16 @@ const TeamMemberDetails = () => {
   const [memberJobsTab, setMemberJobsTab] = useState('upcoming') // 'upcoming' | 'past' | 'all'
   const [allTeamMembers, setAllTeamMembers] = useState([]) // For map display
   const [staffLocationsEnabled, setStaffLocationsEnabled] = useState(true) // Global setting for staff locations
+  // Lightweight inline toast for quick-action feedback (no provider, no deps).
+  // { id, message, kind: 'success' | 'error' } — set null to dismiss.
+  const [toast, setToast] = useState(null)
+  const toastTimerRef = useRef(null)
+  const showToast = (message, kind = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    setToast({ id: Date.now(), message, kind })
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
+  }
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current) }, [])
   
   // Google Places Autocomplete
   const addressRef = useRef(null)
@@ -759,6 +769,74 @@ const TeamMemberDetails = () => {
 
   const handleAddCustomAvailability = () => {
     setShowAvailabilityModal(true)
+  }
+
+  // Quick-action helpers for Time Off — see handleQuickTimeOff below.
+  // Date math is local-time intentionally: time-off entries are calendar-date
+  // labels for the worker's day, not timestamps. Using toISOString() would
+  // shift the date backwards in any timezone west of UTC.
+  const toLocalISODate = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  const getQuickTimeOffChips = () => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const dow = today.getDay() // 0 = Sun .. 6 = Sat
+    const chips = []
+    chips.push({ key: 'today', label: 'Today', date: toLocalISODate(today) })
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
+    chips.push({ key: 'tomorrow', label: 'Tomorrow', date: toLocalISODate(tomorrow) })
+    const addNextWeekday = (targetDow, label) => {
+      // Next occurrence of targetDow that is NOT today and NOT tomorrow.
+      const d = new Date(today)
+      let delta = (targetDow - dow + 7) % 7
+      if (delta === 0 || delta === 1) delta += 7 // skip today/tomorrow — those have their own chips
+      d.setDate(today.getDate() + delta)
+      chips.push({ key: label.toLowerCase(), label, date: toLocalISODate(d) })
+    }
+    addNextWeekday(1, 'This Mon')
+    addNextWeekday(5, 'This Fri')
+    return chips
+  }
+  const handleQuickTimeOff = async (date, label = 'Custom') => {
+    // Idempotent: if a time-off entry already exists for this date, surface
+    // that without an extra round-trip. Don't silently overwrite, since the
+    // existing entry may have a different label the operator chose on purpose.
+    const existing = customAvailability.find(item => item.date === date)
+    if (existing && existing.available === false) {
+      showToast(`Already marked off on ${date}`, 'success')
+      return
+    }
+    const newEntry = {
+      id: Date.now() + Math.random(),
+      date,
+      available: false,
+      hours: [],
+      label,
+    }
+    // Replace any existing same-date entry (e.g. an Additional Hours entry
+    // the user is flipping to Time Off) so we don't end up with both.
+    const updatedCustom = existing
+      ? customAvailability.map(item => item.date === date ? newEntry : item)
+      : [...customAvailability, newEntry]
+    setCustomAvailability(updatedCustom)
+    try {
+      setSavingCustomAvailability(true)
+      await teamAPI.updateAvailability(memberId, { ...(memberAvailabilityRaw || {}), workingHours, customAvailability: updatedCustom })
+      await fetchTeamMemberDetails()
+      const memberName = teamMember?.first_name || 'Team member'
+      showToast(`${memberName} marked off on ${date}`, 'success')
+    } catch (error) {
+      console.error('Error saving quick time off:', error)
+      // Revert local optimistic update on failure
+      setCustomAvailability(customAvailability)
+      showToast('Failed to save time off — please try again', 'error')
+    } finally {
+      setSavingCustomAvailability(false)
+    }
   }
 
   const handleAvailabilityModalSave = async (availabilityData) => {
@@ -1631,19 +1709,49 @@ const TeamMemberDetails = () => {
                               <HelpCircle className="w-4 h-4 text-[var(--sf-text-muted)]" />
                             </div>
                           </div>
+                          {/* Quick-action chips — one click writes a time-off entry for the
+                              chosen date. Skips the modal entirely for the 90% workflow.
+                              Each chip is disabled while a save is in flight to prevent
+                              double-fire races. */}
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {getQuickTimeOffChips().map(chip => {
+                              const alreadyOff = customAvailability.some(
+                                item => item.date === chip.date && item.available === false
+                              )
+                              return (
+                                <button
+                                  key={chip.key}
+                                  type="button"
+                                  onClick={() => handleQuickTimeOff(chip.date, chip.label)}
+                                  disabled={savingCustomAvailability || alreadyOff}
+                                  title={alreadyOff ? `Already off on ${chip.date}` : `Mark off on ${chip.date}`}
+                                  className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                                    alreadyOff
+                                      ? 'bg-[var(--sf-bg-page)] text-[var(--sf-text-muted)] border-[var(--sf-border-light)] cursor-not-allowed'
+                                      : savingCustomAvailability
+                                        ? 'bg-white text-[var(--sf-text-muted)] border-[var(--sf-border-light)] cursor-wait'
+                                        : 'bg-white text-[var(--sf-text-primary)] border-[var(--sf-border-light)] hover:bg-[var(--sf-bg-page)] hover:border-[var(--sf-blue-500)]'
+                                  }`}
+                                >
+                                  {alreadyOff ? `${chip.label} ✓` : chip.label}
+                                </button>
+                              )
+                            })}
+                            <button
+                              type="button"
+                              onClick={() => openModal('unavailable')}
+                              disabled={savingCustomAvailability}
+                              className="text-xs font-medium px-3 py-1.5 rounded-full border border-dashed border-[var(--sf-border-light)] text-[var(--sf-text-secondary)] hover:bg-[var(--sf-bg-page)] hover:border-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Custom date…
+                            </button>
+                          </div>
                           {timeOffEntries.length === 0 ? (
-                            <div className="border-2 border-dashed border-[var(--sf-border-light)] rounded-lg p-8 text-center">
-                              <Calendar className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                              <h5 className="text-sm font-medium text-[var(--sf-text-primary)] mb-1">Add time off</h5>
-                              <p className="text-xs text-[var(--sf-text-secondary)] mb-4">
-                                Mark specific dates as unavailable.
+                            <div className="border-2 border-dashed border-[var(--sf-border-light)] rounded-lg p-6 text-center">
+                              <Calendar className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                              <p className="text-xs text-[var(--sf-text-secondary)]">
+                                No time off scheduled. Use a quick action above or "Custom date…".
                               </p>
-                              <button
-                                onClick={() => openModal('unavailable')}
-                                className="text-sm text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium"
-                              >
-                                Add Time Off
-                              </button>
                             </div>
                           ) : (
                             <div className="space-y-2">
@@ -1664,12 +1772,6 @@ const TeamMemberDetails = () => {
                                   </button>
                                 </div>
                               ))}
-                              <button
-                                onClick={() => openModal('unavailable')}
-                                className="text-sm text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium"
-                              >
-                                Add Time Off
-                              </button>
                             </div>
                           )}
                         </div>
@@ -2195,6 +2297,34 @@ const TeamMemberDetails = () => {
           member={teamMember}
           isEditing={true}
         />
+      )}
+
+      {/* Inline toast — quick feedback for chip-driven saves so the operator
+          isn't left wondering whether the click landed. Auto-dismisses after
+          3.5s; keyed by id so a fresh toast restarts the timer cleanly. */}
+      {toast && (
+        <div
+          key={toast.id}
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2 ${
+            toast.kind === 'error'
+              ? 'bg-red-600 text-white'
+              : 'bg-[var(--sf-text-primary)] text-white'
+          }`}
+        >
+          {toast.kind === 'error'
+            ? <AlertCircle className="w-4 h-4" />
+            : <CheckCircle className="w-4 h-4" />}
+          <span>{toast.message}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="ml-2 opacity-70 hover:opacity-100"
+            aria-label="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
     </>
   )
