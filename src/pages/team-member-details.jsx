@@ -1484,32 +1484,6 @@ const TeamMemberDetails = () => {
                   </button>
                 </div>
 
-                {/* Warning: availability not saved — the values displayed below are
-                    useState placeholders (Mon-Fri 9-6). They look configured but won't be
-                    used by scheduling, payroll, or job assignment until Edit Hours is saved. */}
-                {!memberAvailabilityRaw?.workingHours && (
-                  <div className="mt-4 sm:mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-amber-900">
-                        Availability not set
-                      </p>
-                      <p className="text-sm text-amber-800 mt-1">
-                        The hours shown below are placeholders, not saved settings.
-                        Scheduling, payroll, and job assignment treat this member as
-                        having no availability. Click <strong>Edit Hours</strong> and save
-                        to configure their schedule.
-                      </p>
-                      <button
-                        onClick={() => setShowWeeklyHoursModal(true)}
-                        className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-amber-900 underline hover:text-amber-700"
-                      >
-                        Set availability now
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {/* Recurring Hours and Custom Availability Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 mt-4 sm:mt-6">
                   {/* Recurring Hours */}
@@ -1522,54 +1496,80 @@ const TeamMemberDetails = () => {
                       </div>
                     </div>
 
-                    <div className={`space-y-0 border border-[var(--sf-border-light)] rounded-lg overflow-hidden ${!memberAvailabilityRaw?.workingHours ? 'opacity-50' : ''}`}>
-                      {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map((day, index) => {
-                        const { available = false, hours = '', timeSlots = [], start, end } = workingHours[day] || {};
-                        return (
-                        <div
-                          key={day}
-                          className={`flex items-center justify-between px-4 py-3 ${
-                            index !== 6 ? 'border-b border-[var(--sf-border-light)]' : ''
-                          }`}
-                        >
-                          <span className="text-sm font-medium text-[var(--sf-text-primary)] capitalize w-24">
-                            {day}
-                          </span>
-                          <span className="text-sm text-[var(--sf-text-secondary)] text-right flex-1">
-                            {available ? (
-                              start && end ? (
-                                `${start} - ${end}`
-                              ) : timeSlots.length > 0 ? (
-                                timeSlots.map((slot, slotIndex) => (
-                                  <span key={slot.id || slotIndex}>
-                                    {slot.start} - {slot.end}
-                                    {slotIndex < timeSlots.length - 1 && ', '}
-                                  </span>
-                                ))
-                              ) : (
-                                hours || '9:00 AM - 6:00 PM'
-                              )
-                            ) : (
-                              'Unavailable'
-                            )}
-                          </span>
+                    {!memberAvailabilityRaw?.workingHours ? (
+                      /* Empty state — availability not saved.
+                         Distinct amber card so the not-set status reads at a glance
+                         and the placeholder weekday rows aren't shown at all. */
+                      <div className="border-2 border-dashed border-amber-300 bg-amber-50 rounded-lg p-5 text-center">
+                        <div className="mx-auto w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-3">
+                          <AlertCircle className="w-5 h-5 text-amber-600" />
                         </div>
-                        );
-                      })}
-                    </div>
-                    {memberAvailabilityRaw?.break && (
-                      <div className="mt-3 flex justify-between items-center text-sm bg-[var(--sf-bg-page)] rounded-lg px-4 py-2.5 border border-[var(--sf-border-light)]">
-                        <span className="font-medium text-[var(--sf-text-primary)]">Break</span>
-                        <span className="text-[var(--sf-text-secondary)]">{memberAvailabilityRaw.break.start} - {memberAvailabilityRaw.break.end}</span>
+                        <p className="text-sm font-semibold text-amber-900 mb-1">
+                          Availability not set
+                        </p>
+                        <p className="text-xs text-amber-800 mb-4">
+                          Scheduling, payroll, and job assignment treat this member as
+                          having no availability until you set one.
+                        </p>
+                        <button
+                          onClick={() => setShowWeeklyHoursModal(true)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md"
+                        >
+                          Set recurring hours
+                        </button>
                       </div>
-                    )}
+                    ) : (
+                      <>
+                        <div className="space-y-0 border border-[var(--sf-border-light)] rounded-lg overflow-hidden">
+                          {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map((day, index) => {
+                            const { available = false, hours = '', timeSlots = [], start, end } = workingHours[day] || {};
+                            return (
+                            <div
+                              key={day}
+                              className={`flex items-center justify-between px-4 py-3 ${
+                                index !== 6 ? 'border-b border-[var(--sf-border-light)]' : ''
+                              }`}
+                            >
+                              <span className="text-sm font-medium text-[var(--sf-text-primary)] capitalize w-24">
+                                {day}
+                              </span>
+                              <span className="text-sm text-[var(--sf-text-secondary)] text-right flex-1">
+                                {available ? (
+                                  start && end ? (
+                                    `${start} - ${end}`
+                                  ) : timeSlots.length > 0 ? (
+                                    timeSlots.map((slot, slotIndex) => (
+                                      <span key={slot.id || slotIndex}>
+                                        {slot.start} - {slot.end}
+                                        {slotIndex < timeSlots.length - 1 && ', '}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    hours || '9:00 AM - 6:00 PM'
+                                  )
+                                ) : (
+                                  'Unavailable'
+                                )}
+                              </span>
+                            </div>
+                            );
+                          })}
+                        </div>
+                        {memberAvailabilityRaw?.break && (
+                          <div className="mt-3 flex justify-between items-center text-sm bg-[var(--sf-bg-page)] rounded-lg px-4 py-2.5 border border-[var(--sf-border-light)]">
+                            <span className="font-medium text-[var(--sf-text-primary)]">Break</span>
+                            <span className="text-[var(--sf-text-secondary)]">{memberAvailabilityRaw.break.start} - {memberAvailabilityRaw.break.end}</span>
+                          </div>
+                        )}
 
-                    <button
-                      onClick={() => setShowWeeklyHoursModal(true)}
-                      className="mt-3 text-sm text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium"
-                    >
-                      Edit Hours
-                    </button>
+                        <button
+                          onClick={() => setShowWeeklyHoursModal(true)}
+                          className="mt-3 text-sm text-[var(--sf-blue-500)] hover:text-[var(--sf-blue-500)] font-medium"
+                        >
+                          Edit Hours
+                        </button>
+                      </>
+                    )}
                   </div>
 
                   {/* Custom Availability */}
