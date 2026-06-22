@@ -69,6 +69,8 @@ import PaymentsSettings from "./pages/settings/payments"
 import PayoutSettings from "./pages/settings/payout-settings"
 import Invoicing from "./pages/settings/invoicing"
 import ZenbookerSettings from "./pages/settings/zenbooker"
+import ProofPixIntegrationSettings from "./pages/settings/proofpix"
+import ProofPixAuthorize from "./pages/proofpix-authorize"
 import IdentityConflictsPage from "./pages/settings/identity-conflicts"
 import ServiceAreas from "./pages/settings/service-areas"
 import BookingQuoteRequests from "./pages/settings/booking-quote-requests"
@@ -157,6 +159,8 @@ root.render(
       <Route path="signup" element={<SignupForm />} />
       <Route path="signin" element={<SignInForm />} />
       <Route path="legacy-landing" element={<LandingPageLegacy />} />
+      {/* ProofPix same-device authorize — public (handles own auth check + bounce to /signin?continue=...) */}
+      <Route path="integrations/proofpix/authorize" element={<ProofPixAuthorize />} />
       <Route element={<AppLayout />}>
       <Route path="/dashboard" element={<ProtectedRoute><ServiceFlowDashboard /></ProtectedRoute>} />
       <Route path="/request" element={<ProtectedRoute><ServiceFlowRequests /></ProtectedRoute>} />
@@ -250,6 +254,7 @@ root.render(
       <Route path="/settings/payout-settings" element={<PayoutSettings />} />
       <Route path="/settings/invoicing" element={<Invoicing />} />
       <Route path="/settings/zenbooker" element={<ZenbookerSettings />} />
+      <Route path="/settings/proofpix" element={<ProofPixIntegrationSettings />} />
       <Route path="/settings/identity-conflicts" element={<IdentityConflictsPage />} />
       <Route path="/settings/service-areas" element={<ServiceAreas />} />
       <Route path="/settings/booking-quote-requests" element={<BookingQuoteRequests />} />
