@@ -133,9 +133,12 @@ function RedirectToDataImport({ defaultParams = {} }) {
   return <Navigate to={`/settings/data-import${qs ? `?${qs}` : ''}`} replace />
 }
 
-// Register the service worker once at boot so push subscriptions work for the team-member PWA.
-// Safe on all browsers — older Safari without SW support simply does nothing.
-if ('serviceWorker' in navigator) {
+// Register the service worker once at boot so push subscriptions work
+// for the team-member PWA and the offline shell takes effect.
+// Production-only — in dev the SW would serve stale assets across HMR
+// reloads and force devs to hard-refresh constantly. Older Safari without
+// SW support simply does nothing.
+if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   })
