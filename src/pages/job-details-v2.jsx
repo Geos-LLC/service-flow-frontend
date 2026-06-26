@@ -30,6 +30,8 @@ import {
   MoreHorizontal,
   Trash2,
   FileText,
+  File as FileIcon,
+  Image as ImageIcon,
   Ban,
   Send,
   Eye,
@@ -37,7 +39,7 @@ import {
   CreditCard,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
-import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI } from "../services/api"
+import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI, customerFilesAPI } from "../services/api"
 import { formatTime as formatTimeShared } from "../utils/formatTime"
 import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
@@ -376,6 +378,27 @@ const JobDetailsV2 = () => {
       navigate("/jobs")
     } catch (e) {
       alert(e?.message || "Could not delete the job.")
+      setBusy(false)
+    }
+  }
+
+  const onReopen = async () => {
+    if (!job) return
+    setShowMoreMenu(false)
+    const wasCompleted = ["completed", "complete", "done"].includes((job.status || "").toLowerCase())
+    const confirmed = window.confirm(
+      wasCompleted
+        ? "Reopen this job? It will move back to Scheduled, and any unsettled completion ledger entries (earnings, tips, incentives, cash collected) will be removed. Settled (paid-out) entries are preserved."
+        : "Reopen this job? It will move back to Scheduled."
+    )
+    if (!confirmed) return
+    setBusy(true)
+    try {
+      await jobsAPI.updateStatus(job.id, "scheduled")
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not reopen the job.")
+    } finally {
       setBusy(false)
     }
   }
@@ -786,6 +809,20 @@ const JobDetailsV2 = () => {
                   className="absolute right-0 top-full mt-1.5 w-48 rounded-[10px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] py-1.5 z-50"
                   style={{ boxShadow: "var(--sf-shadow-l)" }}
                 >
+                  {(isCompletedStatus || isCancelledStatus) && (
+                    <>
+                      <button
+                        onClick={onReopen}
+                        disabled={busy}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-panel-soft)] transition-colors"
+                        style={{ color: "var(--sf-ink-2)", cursor: busy ? "not-allowed" : "pointer" }}
+                      >
+                        <RotateCw size={14} strokeWidth={1.85} />
+                        Reopen job
+                      </button>
+                      <div style={{ height: 1, background: "var(--sf-border-soft)", margin: "4px 0" }} />
+                    </>
+                  )}
                   <button
                     onClick={onDelete}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-red-soft)] transition-colors"
@@ -1078,7 +1115,11 @@ const JobDetailsV2 = () => {
             </>
           )}
 
-          {tab !== "overview" && (
+          {tab === "photos" && (
+            <JobPhotosPanel jobId={job.id} />
+          )}
+
+          {tab !== "overview" && tab !== "photos" && (
             <SfCard>
               <SfCardHeader title={TABS.find((t) => t.id === tab)?.label} />
               <div className="py-8 text-center text-[12.5px] text-[var(--sf-ink-3)]">
@@ -4221,6 +4262,187 @@ const Timeline = ({ job, status }) => {
         <TimelineStep key={i} {...s} />
       ))}
     </div>
+  )
+}
+
+// ── Photos / files for this job ────────────────────────────────────
+// Lists customer_files rows linked via job_id. Read-only v1: write
+// path stays with the existing customer Files tab (and ProofPix
+// mobile's POST /jobs/:jobId/photos). Surfaces ProofPix-source rows
+// with mode/room context pulled from proofpix_metadata.
+
+const PHOTO_MODE_LABEL = { before: "Before", after: "After", combined: "Combined", progress: "Progress" }
+
+const isImageMime = (mime) => String(mime || "").toLowerCase().startsWith("image/")
+
+const formatRoomName = (room) => {
+  if (!room || typeof room !== "string") return null
+  return room.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+const JobPhotosPanel = ({ jobId }) => {
+  const [files, setFiles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      if (!jobId) return
+      setLoading(true)
+      setError("")
+      try {
+        const resp = await customerFilesAPI.listByJob(jobId)
+        if (!cancelled) setFiles(Array.isArray(resp?.files) ? resp.files : [])
+      } catch (e) {
+        if (!cancelled) {
+          setFiles([])
+          setError(e?.response?.data?.error || e?.message || "Could not load photos.")
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [jobId])
+
+  const counts = useMemo(() => {
+    let photos = 0, docs = 0, proofpix = 0
+    for (const f of files) {
+      if (isImageMime(f.mime_type)) photos += 1
+      else docs += 1
+      if (f.source === "proofpix") proofpix += 1
+    }
+    return { total: files.length, photos, docs, proofpix }
+  }, [files])
+
+  const subtitle = loading
+    ? "Loading…"
+    : counts.total === 0
+    ? "No photos uploaded for this job yet"
+    : `${counts.total} ${counts.total === 1 ? "file" : "files"}` +
+      (counts.proofpix > 0 ? ` · ${counts.proofpix} from ProofPix` : "")
+
+  return (
+    <SfCard>
+      <SfCardHeader title="Photos & files" subtitle={subtitle} />
+      {error && (
+        <div
+          className="mb-3 rounded-[8px] px-3 py-2 text-[12.5px]"
+          style={{ background: "var(--sf-red-soft)", color: "var(--sf-red-dark)" }}
+        >
+          {error}
+        </div>
+      )}
+      {loading ? (
+        <div className="py-10 text-center text-[12.5px] text-[var(--sf-ink-3)]">
+          Loading photos…
+        </div>
+      ) : files.length === 0 ? (
+        <div className="py-10 px-4 flex flex-col items-center text-center gap-2">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "var(--sf-panel-soft)" }}
+          >
+            <ImageIcon size={18} className="text-[var(--sf-ink-3)]" />
+          </div>
+          <div className="text-[13px] font-semibold text-[var(--sf-ink-2)]">
+            No photos for this job yet
+          </div>
+          <div className="text-[12px] text-[var(--sf-ink-3)] max-w-[320px]">
+            Photos uploaded from ProofPix mobile or attached on the customer's Files tab with this job selected will appear here.
+          </div>
+        </div>
+      ) : (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
+        >
+          {files.map((f) => (
+            <JobPhotoCard key={f.id} file={f} />
+          ))}
+        </div>
+      )}
+    </SfCard>
+  )
+}
+
+const JobPhotoCard = ({ file }) => {
+  const isImage = isImageMime(file.mime_type)
+  const isProofpix = file.source === "proofpix"
+  const meta = (isProofpix && file.proofpix_metadata && typeof file.proofpix_metadata === "object")
+    ? file.proofpix_metadata
+    : null
+  const modeLabel = meta?.mode ? (PHOTO_MODE_LABEL[meta.mode] || meta.mode) : null
+  const roomLabel = formatRoomName(meta?.room)
+  const date = file.uploaded_at
+    ? new Date(file.uploaded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—"
+
+  const onOpen = () => {
+    if (file.file_url) window.open(file.file_url, "_blank", "noopener,noreferrer")
+  }
+
+  return (
+    <SfCard padding={0} style={{ overflow: "hidden" }}>
+      <div onClick={onOpen} style={{ cursor: file.file_url ? "pointer" : "default" }}>
+        {isImage ? (
+          <div style={{ height: 130, background: "var(--sf-panel-soft)", position: "relative" }}>
+            <img
+              src={file.file_url}
+              alt={file.filename || "photo"}
+              loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+            {modeLabel && (
+              <span
+                style={{
+                  position: "absolute", top: 8, left: 8,
+                  fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
+                  background: "rgba(15,23,42,.85)", color: "#fff",
+                  padding: "2px 6px", borderRadius: 4,
+                }}
+              >
+                {modeLabel}
+              </span>
+            )}
+            {isProofpix && (
+              <span
+                style={{
+                  position: "absolute", top: 8, right: 8,
+                  fontSize: 10, fontWeight: 700,
+                  background: "var(--sf-amber-soft, rgba(242,195,27,.95))", color: "var(--sf-ink, #0f172a)",
+                  padding: "2px 6px", borderRadius: 4,
+                }}
+              >
+                ProofPix
+              </span>
+            )}
+          </div>
+        ) : (
+          <div
+            style={{
+              height: 130, background: "var(--sf-panel-alt)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <FileIcon size={28} className="text-[var(--sf-ink-3)]" />
+          </div>
+        )}
+        <div className="px-3 py-2 border-t border-[var(--sf-border-soft)]">
+          <div
+            className="text-[12.5px] font-semibold text-[var(--sf-ink)] truncate"
+            title={file.filename}
+          >
+            {file.filename || "Untitled"}
+          </div>
+          <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5 truncate">
+            {roomLabel ? `${roomLabel} · ${date}` : date}
+          </div>
+        </div>
+      </div>
+    </SfCard>
   )
 }
 

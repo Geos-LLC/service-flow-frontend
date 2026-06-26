@@ -3026,6 +3026,12 @@ export const customerFilesAPI = {
     const r = await api.get(`/customers/${customerId}/files`);
     return r.data;
   },
+  // Same table, but filtered to a single job. Backs the Photos section
+  // on the job-detail page. Response includes ProofPix metadata columns.
+  listByJob: async (jobId) => {
+    const r = await api.get(`/jobs/${jobId}/files`);
+    return r.data;
+  },
   upload: async (customerId, files, { jobId } = {}) => {
     const form = new FormData();
     (Array.isArray(files) ? files : [files]).forEach((f) => form.append('files', f));
