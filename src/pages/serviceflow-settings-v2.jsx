@@ -32,6 +32,7 @@ import {
   FileSpreadsheet,
   Upload,
   Code,
+  Camera,
   ChevronRight,
   Search as SearchIcon,
   Sparkles,
@@ -280,6 +281,12 @@ const SECTIONS = [
         title: "Zenbooker",
         desc: "Sync jobs, customers, team in real-time",
         to: "/settings/zenbooker",
+      },
+      {
+        id: "proofpix", icon: Camera,
+        title: "ProofPix",
+        desc: "Attach before/after photos from the ProofPix mobile app to jobs",
+        to: "/settings/proofpix",
       },
       {
         id: "data-import", icon: Upload,

@@ -69,6 +69,8 @@ import PaymentsSettings from "./pages/settings/payments"
 import PayoutSettings from "./pages/settings/payout-settings"
 import Invoicing from "./pages/settings/invoicing"
 import ZenbookerSettings from "./pages/settings/zenbooker"
+import ProofPixIntegrationSettings from "./pages/settings/proofpix"
+import ProofPixAuthorize from "./pages/proofpix-authorize"
 import IdentityConflictsPage from "./pages/settings/identity-conflicts"
 import ServiceAreas from "./pages/settings/service-areas"
 import BookingQuoteRequests from "./pages/settings/booking-quote-requests"
@@ -133,9 +135,12 @@ function RedirectToDataImport({ defaultParams = {} }) {
   return <Navigate to={`/settings/data-import${qs ? `?${qs}` : ''}`} replace />
 }
 
-// Register the service worker once at boot so push subscriptions work for the team-member PWA.
-// Safe on all browsers — older Safari without SW support simply does nothing.
-if ('serviceWorker' in navigator) {
+// Register the service worker once at boot so push subscriptions work
+// for the team-member PWA and the offline shell takes effect.
+// Production-only — in dev the SW would serve stale assets across HMR
+// reloads and force devs to hard-refresh constantly. Older Safari without
+// SW support simply does nothing.
+if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   })
@@ -154,6 +159,8 @@ root.render(
       <Route path="signup" element={<SignupForm />} />
       <Route path="signin" element={<SignInForm />} />
       <Route path="legacy-landing" element={<LandingPageLegacy />} />
+      {/* ProofPix same-device authorize — public (handles own auth check + bounce to /signin?continue=...) */}
+      <Route path="integrations/proofpix/authorize" element={<ProofPixAuthorize />} />
       <Route element={<AppLayout />}>
       <Route path="/dashboard" element={<ProtectedRoute><ServiceFlowDashboard /></ProtectedRoute>} />
       <Route path="/request" element={<ProtectedRoute><ServiceFlowRequests /></ProtectedRoute>} />
@@ -247,6 +254,7 @@ root.render(
       <Route path="/settings/payout-settings" element={<PayoutSettings />} />
       <Route path="/settings/invoicing" element={<Invoicing />} />
       <Route path="/settings/zenbooker" element={<ZenbookerSettings />} />
+      <Route path="/settings/proofpix" element={<ProofPixIntegrationSettings />} />
       <Route path="/settings/identity-conflicts" element={<IdentityConflictsPage />} />
       <Route path="/settings/service-areas" element={<ServiceAreas />} />
       <Route path="/settings/booking-quote-requests" element={<BookingQuoteRequests />} />

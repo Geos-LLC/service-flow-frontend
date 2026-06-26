@@ -30,6 +30,8 @@ import {
   MoreHorizontal,
   Trash2,
   FileText,
+  File as FileIcon,
+  Image as ImageIcon,
   Ban,
   Send,
   Eye,
@@ -37,12 +39,13 @@ import {
   CreditCard,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
-import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI } from "../services/api"
+import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI, customerFilesAPI } from "../services/api"
 import { formatTime as formatTimeShared } from "../utils/formatTime"
 import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
 import JobExpensesSection from "../components/job-expenses-section"
 import AssignJobModal from "../components/assign-job-modal"
+import ServiceModifiersForm from "../components/service-modifiers-form"
 import {
   SfCard,
   SfCardHeader,
@@ -92,10 +95,25 @@ const formatMoney = (n) => `$${(Number.isFinite(n) ? n : 0).toLocaleString(undef
 const jobStatusLabel = (raw) => {
   const s = (raw || "").toLowerCase()
   if (s.includes("progress") || s === "in_progress") return "In progress"
-  if (s === "en_route" || s === "en route" || s === "enroute") return "En route"
+  if (s === "en_route" || s === "en route" || s === "enroute" || s === "confirmed") return "En route"
   if (s === "completed" || s === "complete" || s === "done") return "Completed"
   if (s === "cancelled" || s === "canceled") return "Cancelled"
   return "Scheduled"
+}
+
+// Map the current status to the next sensible primary action. Returns
+// null when the job is already terminal (completed / cancelled).
+const nextStatusAction = (raw) => {
+  const s = (raw || "").toLowerCase()
+  if (s === "completed" || s === "complete" || s === "done") return null
+  if (s === "cancelled" || s === "canceled") return null
+  if (s.includes("progress") || s === "in_progress") {
+    return { label: "Mark complete", status: "completed" }
+  }
+  if (s === "en_route" || s === "en route" || s === "enroute" || s === "confirmed") {
+    return { label: "Mark in progress", status: "in-progress" }
+  }
+  return { label: "Mark en route", status: "en_route" }
 }
 
 const assigneesFor = (job) => {
@@ -214,13 +232,17 @@ const JobDetailsV2 = () => {
   const [busy, setBusy] = useState(false)
   const [showLeadPicker, setShowLeadPicker] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const moreMenuRef = useRef(null)
+  const statusMenuRef = useRef(null)
 
   // Edit job drawer
   const [editOpen, setEditOpen] = useState(false)
   const [editServices, setEditServices] = useState([])
   const [savingEdit, setSavingEdit] = useState(false)
+  const [financeEditOpen, setFinanceEditOpen] = useState(false)
+  const [savingFinanceEdit, setSavingFinanceEdit] = useState(false)
 
   // Close more-actions menu on outside click
   useEffect(() => {
@@ -233,6 +255,18 @@ const JobDetailsV2 = () => {
     document.addEventListener("mousedown", onClick)
     return () => document.removeEventListener("mousedown", onClick)
   }, [showMoreMenu])
+
+  // Close status menu on outside click
+  useEffect(() => {
+    if (!showStatusMenu) return
+    const onClick = (e) => {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target)) {
+        setShowStatusMenu(false)
+      }
+    }
+    document.addEventListener("mousedown", onClick)
+    return () => document.removeEventListener("mousedown", onClick)
+  }, [showStatusMenu])
 
   const loadJob = useCallback(async () => {
     if (!jobId) return
@@ -302,6 +336,19 @@ const JobDetailsV2 = () => {
     }
   }
 
+  const onChangeStatus = async (newStatus) => {
+    if (!job) return
+    setBusy(true)
+    try {
+      await jobsAPI.updateStatus(job.id, newStatus)
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not update status.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const onCancel = async () => {
     if (!job) return
     const reason = window.prompt("Reason for cancellation (optional):")
@@ -335,6 +382,27 @@ const JobDetailsV2 = () => {
     }
   }
 
+  const onReopen = async () => {
+    if (!job) return
+    setShowMoreMenu(false)
+    const wasCompleted = ["completed", "complete", "done"].includes((job.status || "").toLowerCase())
+    const confirmed = window.confirm(
+      wasCompleted
+        ? "Reopen this job? It will move back to Scheduled, and any unsettled completion ledger entries (earnings, tips, incentives, cash collected) will be removed. Settled (paid-out) entries are preserved."
+        : "Reopen this job? It will move back to Scheduled."
+    )
+    if (!confirmed) return
+    setBusy(true)
+    try {
+      await jobsAPI.updateStatus(job.id, "scheduled")
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not reopen the job.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Open the edit drawer; lazily fetch services on first open
   const onOpenEdit = useCallback(async () => {
     setEditOpen(true)
@@ -360,6 +428,20 @@ const JobDetailsV2 = () => {
       alert(e?.response?.data?.error || e?.message || "Could not save changes.")
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  const onSaveFinanceEdit = async (patch) => {
+    if (!job) return
+    setSavingFinanceEdit(true)
+    try {
+      await jobsAPI.update(job.id, patch)
+      setFinanceEditOpen(false)
+      await loadJob()
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || "Could not save changes.")
+    } finally {
+      setSavingFinanceEdit(false)
     }
   }
 
@@ -475,6 +557,7 @@ const JobDetailsV2 = () => {
   const isLive = onShiftStatuses.has((job.status || "").toLowerCase())
   const isCancelledStatus = (job.status || "").toLowerCase().includes("cancel")
   const isCompletedStatus = ["completed", "complete", "done"].includes((job.status || "").toLowerCase())
+  const nextAction = nextStatusAction(job.status)
   const customerName =
     customer?.name ||
     `${customer?.first_name || job.customer_first_name || ""} ${customer?.last_name || job.customer_last_name || ""}`.trim() ||
@@ -579,15 +662,135 @@ const JobDetailsV2 = () => {
             >
               Edit
             </SfButton>
-            {!isCompletedStatus && !isCancelledStatus && (
-              <SfButton variant="danger" size="md" onClick={onCancel} disabled={busy}>
-                Cancel
-              </SfButton>
-            )}
-            {!isCompletedStatus && !isCancelledStatus && (
-              <SfButton variant="primary" size="md" icon={Check} onClick={onMarkComplete} disabled={busy}>
-                Mark complete
-              </SfButton>
+            {nextAction && (
+              <div
+                className="relative inline-flex"
+                ref={statusMenuRef}
+                style={{ borderRadius: 10, boxShadow: "0 1px 2px rgba(37,99,235,.3)" }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    nextAction.status === "completed"
+                      ? onMarkComplete()
+                      : onChangeStatus(nextAction.status)
+                  }
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5"
+                  style={{
+                    padding: "8px 14px",
+                    background: "var(--sf-blue)",
+                    color: "#fff",
+                    border: "1px solid transparent",
+                    borderTopLeftRadius: 10,
+                    borderBottomLeftRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    fontFamily: "var(--sf-font-ui)",
+                    cursor: busy ? "not-allowed" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Check size={15} strokeWidth={2.2} />
+                  {nextAction.label}
+                </button>
+                <button
+                  type="button"
+                  aria-label="More status options"
+                  onClick={() => setShowStatusMenu((v) => !v)}
+                  disabled={busy}
+                  style={{
+                    padding: "8px 8px",
+                    background: "var(--sf-blue)",
+                    color: "#fff",
+                    border: "1px solid transparent",
+                    borderLeft: "1px solid rgba(255,255,255,.25)",
+                    borderTopRightRadius: 10,
+                    borderBottomRightRadius: 10,
+                    cursor: busy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <ChevronDown size={15} strokeWidth={2.2} />
+                </button>
+                {showStatusMenu && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 w-52 rounded-[10px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] py-1.5 z-50"
+                    style={{ boxShadow: "var(--sf-shadow-l)" }}
+                  >
+                    {[
+                      { key: "en_route",    label: "Mark as En Route",    dot: "var(--sf-blue)" },
+                      { key: "in-progress", label: "Mark as In Progress", dot: "var(--sf-amber)" },
+                      { key: "completed",   label: "Mark as Complete",    dot: "var(--sf-green)" },
+                    ].map((a) => (
+                      <button
+                        key={a.key}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setShowStatusMenu(false)
+                          onChangeStatus(a.key)
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-panel-soft)] transition-colors"
+                        style={{ color: "var(--sf-ink-2)" }}
+                      >
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: a.dot,
+                            flexShrink: 0,
+                          }}
+                        />
+                        {a.label}
+                      </button>
+                    ))}
+                    <div style={{ height: 1, background: "var(--sf-border-soft)", margin: "4px 0" }} />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setShowStatusMenu(false)
+                        onOpenEdit()
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-panel-soft)] transition-colors"
+                      style={{ color: "var(--sf-ink-2)" }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "var(--sf-purple)",
+                          flexShrink: 0,
+                        }}
+                      />
+                      Reschedule
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setShowStatusMenu(false)
+                        onCancel()
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-red-soft)] transition-colors"
+                      style={{ color: "var(--sf-red-dark)" }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "var(--sf-red)",
+                          flexShrink: 0,
+                        }}
+                      />
+                      Cancel Job
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* More actions menu */}
@@ -606,6 +809,20 @@ const JobDetailsV2 = () => {
                   className="absolute right-0 top-full mt-1.5 w-48 rounded-[10px] bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] py-1.5 z-50"
                   style={{ boxShadow: "var(--sf-shadow-l)" }}
                 >
+                  {(isCompletedStatus || isCancelledStatus) && (
+                    <>
+                      <button
+                        onClick={onReopen}
+                        disabled={busy}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-panel-soft)] transition-colors"
+                        style={{ color: "var(--sf-ink-2)", cursor: busy ? "not-allowed" : "pointer" }}
+                      >
+                        <RotateCw size={14} strokeWidth={1.85} />
+                        Reopen job
+                      </button>
+                      <div style={{ height: 1, background: "var(--sf-border-soft)", margin: "4px 0" }} />
+                    </>
+                  )}
                   <button
                     onClick={onDelete}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-[var(--sf-red-soft)] transition-colors"
@@ -884,6 +1101,7 @@ const JobDetailsV2 = () => {
                 onAddIncentive={onAddIncentive}
                 onUpdateIncentive={onUpdateIncentive}
                 onDeleteIncentive={onDeleteIncentive}
+                onEditFinance={() => setFinanceEditOpen(true)}
               />
 
               {/* Expenses & reimbursements */}
@@ -897,7 +1115,11 @@ const JobDetailsV2 = () => {
             </>
           )}
 
-          {tab !== "overview" && (
+          {tab === "photos" && (
+            <JobPhotosPanel jobId={job.id} />
+          )}
+
+          {tab !== "overview" && tab !== "photos" && (
             <SfCard>
               <SfCardHeader title={TABS.find((t) => t.id === tab)?.label} />
               <div className="py-8 text-center text-[12.5px] text-[var(--sf-ink-3)]">
@@ -1238,13 +1460,21 @@ const JobDetailsV2 = () => {
       </div>
       )}
 
-      <EditJobDrawer
+      <EditServiceDrawer
         open={editOpen}
         job={job}
         services={editServices}
         saving={savingEdit}
         onClose={() => setEditOpen(false)}
         onSave={onSaveEdit}
+      />
+
+      <EditFinanceDrawer
+        open={financeEditOpen}
+        job={job}
+        saving={savingFinanceEdit}
+        onClose={() => setFinanceEditOpen(false)}
+        onSave={onSaveFinanceEdit}
       />
 
       <AssignJobModal
@@ -1273,9 +1503,11 @@ const FinancialsCard = ({
   onAddIncentive,
   onUpdateIncentive,
   onDeleteIncentive,
+  onEditFinance,
 }) => {
   const servicePrice = parseFloat(job?.service_price || 0)
   const additionalFees = parseFloat(job?.additional_fees || 0)
+  const taxes = parseFloat(job?.taxes || 0)
   const discount = parseFloat(job?.discount || 0)
   const tip = parseFloat(job?.tip_amount || 0)
   const incentiveLines = Array.isArray(job?.incentives) ? job.incentives : []
@@ -1286,26 +1518,186 @@ const FinancialsCard = ({
   const jobTotal = parseFloat(
     invoice?.total_amount || invoice?.amount || job?.total || job?.total_amount || 0
   )
-  const grand = (jobTotal || servicePrice + additionalFees - discount) + tip
+  const grand = (jobTotal || servicePrice + additionalFees + taxes - discount) + tip
+
+  // Parse the modifier array out of whatever shape Supabase returned.
+  const rawMods = job?.service_modifiers
+  let modsArr = rawMods
+  if (typeof rawMods === "string") {
+    try { modsArr = JSON.parse(rawMods) } catch { modsArr = null }
+  }
+  if (!Array.isArray(modsArr)) modsArr = []
+
+  // Multi-service support. The canonical source is the new
+  // service_line_items jsonb (migration 065) — one entry per service
+  // line with its name and basePrice. Older jobs left that NULL, so
+  // we fall back to splitting service_name on ", " and reading
+  // service_ids the legacy way. Each modifier carries a serviceId tag
+  // (set on create), so we can attribute add-ons to the right service.
+  let lineItems = job?.service_line_items
+  if (typeof lineItems === "string") {
+    try { lineItems = JSON.parse(lineItems) } catch { lineItems = null }
+  }
+  const hasLineItems = Array.isArray(lineItems) && lineItems.length > 0
+  const serviceNames = hasLineItems
+    ? lineItems.map((li, i) => li?.name || `Service ${i + 1}`)
+    : (job?.service_name && String(job.service_name).includes(", ")
+        ? String(job.service_name).split(", ").map((s) => s.trim()).filter(Boolean)
+        : [job?.service_name || "Service"])
+  let parsedServiceIds
+  if (hasLineItems) {
+    parsedServiceIds = lineItems.map((li) => li?.serviceId ?? null)
+  } else {
+    parsedServiceIds = job?.service_ids
+    if (typeof parsedServiceIds === "string") {
+      try { parsedServiceIds = JSON.parse(parsedServiceIds) } catch { parsedServiceIds = null }
+    }
+    if (!Array.isArray(parsedServiceIds)) parsedServiceIds = []
+  }
+
+  const flattenOptionsToLines = (modifiers) => {
+    const lines = []
+    let total = 0
+    modifiers.forEach((m) => {
+      const opts = Array.isArray(m?.selectedOptions) ? m.selectedOptions : []
+      opts.forEach((o) => {
+        const optPrice = parseFloat(o?.price || 0)
+        const qty = parseInt(o?.selectedQuantity || 0, 10)
+        const optLabel = o?.label || o?.name || o?.description || "Option"
+        if (qty > 0) {
+          const t = optPrice * qty
+          lines.push({ label: `${qty} ${optLabel}`, price: t })
+          total += t
+        } else if (o?.selected) {
+          lines.push({ label: optLabel, price: optPrice })
+          total += optPrice
+        }
+      })
+    })
+    return { lines, total }
+  }
+
+  // Prefer the per-line basePrice from service_line_items. If the row
+  // came from before migration 065 the column is NULL, so fall back to
+  // splitting the combined service_price evenly across services.
+  const numServices = Math.max(1, serviceNames.length)
+  const evenSplitBase = (servicePrice || 0) / numServices
+
+  const serviceGroups = serviceNames.map((name, i) => {
+    const sid = parsedServiceIds[i]
+    const groupMods = modsArr.filter((m) => {
+      const mSid = m?.serviceId
+      if (mSid != null) return String(mSid) === String(sid)
+      // Modifiers with no serviceId tag attach to the first service
+      return i === 0
+    })
+    const { lines, total: modTotal } = flattenOptionsToLines(groupMods)
+    const lineBase = hasLineItems && lineItems[i]?.basePrice != null
+      ? parseFloat(lineItems[i].basePrice)
+      : evenSplitBase
+    return {
+      name,
+      base: lineBase,
+      modLines: lines,
+      groupTotal: lineBase + modTotal,
+    }
+  })
 
   return (
     <SfCard>
       <SfCardHeader
         title="Financials"
-        subtitle="Tip and incentives feed payroll. Edit anytime."
+        right={
+          onEditFinance && (
+            <button
+              type="button"
+              onClick={onEditFinance}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors"
+              style={{
+                color: "var(--sf-ink-2)",
+                background: "transparent",
+                border: "1px solid var(--sf-border-soft)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--sf-panel-soft)"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent"
+              }}
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
+          )
+        }
       />
       <div className="flex flex-col">
-        <FinancialRow label="Service price" value={formatMoney(servicePrice || jobTotal)} muted />
-        {additionalFees > 0 && (
-          <FinancialRow label="Additional fees" value={formatMoney(additionalFees)} muted />
-        )}
-        {discount > 0 && (
-          <FinancialRow
-            label="Discount"
-            value={`− ${formatMoney(discount)}`}
-            muted
-            tone="var(--sf-green-dark)"
-          />
+        {/* One block per service: parent name + rolled-up group total, then
+            indented base + modifier sub-items. Multi-service jobs split
+            the combined service_price evenly across services since the
+            backend doesn't store a per-service breakdown. */}
+        {serviceGroups.map((g, i) => (
+          <div
+            key={i}
+            style={{
+              paddingTop: i === 0 ? 0 : 6,
+              marginTop: i === 0 ? 0 : 4,
+              borderTop: i === 0 ? "none" : "1px dashed var(--sf-border-soft)",
+            }}
+          >
+            <div
+              className="flex items-start justify-between"
+              style={{ padding: "3px 0" }}
+            >
+              <span className="text-[13px] font-semibold text-[var(--sf-ink)]">
+                {g.name}
+              </span>
+              <span
+                className="text-[13px] font-semibold text-[var(--sf-ink)]"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {formatMoney(g.groupTotal)}
+              </span>
+            </div>
+            <div className="flex flex-col" style={{ paddingLeft: 10 }}>
+              {g.base > 0 && (
+                <span
+                  className="text-[11.5px] text-[var(--sf-ink-3)]"
+                  style={{ padding: "1px 0" }}
+                >
+                  Base Price ({formatMoney(g.base)})
+                </span>
+              )}
+              {g.modLines.map((ln, j) => (
+                <span
+                  key={j}
+                  className="text-[11.5px] text-[var(--sf-ink-3)]"
+                  style={{ padding: "1px 0" }}
+                >
+                  {ln.label} ({formatMoney(ln.price)})
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {(additionalFees > 0 || taxes > 0 || discount > 0) && (
+          <div style={{ marginTop: 6 }}>
+            {additionalFees > 0 && (
+              <FinancialRow label="Additional fees" value={`+ ${formatMoney(additionalFees)}`} muted />
+            )}
+            {taxes > 0 && (
+              <FinancialRow label="Taxes" value={`+ ${formatMoney(taxes)}`} muted />
+            )}
+            {discount > 0 && (
+              <FinancialRow
+                label="Discount"
+                value={`− ${formatMoney(discount)}`}
+                muted
+                tone="var(--sf-green-dark)"
+              />
+            )}
+          </div>
         )}
         <FinancialEditableRow
           label="Tip"
@@ -1325,8 +1717,12 @@ const FinancialsCard = ({
           onDelete={onDeleteIncentive}
         />
         <div
-          className="flex items-center justify-between mt-1 pt-3"
-          style={{ borderTop: "1px solid var(--sf-border-soft)" }}
+          className="flex items-center justify-between"
+          style={{
+            marginTop: 6,
+            paddingTop: 8,
+            borderTop: "1px solid var(--sf-border-soft)",
+          }}
         >
           <span className="text-[13px] font-semibold text-[var(--sf-ink)]">Total</span>
           <span className="text-[15px] font-bold text-[var(--sf-ink)]" style={{ fontVariantNumeric: "tabular-nums" }}>
@@ -1380,7 +1776,7 @@ const IncentivesSection = ({
   }
 
   return (
-    <div className="py-2">
+    <div style={{ padding: "3px 0" }}>
       <div className="flex items-center justify-between">
         <span className="text-[12.5px] text-[var(--sf-ink-2)]">Incentives</span>
         {incentives.length > 0 && (
@@ -1668,13 +2064,19 @@ const IncentiveLineForm = ({ initial, assignees, accent, nameFor, onCancel, onSu
   )
 }
 
-const FinancialRow = ({ label, value, muted, tone }) => (
-  <div className="flex items-center justify-between py-2">
-    <span className="text-[12.5px]" style={{ color: muted ? "var(--sf-ink-3)" : "var(--sf-ink-2)" }}>
+const FinancialRow = ({ label, value, muted, tone, indent, small }) => (
+  <div className="flex items-center justify-between" style={{ padding: small ? "2px 0" : "3px 0" }}>
+    <span
+      className={small ? "text-[11.5px]" : "text-[12.5px]"}
+      style={{
+        color: muted ? "var(--sf-ink-3)" : "var(--sf-ink-2)",
+        paddingLeft: indent ? 10 : 0,
+      }}
+    >
       {label}
     </span>
     <span
-      className="text-[13px] font-medium"
+      className={small ? "text-[12px] font-medium" : "text-[13px] font-medium"}
       style={{ color: tone || "var(--sf-ink)", fontVariantNumeric: "tabular-nums" }}
     >
       {value}
@@ -1722,7 +2124,7 @@ const FinancialEditableRow = ({ label, fieldKey, value, onSave, accent, accentSo
 
   if (editing) {
     return (
-      <div className="py-2">
+      <div style={{ padding: "3px 0" }}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[12.5px] text-[var(--sf-ink-2)]">{label}</span>
           <div className="flex items-center gap-1.5">
@@ -1784,7 +2186,7 @@ const FinancialEditableRow = ({ label, fieldKey, value, onSave, accent, accentSo
   }
 
   return (
-    <div className="flex items-center justify-between py-2">
+    <div className="flex items-center justify-between" style={{ padding: "3px 0" }}>
       <span className="text-[12.5px] text-[var(--sf-ink-2)]">{label}</span>
       {value > 0 ? (
         <button
@@ -1848,7 +2250,20 @@ const RECURRENCE_OPTIONS = [
   { value: "quarterly",  label: "Quarterly" },
 ]
 
-const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
+const skillsToString = (skills) => {
+  if (!skills) return ""
+  if (Array.isArray(skills)) return skills.join(", ")
+  return String(skills)
+}
+
+const stringToSkills = (str) => {
+  if (str == null) return null
+  const trimmed = String(str).trim()
+  if (!trimmed) return []
+  return trimmed.split(",").map((s) => s.trim()).filter(Boolean)
+}
+
+const EditServiceDrawer = ({ open, job, services, saving, onClose, onSave }) => {
   const initial = useMemo(() => {
     if (!job) return null
     const { date, time } = splitJobDateTime(job.scheduled_date)
@@ -1858,11 +2273,17 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       scheduledDate: date,
       scheduledTime: time,
       duration: String(parseInt(job.duration || job.estimated_duration || 0, 10) || ""),
-      total: String(parseFloat(job.total || job.total_amount || job.service_price || 0) || ""),
       bedrooms: job.bedrooms != null ? String(job.bedrooms) : "",
       bathroom_count: job.bathroom_count != null ? String(job.bathroom_count) : "",
       recurringFrequency: job.recurring_frequency || "",
       notes: job.notes || "",
+      internalNotes: job.internal_notes || "",
+      workers: job.workers_needed != null ? String(job.workers_needed) : "",
+      skills: skillsToString(job.skills),
+      addressStreet: job.service_address_street || "",
+      addressCity: job.service_address_city || "",
+      addressState: job.service_address_state || "",
+      addressZip: job.service_address_zip || "",
     }
   }, [job])
 
@@ -1889,13 +2310,20 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
       scheduledDate: form.scheduledDate || null,
       scheduledTime: form.scheduledTime || null,
       duration: form.duration === "" ? null : parseInt(form.duration, 10),
-      total: form.total === "" ? null : parseFloat(form.total),
-      total_amount: form.total === "" ? null : parseFloat(form.total),
       bedrooms: form.bedrooms === "" ? null : parseInt(form.bedrooms, 10),
       bathroom_count: form.bathroom_count === "" ? null : parseInt(form.bathroom_count, 10),
       recurringJob: form.recurringFrequency ? true : false,
       recurringFrequency: form.recurringFrequency || null,
       notes: form.notes,
+      internalNotes: form.internalNotes,
+      workers: form.workers === "" ? null : parseInt(form.workers, 10),
+      skills: stringToSkills(form.skills),
+      serviceAddress: {
+        street: form.addressStreet || null,
+        city: form.addressCity || null,
+        state: form.addressState || null,
+        zipCode: form.addressZip || null,
+      },
     }
     onSave(patch)
   }
@@ -1935,7 +2363,7 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
           style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
         >
           <div>
-            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit job</div>
+            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit service</div>
             <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
               #{job.id} · {job.service_name || "Service"}
             </div>
@@ -1995,30 +2423,17 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
               </Field>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Duration (minutes)">
-                <input
-                  type="number"
-                  min="0"
-                  step="15"
-                  value={form.duration}
-                  onChange={(e) => setField("duration", e.target.value)}
-                  placeholder="e.g. 120"
-                  style={inputStyle}
-                />
-              </Field>
-              <Field label="Total ($)">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.total}
-                  onChange={(e) => setField("total", e.target.value)}
-                  placeholder="0.00"
-                  style={inputStyle}
-                />
-              </Field>
-            </div>
+            <Field label="Duration (minutes)">
+              <input
+                type="number"
+                min="0"
+                step="15"
+                value={form.duration}
+                onChange={(e) => setField("duration", e.target.value)}
+                placeholder="e.g. 120"
+                style={inputStyle}
+              />
+            </Field>
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Bedrooms">
@@ -2057,6 +2472,73 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
               </select>
             </Field>
 
+            <DrawerSectionDivider label="Service address" />
+
+            <Field label="Street">
+              <input
+                type="text"
+                value={form.addressStreet}
+                onChange={(e) => setField("addressStreet", e.target.value)}
+                style={inputStyle}
+                placeholder="123 Main St"
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="City">
+                <input
+                  type="text"
+                  value={form.addressCity}
+                  onChange={(e) => setField("addressCity", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="State">
+                <input
+                  type="text"
+                  value={form.addressState}
+                  onChange={(e) => setField("addressState", e.target.value)}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            <Field label="ZIP code">
+              <input
+                type="text"
+                value={form.addressZip}
+                onChange={(e) => setField("addressZip", e.target.value)}
+                style={inputStyle}
+              />
+            </Field>
+
+            <DrawerSectionDivider label="Crew & requirements" />
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Workers needed">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.workers}
+                  onChange={(e) => setField("workers", e.target.value)}
+                  style={inputStyle}
+                  placeholder="1"
+                />
+              </Field>
+              <Field label="Skills (comma-separated)">
+                <input
+                  type="text"
+                  value={form.skills}
+                  onChange={(e) => setField("skills", e.target.value)}
+                  style={inputStyle}
+                  placeholder="deep clean, pets"
+                />
+              </Field>
+            </div>
+
+            <DrawerSectionDivider label="Notes" />
+
             <Field label="Customer note">
               <textarea
                 rows={3}
@@ -2066,10 +2548,402 @@ const EditJobDrawer = ({ open, job, services, saving, onClose, onSave }) => {
                 placeholder="Notes visible on the job…"
               />
             </Field>
+
+            <Field label="Internal note (team-only)">
+              <textarea
+                rows={3}
+                value={form.internalNotes}
+                onChange={(e) => setField("internalNotes", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", minHeight: 72 }}
+                placeholder="Notes visible only to the team…"
+              />
+            </Field>
           </div>
         </div>
 
         {/* Footer */}
+        <div
+          className="flex items-center justify-end gap-2"
+          style={{ padding: "12px 18px", borderTop: "1px solid var(--sf-border-soft)" }}
+        >
+          <SfButton variant="ghost" size="md" onClick={onClose} type="button">
+            Cancel
+          </SfButton>
+          <SfButton variant="primary" size="md" type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </SfButton>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ── Edit finance drawer ────────────────────────────────────
+// Right-side drawer for editing the Financials card amounts and the
+// pricing parameters: service price, modifiers (rooms / add-ons /
+// pets / whatever lives on the service template), additional fees,
+// taxes, discount. Tip and incentives are edited inline on the
+// Financials card itself.
+
+// Parse the job's stored service_modifiers (array of {…modifier,
+// selectedOptions:[…]}) into the {modifierId: selectedData} shape the
+// ServiceModifiersForm component expects.
+const parseJobModifiers = (raw) => {
+  if (!raw) return { modifiers: [], selected: {} }
+  let arr = raw
+  if (typeof raw === "string") {
+    try {
+      arr = JSON.parse(raw)
+    } catch {
+      return { modifiers: [], selected: {} }
+    }
+  }
+  if (!Array.isArray(arr)) return { modifiers: [], selected: {} }
+
+  const selected = {}
+  arr.forEach((m) => {
+    if (!m?.id) return
+    const opts = Array.isArray(m.selectedOptions) ? m.selectedOptions : []
+    if (m.selectionType === "quantity") {
+      const quantities = {}
+      opts.forEach((o) => {
+        if (o?.id && (o.selectedQuantity || 0) > 0) quantities[o.id] = o.selectedQuantity
+      })
+      selected[m.id] = { quantities }
+    } else if (m.selectionType === "multi") {
+      selected[m.id] = { selections: opts.filter((o) => o?.id).map((o) => o.id) }
+    } else {
+      const first = opts[0]
+      if (first?.id) selected[m.id] = { selection: first.id }
+    }
+  })
+  return { modifiers: arr, selected }
+}
+
+// Convert the form's {modifierId: selectedData} state back into the
+// array-with-selectedOptions shape the backend stores in
+// service_modifiers (and recomputes totals from on update).
+const rebuildJobModifiers = (modifiers, selected) => {
+  return (modifiers || []).map((m) => {
+    const data = selected?.[m.id]
+    const selectedOptions = []
+    let modifierPrice = 0
+    let modifierDuration = 0
+
+    if (m.selectionType === "quantity") {
+      const quantities = data?.quantities || {}
+      Object.entries(quantities).forEach(([optionId, qty]) => {
+        const opt = (m.options || []).find((o) => String(o.id) === String(optionId))
+        if (opt && qty > 0) {
+          const price = parseFloat(opt.price) || 0
+          const duration = parseFloat(opt.duration) || 0
+          modifierPrice += price * qty
+          modifierDuration += duration * qty
+          selectedOptions.push({
+            ...opt,
+            selectedQuantity: qty,
+            totalPrice: price * qty,
+            totalDuration: duration * qty,
+          })
+        }
+      })
+    } else if (m.selectionType === "multi") {
+      ;(data?.selections || []).forEach((optionId) => {
+        const opt = (m.options || []).find((o) => String(o.id) === String(optionId))
+        if (opt) {
+          const price = parseFloat(opt.price) || 0
+          const duration = parseFloat(opt.duration) || 0
+          modifierPrice += price
+          modifierDuration += duration
+          selectedOptions.push({ ...opt, selected: true, totalPrice: price, totalDuration: duration })
+        }
+      })
+    } else {
+      const sel = data?.selection
+      if (sel) {
+        const opt = (m.options || []).find((o) => String(o.id) === String(sel))
+        if (opt) {
+          const price = parseFloat(opt.price) || 0
+          const duration = parseFloat(opt.duration) || 0
+          modifierPrice += price
+          modifierDuration += duration
+          selectedOptions.push({ ...opt, selected: true, totalPrice: price, totalDuration: duration })
+        }
+      }
+    }
+
+    return {
+      ...m,
+      selectedOptions,
+      totalModifierPrice: modifierPrice,
+      totalModifierDuration: modifierDuration,
+    }
+  })
+}
+
+const sumSelectedModifierPrice = (modifiers, selected) =>
+  rebuildJobModifiers(modifiers, selected).reduce(
+    (s, m) => s + (parseFloat(m.totalModifierPrice) || 0),
+    0,
+  )
+
+const EditFinanceDrawer = ({ open, job, saving, onClose, onSave }) => {
+  const initial = useMemo(() => {
+    if (!job) return null
+    const { modifiers, selected } = parseJobModifiers(job.service_modifiers)
+    return {
+      servicePrice: job.service_price != null ? String(job.service_price) : "",
+      additionalFees: job.additional_fees != null ? String(job.additional_fees) : "",
+      taxes: job.taxes != null ? String(job.taxes) : "",
+      discount: job.discount != null ? String(job.discount) : "",
+      bedrooms: job.bedrooms != null ? String(job.bedrooms) : "",
+      bathroom_count: job.bathroom_count != null ? String(job.bathroom_count) : "",
+      modifiers,
+      selectedModifiers: selected,
+    }
+  }, [job])
+
+  const [form, setForm] = useState(initial)
+
+  useEffect(() => {
+    if (open && initial) setForm(initial)
+  }, [open, initial])
+
+  if (!open || !job || !form) return null
+
+  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const num = (s) => (s === "" ? 0 : parseFloat(s) || 0)
+  const modifierTotal = sumSelectedModifierPrice(form.modifiers, form.selectedModifiers)
+  const previewTotal =
+    num(form.servicePrice) + modifierTotal + num(form.additionalFees) + num(form.taxes) - num(form.discount)
+
+  const onSubmit = (e) => {
+    e?.preventDefault?.()
+    const servicePrice = form.servicePrice === "" ? null : parseFloat(form.servicePrice)
+    const additionalFees = form.additionalFees === "" ? null : parseFloat(form.additionalFees)
+    const taxes = form.taxes === "" ? null : parseFloat(form.taxes)
+    const discount = form.discount === "" ? null : parseFloat(form.discount)
+    const rebuiltModifiers = rebuildJobModifiers(form.modifiers, form.selectedModifiers)
+    const modPrice = rebuiltModifiers.reduce(
+      (s, m) => s + (parseFloat(m.totalModifierPrice) || 0),
+      0,
+    )
+    const computedTotal =
+      (servicePrice || 0) + modPrice + (additionalFees || 0) + (taxes || 0) - (discount || 0)
+    onSave({
+      service_price: servicePrice,
+      price: servicePrice,
+      additionalFees,
+      taxes,
+      discount,
+      bedrooms: form.bedrooms === "" ? null : parseInt(form.bedrooms, 10),
+      bathroom_count: form.bathroom_count === "" ? null : parseInt(form.bathroom_count, 10),
+      serviceModifiers: rebuiltModifiers,
+      total: computedTotal,
+      total_amount: computedTotal,
+    })
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        background: "rgba(15,23,42,.4)",
+        backdropFilter: "blur(4px)",
+        WebkitBackdropFilter: "blur(4px)",
+        fontFamily: "var(--sf-font-ui)",
+      }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={onSubmit}
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(620px, 100vw)",
+          background: "var(--sf-panel)",
+          borderLeft: "1px solid var(--sf-border-soft)",
+          boxShadow: "var(--sf-shadow-l)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: "14px 18px", borderBottom: "1px solid var(--sf-border-soft)" }}
+        >
+          <div>
+            <div className="text-[15px] font-semibold text-[var(--sf-ink)]">Edit finance</div>
+            <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+              #{job.id} · pricing breakdown
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-[var(--sf-panel-soft)] text-[var(--sf-ink-3)]"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto" style={{ padding: "18px" }}>
+          <div className="grid grid-cols-1 gap-3">
+            <Field label="Service price ($)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.servicePrice}
+                onChange={(e) => setField("servicePrice", e.target.value)}
+                style={inputStyle}
+                placeholder="0.00"
+              />
+            </Field>
+
+            {Array.isArray(form.modifiers) && form.modifiers.length > 0 ? (
+              <>
+                <DrawerSectionDivider label="Service parameters" />
+                <div className="text-[11px] text-[var(--sf-ink-3)] -mt-1">
+                  Rooms, add-ons, pets — every option the service template carries. Changes update
+                  the modifier total and the job's grand total when you save.
+                </div>
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    background: "var(--sf-panel-soft)",
+                    border: "1px solid var(--sf-border-soft)",
+                  }}
+                >
+                  <ServiceModifiersForm
+                    modifiers={form.modifiers}
+                    selectedModifiers={form.selectedModifiers}
+                    onModifiersChange={(next) => setField("selectedModifiers", next)}
+                  />
+                  <div
+                    className="flex items-center justify-between"
+                    style={{
+                      marginTop: 6,
+                      paddingTop: 8,
+                      borderTop: "1px dashed var(--sf-border-soft)",
+                    }}
+                  >
+                    <span className="text-[12px] font-semibold text-[var(--sf-ink-2)]">
+                      Modifier total
+                    </span>
+                    <span
+                      className="text-[13px] font-bold text-[var(--sf-ink)]"
+                      style={{ fontVariantNumeric: "tabular-nums" }}
+                    >
+                      ${modifierTotal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <DrawerSectionDivider label="Property" />
+                <div className="text-[11px] text-[var(--sf-ink-3)] -mt-1">
+                  This job has no service modifiers configured. Bedrooms and bathrooms below are
+                  stored as plain attributes — they don't drive the total.
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Bedrooms">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.bedrooms}
+                      onChange={(e) => setField("bedrooms", e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="Bathrooms">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.bathroom_count}
+                      onChange={(e) => setField("bathroom_count", e.target.value)}
+                      style={inputStyle}
+                    />
+                  </Field>
+                </div>
+              </>
+            )}
+
+            <DrawerSectionDivider label="Fees, taxes & discount" />
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Additional fees ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.additionalFees}
+                  onChange={(e) => setField("additionalFees", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Taxes ($)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.taxes}
+                  onChange={(e) => setField("taxes", e.target.value)}
+                  style={inputStyle}
+                  placeholder="0.00"
+                />
+              </Field>
+            </div>
+
+            <Field label="Discount ($)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.discount}
+                onChange={(e) => setField("discount", e.target.value)}
+                style={inputStyle}
+                placeholder="0.00"
+              />
+            </Field>
+
+            <div
+              className="flex items-center justify-between"
+              style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "var(--sf-panel-soft)",
+                border: "1px solid var(--sf-border-soft)",
+              }}
+            >
+              <span className="text-[12.5px] font-semibold text-[var(--sf-ink-2)]">
+                New total (preview)
+              </span>
+              <span
+                className="text-[15px] font-bold text-[var(--sf-ink)]"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                ${previewTotal.toFixed(2)}
+              </span>
+            </div>
+            <div className="text-[11px] text-[var(--sf-ink-3)]">
+              Tip and incentives are edited inline on the Financials card and aren't included here.
+            </div>
+          </div>
+        </div>
+
         <div
           className="flex items-center justify-end gap-2"
           style={{ padding: "12px 18px", borderTop: "1px solid var(--sf-border-soft)" }}
@@ -2093,6 +2967,18 @@ const Field = ({ label, children }) => (
     </span>
     {children}
   </label>
+)
+
+const DrawerSectionDivider = ({ label }) => (
+  <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+    <span
+      className="text-[11px] font-bold uppercase"
+      style={{ color: "var(--sf-ink-3)", letterSpacing: ".06em" }}
+    >
+      {label}
+    </span>
+    <div style={{ flex: 1, height: 1, background: "var(--sf-border-soft)" }} />
+  </div>
 )
 
 const inputStyle = {
@@ -3376,6 +4262,187 @@ const Timeline = ({ job, status }) => {
         <TimelineStep key={i} {...s} />
       ))}
     </div>
+  )
+}
+
+// ── Photos / files for this job ────────────────────────────────────
+// Lists customer_files rows linked via job_id. Read-only v1: write
+// path stays with the existing customer Files tab (and ProofPix
+// mobile's POST /jobs/:jobId/photos). Surfaces ProofPix-source rows
+// with mode/room context pulled from proofpix_metadata.
+
+const PHOTO_MODE_LABEL = { before: "Before", after: "After", combined: "Combined", progress: "Progress" }
+
+const isImageMime = (mime) => String(mime || "").toLowerCase().startsWith("image/")
+
+const formatRoomName = (room) => {
+  if (!room || typeof room !== "string") return null
+  return room.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+const JobPhotosPanel = ({ jobId }) => {
+  const [files, setFiles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      if (!jobId) return
+      setLoading(true)
+      setError("")
+      try {
+        const resp = await customerFilesAPI.listByJob(jobId)
+        if (!cancelled) setFiles(Array.isArray(resp?.files) ? resp.files : [])
+      } catch (e) {
+        if (!cancelled) {
+          setFiles([])
+          setError(e?.response?.data?.error || e?.message || "Could not load photos.")
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [jobId])
+
+  const counts = useMemo(() => {
+    let photos = 0, docs = 0, proofpix = 0
+    for (const f of files) {
+      if (isImageMime(f.mime_type)) photos += 1
+      else docs += 1
+      if (f.source === "proofpix") proofpix += 1
+    }
+    return { total: files.length, photos, docs, proofpix }
+  }, [files])
+
+  const subtitle = loading
+    ? "Loading…"
+    : counts.total === 0
+    ? "No photos uploaded for this job yet"
+    : `${counts.total} ${counts.total === 1 ? "file" : "files"}` +
+      (counts.proofpix > 0 ? ` · ${counts.proofpix} from ProofPix` : "")
+
+  return (
+    <SfCard>
+      <SfCardHeader title="Photos & files" subtitle={subtitle} />
+      {error && (
+        <div
+          className="mb-3 rounded-[8px] px-3 py-2 text-[12.5px]"
+          style={{ background: "var(--sf-red-soft)", color: "var(--sf-red-dark)" }}
+        >
+          {error}
+        </div>
+      )}
+      {loading ? (
+        <div className="py-10 text-center text-[12.5px] text-[var(--sf-ink-3)]">
+          Loading photos…
+        </div>
+      ) : files.length === 0 ? (
+        <div className="py-10 px-4 flex flex-col items-center text-center gap-2">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "var(--sf-panel-soft)" }}
+          >
+            <ImageIcon size={18} className="text-[var(--sf-ink-3)]" />
+          </div>
+          <div className="text-[13px] font-semibold text-[var(--sf-ink-2)]">
+            No photos for this job yet
+          </div>
+          <div className="text-[12px] text-[var(--sf-ink-3)] max-w-[320px]">
+            Photos uploaded from ProofPix mobile or attached on the customer's Files tab with this job selected will appear here.
+          </div>
+        </div>
+      ) : (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
+        >
+          {files.map((f) => (
+            <JobPhotoCard key={f.id} file={f} />
+          ))}
+        </div>
+      )}
+    </SfCard>
+  )
+}
+
+const JobPhotoCard = ({ file }) => {
+  const isImage = isImageMime(file.mime_type)
+  const isProofpix = file.source === "proofpix"
+  const meta = (isProofpix && file.proofpix_metadata && typeof file.proofpix_metadata === "object")
+    ? file.proofpix_metadata
+    : null
+  const modeLabel = meta?.mode ? (PHOTO_MODE_LABEL[meta.mode] || meta.mode) : null
+  const roomLabel = formatRoomName(meta?.room)
+  const date = file.uploaded_at
+    ? new Date(file.uploaded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—"
+
+  const onOpen = () => {
+    if (file.file_url) window.open(file.file_url, "_blank", "noopener,noreferrer")
+  }
+
+  return (
+    <SfCard padding={0} style={{ overflow: "hidden" }}>
+      <div onClick={onOpen} style={{ cursor: file.file_url ? "pointer" : "default" }}>
+        {isImage ? (
+          <div style={{ height: 130, background: "var(--sf-panel-soft)", position: "relative" }}>
+            <img
+              src={file.file_url}
+              alt={file.filename || "photo"}
+              loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+            {modeLabel && (
+              <span
+                style={{
+                  position: "absolute", top: 8, left: 8,
+                  fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
+                  background: "rgba(15,23,42,.85)", color: "#fff",
+                  padding: "2px 6px", borderRadius: 4,
+                }}
+              >
+                {modeLabel}
+              </span>
+            )}
+            {isProofpix && (
+              <span
+                style={{
+                  position: "absolute", top: 8, right: 8,
+                  fontSize: 10, fontWeight: 700,
+                  background: "var(--sf-amber-soft, rgba(242,195,27,.95))", color: "var(--sf-ink, #0f172a)",
+                  padding: "2px 6px", borderRadius: 4,
+                }}
+              >
+                ProofPix
+              </span>
+            )}
+          </div>
+        ) : (
+          <div
+            style={{
+              height: 130, background: "var(--sf-panel-alt)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <FileIcon size={28} className="text-[var(--sf-ink-3)]" />
+          </div>
+        )}
+        <div className="px-3 py-2 border-t border-[var(--sf-border-soft)]">
+          <div
+            className="text-[12.5px] font-semibold text-[var(--sf-ink)] truncate"
+            title={file.filename}
+          >
+            {file.filename || "Untitled"}
+          </div>
+          <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5 truncate">
+            {roomLabel ? `${roomLabel} · ${date}` : date}
+          </div>
+        </div>
+      </div>
+    </SfCard>
   )
 }
 
