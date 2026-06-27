@@ -1,6 +1,18 @@
 import ReactDOM from "react-dom/client"
+import { initFixPrompt } from "@fixprompt/browser"
 import App from "./App"
 import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from "react-router-dom"
+import { FixPromptBoundary } from "./components/FixPromptBoundary"
+
+const fpKey = process.env.REACT_APP_FIXPROMPT_KEY
+if (fpKey) {
+  initFixPrompt({
+    projectKey: fpKey,
+    source: 'service-flow-frontend-prod',
+    service: 'service-flow-frontend',
+    env: process.env.NODE_ENV === 'production' ? 'prod' : 'dev',
+  })
+}
 import { AuthProvider } from "./context/AuthContext"
 import { TimeFormatProvider } from "./context/TimeFormatContext"
 import { LocationProvider } from "./context/LocationContext"
@@ -148,6 +160,7 @@ if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
 
 const root = ReactDOM.createRoot(document.getElementById("root"))
 root.render(
+  <FixPromptBoundary>
   <BrowserRouter style={{fontFamily: 'Montserrat', fontWeight: 500}}>
     <AuthProvider>
       <LocationProvider>
@@ -299,5 +312,6 @@ root.render(
       </TimeFormatProvider>
       </LocationProvider>
     </AuthProvider>
-  </BrowserRouter>,
+  </BrowserRouter>
+  </FixPromptBoundary>,
 )
