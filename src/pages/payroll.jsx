@@ -1452,6 +1452,13 @@ const Payroll = () => {
   const [teamMembers, setTeamMembers] = useState([])
   const [payoutFrequency, setPayoutFrequency] = useState('manual')
   const [payoutStartDay, setPayoutStartDay] = useState(1)
+  // Tracks whether loadPayoutSettings has completed. Prevents the
+  // simple-tab useEffect from racing loadPayoutSettings — without this gate,
+  // the tab effect fires fetchPayrollData() with the initial state defaults
+  // (start = 1st of month, end = today) before settings come back, and that
+  // response can race-win against the correctly-scoped fetch from
+  // loadPayoutSettings → user sees an over-wide date range in the table.
+  const [payoutSettingsLoaded, setPayoutSettingsLoaded] = useState(false)
 
   // ── Modals ──
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false)
@@ -1629,7 +1636,7 @@ const Payroll = () => {
       setPayoutStartDay(day)
       // Recalculate using the currently active quick range (not always 'this_period')
       const rangeId = activeRange || payrollQuickRange || 'this_period'
-      if (rangeId === 'custom') { fetchPayrollData(); return }
+      if (rangeId === 'custom') { fetchPayrollData(); setPayoutSettingsLoaded(true); return }
       const range = getQuickRange(rangeId, freq, day)
       if (range) {
         setStartDate(range.start)
@@ -1643,8 +1650,10 @@ const Payroll = () => {
         setPayoutsEndDate(range.end)
       }
       fetchPayrollData(range?.start, range?.end)
+      setPayoutSettingsLoaded(true)
     }).catch(() => {
       fetchPayrollData()
+      setPayoutSettingsLoaded(true)
     })
   }, [user?.id, payrollQuickRange])
 
@@ -1678,15 +1687,18 @@ const Payroll = () => {
     }
   }, [payrollJobFilter])
 
-  // Simple tab needs both payroll data + batches for status — fetch on first visit
+  // Simple tab needs both payroll data + batches for status — fetch on first visit.
+  // Gated on payoutSettingsLoaded so we don't race loadPayoutSettings's own
+  // fetch with our own (which uses the unscoped initial-state range and can
+  // race-win, surfacing too many jobs in the table).
   useEffect(() => {
     if (!user?.id) return
     if (activeTab === 'simple' || activeTab === 'simple_history') {
-      if (!payrollData) fetchPayrollData()
+      if (!payrollData && payoutSettingsLoaded) fetchPayrollData()
       fetchBatches()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, user?.id])
+  }, [activeTab, user?.id, payoutSettingsLoaded])
 
   // Auto-refetch balances removed — onApply handles it directly
 
