@@ -57,6 +57,10 @@ const buildRow = (m, paystub, batch) => {
   const teamMember = m.teamMember || {}
   const id = teamMember.id ?? teamMember.team_member_id ?? m.team_member_id
   const name = teamMember.name || `${teamMember.first_name || ""} ${teamMember.last_name || ""}`.trim() || teamMember.email || "Cleaner"
+  const incentives = Number(m.totalIncentives || 0)
+  const adjustments = Number(m.totalAdjustments || 0)
+  const reimbursements = Number(m.totalReimbursements || 0)
+  const deductions = Number(m.totalExpenseDeductions || 0) // already negative
   return {
     id,
     name,
@@ -67,8 +71,15 @@ const buildRow = (m, paystub, batch) => {
     hours: Number(m.totalHours) || 0,
     baseEarnings: Number(m.hourlySalary || 0) + Number(m.commissionSalary || 0),
     tips: Number(m.totalTips) || 0,
-    incentives: Number(m.totalIncentives) || 0,
-    adjustments: Number(m.totalAdjustments || 0),
+    incentives,
+    adjustments,
+    reimbursements,
+    deductions,
+    // Merged "Bonus / Adj." column: incentives + manual adjustments +
+    // reimbursements − expense deductions (deductions is already negative).
+    bonusAdj: incentives + adjustments + reimbursements + deductions,
+    // Flat list of non-base entries with notes for the drawer itemization.
+    extras: Array.isArray(m.extras) ? m.extras : [],
     cashOffset: Number(m.totalCashCollected || 0),
     totalDue: Number(m.totalSalary) || 0,
     paystub,                 // null | { id, sent_at, ... }
@@ -121,13 +132,46 @@ const PaymentPill = ({ batch }) => {
 // PAYSTUB DRAWER — slide-over with earnings breakdown + actions
 // ════════════════════════════════════════════════════════════════════════
 
+const EXTRA_LABEL = {
+  incentive: "Bonus",
+  adjustment: "Adjustment",
+  reimbursement: "Reimbursement",
+  expense_deduction: "Deduction",
+}
+
+// Expand `extras` into itemized lines for the drawer. Each entry is one row;
+// `incentive_lines` (legacy per-job composite incentives) get unpacked into
+// their named sub-lines so users see "Google review +$10" instead of a generic
+// "Bonus +$10".
+const expandExtras = (extras) => {
+  const out = []
+  for (const e of extras || []) {
+    if (e.type === "incentive" && Array.isArray(e.incentiveLines) && e.incentiveLines.length > 0) {
+      for (const line of e.incentiveLines) {
+        out.push({
+          type: "incentive",
+          amount: Number(line.amount) || 0,
+          label: line.label || line.name || line.reason || "Bonus",
+        })
+      }
+      continue
+    }
+    out.push({
+      type: e.type,
+      amount: Number(e.amount) || 0,
+      label: e.note || EXTRA_LABEL[e.type] || "Adjustment",
+    })
+  }
+  return out
+}
+
 const PaystubDrawer = ({ open, row, periodStart, periodEnd, onClose, onAction }) => {
   if (!open || !row) return null
+  const items = expandExtras(row.extras)
   const earnings = [
     { label: "Base earnings (hourly + commission)", value: row.baseEarnings },
     { label: "Tips",                                  value: row.tips },
-    { label: "Bonus / incentives",                    value: row.incentives },
-    { label: "Adjustments",                           value: row.adjustments },
+    { label: "Bonus / Adjustments",                   value: row.bonusAdj, items },
     { label: "Cash already collected (offset)",       value: -row.cashOffset, isNegative: true },
   ]
 
@@ -187,20 +231,51 @@ const PaystubDrawer = ({ open, row, periodStart, periodEnd, onClose, onAction })
             fontSize: 11, color: T.ink3, fontWeight: 700,
             textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8,
           }}>Earnings breakdown</div>
-          {earnings.map((e, i) => (
-            <div key={i} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "10px 0", borderBottom: i < earnings.length - 1 ? `1px solid ${T.borderS}` : "none",
-            }}>
-              <span style={{ fontSize: 13, color: T.ink2 }}>{e.label}</span>
-              <span style={{
-                fontSize: 13.5, fontWeight: 600, fontVariantNumeric: "tabular-nums",
-                color: e.isNegative ? T.redDark : (e.value > 0 ? T.ink : T.ink3),
+          {earnings.map((e, i) => {
+            const headerColor = e.isNegative
+              ? T.redDark
+              : e.value > 0 ? T.ink : e.value < 0 ? T.redDark : T.ink3
+            const headerStr = e.isNegative
+              ? `−${money(Math.abs(e.value))}`
+              : e.value < 0 ? `−${money(Math.abs(e.value))}` : money(e.value)
+            return (
+              <div key={i} style={{
+                padding: "10px 0",
+                borderBottom: i < earnings.length - 1 ? `1px solid ${T.borderS}` : "none",
               }}>
-                {e.isNegative ? `−${money(Math.abs(e.value))}` : money(e.value)}
-              </span>
-            </div>
-          ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13, color: T.ink2 }}>{e.label}</span>
+                  <span style={{
+                    fontSize: 13.5, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                    color: headerColor,
+                  }}>
+                    {headerStr}
+                  </span>
+                </div>
+                {Array.isArray(e.items) && e.items.length > 0 && (
+                  <div style={{ marginTop: 6, marginLeft: 10, paddingLeft: 10, borderLeft: `2px solid ${T.borderS}` }}>
+                    {e.items.map((it, j) => {
+                      const neg = it.amount < 0
+                      return (
+                        <div key={j} style={{
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "4px 0",
+                        }}>
+                          <span style={{ fontSize: 12, color: T.ink3 }}>{it.label}</span>
+                          <span style={{
+                            fontSize: 12, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                            color: neg ? T.redDark : T.greenDark,
+                          }}>
+                            {neg ? `−${money(Math.abs(it.amount))}` : `+${money(it.amount)}`}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
 
           {/* Total */}
           <div style={{
@@ -445,8 +520,8 @@ export const SimplePayView = ({
         periodEnd: endDate,
         totalEarnings: row.baseEarnings,
         totalTips: row.tips,
-        totalBonus: row.incentives,
-        totalAdjustments: row.adjustments,
+        totalBonus: row.bonusAdj,
+        totalAdjustments: row.adjustments + row.reimbursements + row.deductions,
         totalCashOffset: row.cashOffset,
         totalAmount: row.totalDue,
         jobCount: row.jobs,
@@ -472,8 +547,8 @@ export const SimplePayView = ({
           teamMemberId: r.id,
           totalEarnings: r.baseEarnings,
           totalTips: r.tips,
-          totalBonus: r.incentives,
-          totalAdjustments: r.adjustments,
+          totalBonus: r.bonusAdj,
+          totalAdjustments: r.adjustments + r.reimbursements + r.deductions,
           totalCashOffset: r.cashOffset,
           totalAmount: r.totalDue,
           jobCount: r.jobs,
@@ -568,7 +643,7 @@ export const SimplePayView = ({
   }
 
   const exportCSV = () => {
-    const cols = ["Cleaner", "Email", "Jobs", "Hours", "Base", "Tips", "Bonus/Incentives", "Adjustments", "Cash offset", "Total due", "Paystub", "Payment"]
+    const cols = ["Cleaner", "Email", "Jobs", "Hours", "Base", "Tips", "Bonus / Adj.", "Cash offset", "Total due", "Paystub", "Payment"]
     const lines = [cols.join(",")]
     filteredRows.forEach((r) => {
       lines.push([
@@ -578,8 +653,7 @@ export const SimplePayView = ({
         r.hours.toFixed(2),
         r.baseEarnings.toFixed(2),
         r.tips.toFixed(2),
-        r.incentives.toFixed(2),
-        r.adjustments.toFixed(2),
+        r.bonusAdj.toFixed(2),
         r.cashOffset.toFixed(2),
         r.totalDue.toFixed(2),
         r.paystub?.sent_at ? "Sent" : r.paystub?.id ? "Generated" : "Not generated",
@@ -702,8 +776,7 @@ export const SimplePayView = ({
                   ["Jobs", "right"],
                   ["Hours", "right"],
                   ["Tips", "right"],
-                  ["Bonus", "right"],
-                  ["Adjust.", "right"],
+                  ["Bonus / Adj.", "right"],
                   ["Total due", "right"],
                   ["Paystub", "left"],
                   ["Payment", "left"],
@@ -720,7 +793,7 @@ export const SimplePayView = ({
             <tbody>
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={{ padding: 40, textAlign: "center", color: T.ink3, fontSize: 13 }}>
+                  <td colSpan={10} style={{ padding: 40, textAlign: "center", color: T.ink3, fontSize: 13 }}>
                     No cleaners with earnings in this period.
                   </td>
                 </tr>
@@ -748,11 +821,16 @@ export const SimplePayView = ({
                     <td style={{ padding: "12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.tips > 0 ? T.greenDark : T.ink3 }}>
                       {r.tips > 0 ? money(r.tips) : "—"}
                     </td>
-                    <td style={{ padding: "12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.incentives > 0 ? T.amberDark : T.ink3 }}>
-                      {r.incentives > 0 ? money(r.incentives) : "—"}
-                    </td>
-                    <td style={{ padding: "12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.adjustments !== 0 ? T.ink : T.ink3 }}>
-                      {r.adjustments !== 0 ? money(r.adjustments) : "—"}
+                    <td
+                      title={r.extras && r.extras.length > 0 ? "Open details for breakdown" : undefined}
+                      style={{
+                        padding: "12px", textAlign: "right", fontVariantNumeric: "tabular-nums",
+                        color: r.bonusAdj > 0 ? T.amberDark : r.bonusAdj < 0 ? T.redDark : T.ink3,
+                      }}
+                    >
+                      {r.bonusAdj === 0
+                        ? "—"
+                        : (r.bonusAdj < 0 ? `−${money(Math.abs(r.bonusAdj))}` : money(r.bonusAdj))}
                     </td>
                     <td style={{ padding: "12px", textAlign: "right" }}>
                       <span style={{
