@@ -3,16 +3,6 @@ import { initFixPrompt } from "@fixprompt/browser"
 import App from "./App"
 import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from "react-router-dom"
 import { FixPromptBoundary } from "./components/FixPromptBoundary"
-
-const fpKey = process.env.REACT_APP_FIXPROMPT_KEY
-if (fpKey) {
-  initFixPrompt({
-    projectKey: fpKey,
-    source: 'service-flow-frontend-prod',
-    service: 'service-flow-frontend',
-    env: process.env.NODE_ENV === 'production' ? 'prod' : 'dev',
-  })
-}
 import { AuthProvider } from "./context/AuthContext"
 import { TimeFormatProvider } from "./context/TimeFormatContext"
 import { LocationProvider } from "./context/LocationContext"
@@ -135,6 +125,19 @@ import Notifications from "./pages/notifications"
 import { TeamMemberAuthProvider } from "./context/TeamMemberAuthContext"
 import { CategoryProvider } from "./context/CategoryContext"
 import AppLayout from "./components/app-layout"
+
+// Initialize FixPrompt runtime error reporting before any rendering.
+// Must come AFTER all imports — the ESLint `import/first` rule fails the
+// production build if an executable statement is interleaved with imports.
+const fpKey = process.env.REACT_APP_FIXPROMPT_KEY
+if (fpKey) {
+  initFixPrompt({
+    projectKey: fpKey,
+    source: 'service-flow-frontend-prod',
+    service: 'service-flow-frontend',
+    env: process.env.NODE_ENV === 'production' ? 'prod' : 'dev',
+  })
+}
 
 // Preserve incoming query params when redirecting old import routes
 // (/settings/booking-koala, /import-jobs, /import-customers) to the new
