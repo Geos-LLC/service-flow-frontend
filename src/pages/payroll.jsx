@@ -2310,18 +2310,17 @@ const Payroll = () => {
                   <div className="bg-[var(--sf-panel)] rounded-[12px] border border-[var(--sf-border-soft)] shadow-[var(--sf-shadow)] overflow-x-auto xl:overflow-x-visible">
                     <table className="w-full" style={{ tableLayout: 'fixed', borderCollapse: 'collapse' }}>
                       <colgroup>
-                        <col style={{ width: '20%', minWidth: 180 }} />
-                        <col style={{ width: '7%',  minWidth: 70 }} />
+                        <col style={{ width: '22%', minWidth: 180 }} />
+                        <col style={{ width: '8%',  minWidth: 70 }} />
                         <col style={{ width: '4%',  minWidth: 40 }} />
                         <col style={{ width: '5%',  minWidth: 50 }} />
-                        <col style={{ width: '7%',  minWidth: 65 }} />
-                        <col style={{ width: '7%',  minWidth: 65 }} />
-                        <col style={{ width: '7%',  minWidth: 65 }} />
-                        <col style={{ width: '6%',  minWidth: 55 }} />
-                        <col style={{ width: '7%',  minWidth: 65 }} />
-                        <col style={{ width: '7%',  minWidth: 65 }} />
-                        <col style={{ width: '6%',  minWidth: 60 }} />
-                        <col style={{ width: '10%', minWidth: 80 }} />
+                        <col style={{ width: '8%',  minWidth: 65 }} />
+                        <col style={{ width: '8%',  minWidth: 65 }} />
+                        <col style={{ width: '8%',  minWidth: 65 }} />
+                        <col style={{ width: '7%',  minWidth: 55 }} />
+                        <col style={{ width: '9%',  minWidth: 75 }} />
+                        <col style={{ width: '7%',  minWidth: 60 }} />
+                        <col style={{ width: '14%', minWidth: 90 }} />
                       </colgroup>
                       <thead style={{ background: 'var(--sf-panel-alt)', borderBottom: '1px solid var(--sf-border-soft)' }}>
                         <tr>
@@ -2333,8 +2332,7 @@ const Payroll = () => {
                           <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Hourly</th>
                           <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Comm</th>
                           <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Tips</th>
-                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Incentives</th>
-                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Reimb.</th>
+                          <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }} title="Incentives + Reimbursements + Adjustments + Deductions">Bonus / Adj.</th>
                           <th className="px-2 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Cash</th>
                           <th className="px-3 py-2.5 text-right text-[11px] font-bold text-[var(--sf-ink-3)] uppercase" style={{ letterSpacing: '.06em' }}>Total</th>
                         </tr>
@@ -2411,15 +2409,16 @@ const Payroll = () => {
                                 ? <span className="text-[var(--sf-green-dark)] font-semibold">+{formatCurrency(member.totalTips)}</span>
                                 : <span className="text-[var(--sf-ink-3)]">—</span>}
                             </td>
-                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {(member.totalIncentives || 0) > 0
-                                ? <span className="text-[var(--sf-purple)] font-semibold">+{formatCurrency(member.totalIncentives)}</span>
-                                : <span className="text-[var(--sf-ink-3)]">—</span>}
-                            </td>
-                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                              {(member.totalReimbursements || 0) > 0
-                                ? <span className="text-[var(--sf-blue-dark)] font-semibold">+{formatCurrency(member.totalReimbursements)}</span>
-                                : <span className="text-[var(--sf-ink-3)]">—</span>}
+                            <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}
+                                title="Incentives + Reimbursements + Adjustments + Deductions"
+                            >
+                              {(() => {
+                                const bonusAdj = (member.totalIncentives || 0) + (member.totalReimbursements || 0)
+                                  + (member.totalAdjustments || 0) + (member.totalExpenseDeductions || 0);
+                                if (bonusAdj > 0) return <span className="text-[var(--sf-purple)] font-semibold">+{formatCurrency(bonusAdj)}</span>;
+                                if (bonusAdj < 0) return <span className="text-[var(--sf-red-dark,#b91c1c)] font-semibold">−{formatCurrency(Math.abs(bonusAdj))}</span>;
+                                return <span className="text-[var(--sf-ink-3)]">—</span>;
+                              })()}
                             </td>
                             <td className="px-2 py-3 text-[12.5px] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
                               {((member.totalCashCollected || 0) + (member.priorCashCollected || 0)) < 0
@@ -2576,7 +2575,7 @@ const Payroll = () => {
                                         <th className="text-right py-2 pr-4 font-medium">Hourly</th>
                                         <th className="text-right py-2 pr-4 font-medium">Commission</th>
                                         <th className="text-right py-2 pr-4 font-medium">Tips</th>
-                                        <th className="text-right py-2 pr-4 font-medium">Incentives</th>
+                                        <th className="text-right py-2 pr-4 font-medium" title="Incentives + Reimbursements + Adjustments + Deductions">Bonus / Adj.</th>
                                         <th className="text-right py-2 pr-4 font-medium">Cash</th>
                                         <th className="text-right py-2 font-medium">Total</th>
                                       </tr>
@@ -2636,8 +2635,25 @@ const Payroll = () => {
                                               <EditableCell value={job.tip || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { tipAmount: val * (job.memberCount || 1) }); await fetchPayrollData(); }} />
                                             )}
                                           </td>
-                                          <td className="py-2 pr-4 text-right text-[var(--sf-ink)]">
-                                            <EditableCell value={job.incentive || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { incentiveAmount: val, teamMemberId: member.teamMember.id }); await fetchPayrollData(); }} />
+                                          <td className="py-2 pr-4 text-right">
+                                            {(() => {
+                                              const jobBonusAdj = (job.incentive || 0) + (job.reimbursement || 0)
+                                                + (job.adjustment || 0) + (job.deduction || 0);
+                                              const editor = (
+                                                <EditableCell value={job.incentive || 0} format="dollar" onSave={async (val) => { await payrollAPI.updateJobPayroll(job.id, { incentiveAmount: val, teamMemberId: member.teamMember.id }); await fetchPayrollData(); }} />
+                                              );
+                                              // When the only non-zero component is the incentive, keep inline editing.
+                                              const onlyIncentive = !job.reimbursement && !job.adjustment && !job.deduction;
+                                              return onlyIncentive
+                                                ? editor
+                                                : (
+                                                  <span title={`Incentive ${formatCurrency(job.incentive || 0)} · Reimb ${formatCurrency(job.reimbursement || 0)} · Adj ${formatCurrency(job.adjustment || 0)} · Deduction ${formatCurrency(job.deduction || 0)}`}
+                                                        className={jobBonusAdj < 0 ? 'text-[var(--sf-red-dark,#b91c1c)] font-semibold' : 'text-[var(--sf-purple)] font-semibold'}
+                                                  >
+                                                    {jobBonusAdj < 0 ? `−${formatCurrency(Math.abs(jobBonusAdj))}` : (jobBonusAdj > 0 ? `+${formatCurrency(jobBonusAdj)}` : formatCurrency(0))}
+                                                  </span>
+                                                );
+                                            })()}
                                             {Array.isArray(job.incentiveLines) && job.incentiveLines.length > 0 && (
                                               <div className="mt-0.5 flex flex-col items-end gap-0.5">
                                                 {job.incentiveLines.map((ln, i) => (
@@ -2652,11 +2668,17 @@ const Payroll = () => {
                                                 ))}
                                               </div>
                                             )}
+                                            {(job.deductionNote || job.adjustmentNote || job.reimbursementNote) && (
+                                              <div className="mt-0.5 text-[10.5px] text-[var(--sf-ink-3)] leading-tight max-w-[180px] truncate text-right"
+                                                   title={[job.deductionNote && `Deduction: ${job.deductionNote}`, job.adjustmentNote && `Adj: ${job.adjustmentNote}`, job.reimbursementNote && `Reimb: ${job.reimbursementNote}`].filter(Boolean).join(' · ')}>
+                                                {job.deductionNote || job.adjustmentNote || job.reimbursementNote}
+                                              </div>
+                                            )}
                                           </td>
                                           <td className="py-2 pr-4 text-right text-orange-600">
                                             <EditableCell value={Math.abs(job.cashCollected || 0)} format="dollar" onSave={async (val) => { await ledgerAPI.updateCashCollected(job.id, member.teamMember.id, val); await fetchPayrollData(); }} />
                                           </td>
-                                          <td className="py-2 text-right text-[var(--sf-ink)] font-medium">{formatCurrency((job.hourlySalary || 0) + (job.commission || 0) + (job.tip || 0) + (job.incentive || 0) + (job.cashCollected || 0))}</td>
+                                          <td className="py-2 text-right text-[var(--sf-ink)] font-medium">{formatCurrency((job.hourlySalary || 0) + (job.commission || 0) + (job.tip || 0) + (job.incentive || 0) + (job.reimbursement || 0) + (job.adjustment || 0) + (job.deduction || 0) + (job.cashCollected || 0))}</td>
                                         </tr>
                                         )
                                       })}
@@ -2681,8 +2703,15 @@ const Payroll = () => {
                           <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalHourlySalary || 0)}</td>
                           <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalCommission || 0)}</td>
                           <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-green-dark)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalTips || 0) > 0 ? `+${formatCurrency(filteredSummary.totalTips)}` : '—'}</td>
-                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-purple)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalIncentives || 0) > 0 ? `+${formatCurrency(filteredSummary.totalIncentives)}` : '—'}</td>
-                          <td className="px-2 py-3 text-[13px] font-bold text-[var(--sf-blue-dark)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalReimbursements || 0) > 0 ? `+${formatCurrency(filteredSummary.totalReimbursements)}` : '—'}</td>
+                          <td className="px-2 py-3 text-[13px] font-bold text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {(() => {
+                              const sumBonusAdj = (filteredSummary.totalIncentives || 0) + (filteredSummary.totalReimbursements || 0)
+                                + (filteredSummary.totalAdjustments || 0) + (filteredSummary.totalExpenseDeductions || 0);
+                              if (sumBonusAdj > 0) return <span className="text-[var(--sf-purple)]">+{formatCurrency(sumBonusAdj)}</span>;
+                              if (sumBonusAdj < 0) return <span className="text-[var(--sf-red-dark,#b91c1c)]">−{formatCurrency(Math.abs(sumBonusAdj))}</span>;
+                              return '—';
+                            })()}
+                          </td>
                           <td className="px-2 py-3 text-[13px] font-bold text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{(filteredSummary.totalCashCollected || 0) < 0 ? <span className="text-[var(--sf-amber-dark)]">{formatCurrency(filteredSummary.totalCashCollected)}</span> : '—'}</td>
                           <td className="px-3 py-3 text-[15px] font-bold text-[var(--sf-ink)] text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(filteredSummary.totalSalary)}</td>
                         </tr>
