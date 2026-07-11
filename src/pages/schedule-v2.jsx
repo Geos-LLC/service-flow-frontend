@@ -387,7 +387,7 @@ const ScheduleV2 = () => {
   )
 
   const onJobClick = useCallback(
-    (job) => navigate(`/job-details/${job.id}`),
+    (job) => navigate(`/job/${job.id}`),
     [navigate]
   )
 
@@ -483,6 +483,7 @@ const ScheduleV2 = () => {
                 anchor={anchor}
                 jobs={teamFilteredJobs}
                 cleanerColor={cleanerColor}
+                resolveName={resolveCleanerName}
                 onJobClick={onJobClick}
                 onPickDay={(d) => { setAnchor(d); setView("day") }}
               />
@@ -530,7 +531,7 @@ const ScheduleV2 = () => {
           <UnassignedView
             jobs={scopedJobs}
             onJobClick={onJobClick}
-            onAssign={(j) => navigate(`/job-details/${j.id}`)}
+            onAssign={(j) => navigate(`/job/${j.id}`)}
           />
         </div>
       )}
@@ -1128,7 +1129,7 @@ const DayView = ({ anchor, jobs, cleaners, cleanerColor, resolveName, onJobClick
 
 // ── Month view ─────────────────────────────────────────────
 
-const MonthView = ({ anchor, jobs, cleanerColor, onJobClick, onPickDay }) => {
+const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPickDay }) => {
   const monthStart = useMemo(() => {
     const x = new Date(anchor)
     x.setDate(1)
@@ -1182,7 +1183,7 @@ const MonthView = ({ anchor, jobs, cleanerColor, onJobClick, onPickDay }) => {
       </div>
       <div
         className="grid"
-        style={{ gridTemplateColumns: "repeat(7, 1fr)", gridAutoRows: "minmax(115px, auto)" }}
+        style={{ gridTemplateColumns: "repeat(7, 1fr)", gridAutoRows: "minmax(160px, auto)" }}
       >
         {cells.map((d, idx) => {
           const col = idx % 7
@@ -1206,7 +1207,7 @@ const MonthView = ({ anchor, jobs, cleanerColor, onJobClick, onPickDay }) => {
                 display: "flex",
                 flexDirection: "column",
                 gap: 3,
-                minHeight: 115,
+                minHeight: 160,
                 cursor: "pointer",
               }}
             >
@@ -1260,42 +1261,80 @@ const MonthView = ({ anchor, jobs, cleanerColor, onJobClick, onPickDay }) => {
                 const a = assigneesFor(j)
                 const color = a.length > 0 ? cleanerColor(a[0].id) : "#DC2626"
                 const live = isLiveJob(j)
+                const dur = durationMinutes(j)
+                const durLabel = dur >= 60
+                  ? `${Math.floor(dur / 60)}h${dur % 60 ? ` ${dur % 60}m` : ""}`
+                  : `${dur}m`
+                const cleanerNames = a
+                  .map((x) => {
+                    const full = resolveName ? resolveName(x.id, x.name) : x.name
+                    return (full || "").split(" ")[0]
+                  })
+                  .filter(Boolean)
+                const cleanerLabel = cleanerNames.length === 0
+                  ? "Unassigned"
+                  : cleanerNames.length <= 2
+                  ? cleanerNames.join(", ")
+                  : `${cleanerNames.slice(0, 2).join(", ")} +${cleanerNames.length - 2}`
                 return (
                   <button
                     key={j.id}
                     onClick={(e) => { e.stopPropagation(); onJobClick(j) }}
                     style={{
                       display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "2px 5px",
+                      flexDirection: "column",
+                      gap: 1,
+                      padding: "3px 6px",
                       background: live ? color : `${color}1a`,
                       color: live ? "#fff" : color,
                       borderLeft: `2px solid ${color}`,
                       border: "none",
                       borderRadius: 3,
-                      fontSize: 10.5,
-                      fontWeight: 600,
                       cursor: "pointer",
                       fontFamily: "var(--sf-font-ui)",
                       textAlign: "left",
-                      whiteSpace: "nowrap",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
                     }}
                   >
                     <span
                       style={{
+                        display: "block",
                         fontVariantNumeric: "tabular-nums",
                         opacity: 0.85,
                         fontFamily: "var(--sf-font-mono)",
                         fontSize: 9.5,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
-                      {formatJobTime(j)}
+                      {formatJobTime(j)} · {durLabel}
                     </span>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
                       {customerLabelForJob(j)}
+                    </span>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 9.5,
+                        fontWeight: 500,
+                        opacity: 0.75,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {cleanerLabel}
                     </span>
                   </button>
                 )
