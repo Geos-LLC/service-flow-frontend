@@ -211,33 +211,45 @@ export default function PaystubPreview({ snapshot }) {
         )}
 
         {/* Line items */}
-        {lineItems.length > 0 && (
-          <>
-            <h3 className="text-sm font-semibold text-[var(--sf-text-primary)] mt-6 mb-2">Jobs</h3>
-            <div className="border border-[var(--sf-border-light)] rounded-lg overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-[var(--sf-text-muted)] font-semibold">Date</th>
-                    <th className="px-3 py-2 text-left text-[var(--sf-text-muted)] font-semibold">Service</th>
-                    <th className="px-3 py-2 text-left text-[var(--sf-text-muted)] font-semibold">Customer</th>
-                    <th className="px-3 py-2 text-right text-[var(--sf-text-muted)] font-semibold">Earning</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineItems.map((item, idx) => (
-                    <tr key={item.jobId || idx} className="border-t border-[var(--sf-border-light)]">
-                      <td className="px-3 py-2 text-[var(--sf-text-secondary)]">{formatDate(item.date)}</td>
-                      <td className="px-3 py-2 text-[var(--sf-text-secondary)]">{item.service}</td>
-                      <td className="px-3 py-2 text-[var(--sf-text-secondary)]">{item.customerName}</td>
-                      <td className="px-3 py-2 text-right font-medium">{fmt(item.earning)}</td>
+        {lineItems.length > 0 && (() => {
+          const showTip = lineItems.some((it) => (parseFloat(it.tip) || 0) !== 0)
+          const showIncentive = lineItems.some((it) => (parseFloat(it.incentive) || 0) !== 0)
+          const showReimb = lineItems.some((it) => (parseFloat(it.reimbursement) || 0) !== 0)
+          const cell = (n) => ((parseFloat(n) || 0) === 0 ? "—" : fmt(n))
+          return (
+            <>
+              <h3 className="text-sm font-semibold text-[var(--sf-text-primary)] mt-6 mb-2">Jobs</h3>
+              <div className="border border-[var(--sf-border-light)] rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[var(--sf-text-muted)] font-semibold">Date</th>
+                      <th className="px-3 py-2 text-left text-[var(--sf-text-muted)] font-semibold">Service</th>
+                      <th className="px-3 py-2 text-left text-[var(--sf-text-muted)] font-semibold">Customer</th>
+                      <th className="px-3 py-2 text-right text-[var(--sf-text-muted)] font-semibold">Earning</th>
+                      {showTip && <th className="px-3 py-2 text-right text-[var(--sf-text-muted)] font-semibold">Tip</th>}
+                      {showIncentive && <th className="px-3 py-2 text-right text-[var(--sf-text-muted)] font-semibold">Incentive</th>}
+                      {showReimb && <th className="px-3 py-2 text-right text-[var(--sf-text-muted)] font-semibold">Reimb.</th>}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+                  </thead>
+                  <tbody>
+                    {lineItems.map((item, idx) => (
+                      <tr key={item.jobId || idx} className="border-t border-[var(--sf-border-light)]">
+                        <td className="px-3 py-2 text-[var(--sf-text-secondary)]">{formatDate(item.date)}</td>
+                        <td className="px-3 py-2 text-[var(--sf-text-secondary)]">{item.service}</td>
+                        <td className="px-3 py-2 text-[var(--sf-text-secondary)]">{item.customerName}</td>
+                        <td className="px-3 py-2 text-right font-medium">{fmt(item.earning)}</td>
+                        {showTip && <td className="px-3 py-2 text-right text-[var(--sf-text-secondary)]">{cell(item.tip)}</td>}
+                        {showIncentive && <td className="px-3 py-2 text-right text-[var(--sf-text-secondary)]">{cell(item.incentive)}</td>}
+                        {showReimb && <td className="px-3 py-2 text-right text-[var(--sf-text-secondary)]">{cell(item.reimbursement)}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )
+        })()}
 
         <p className="text-xs text-[var(--sf-text-muted)] mt-6">
           If anything looks incorrect, please contact your administrator.
