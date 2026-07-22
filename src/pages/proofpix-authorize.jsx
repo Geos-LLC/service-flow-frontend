@@ -37,21 +37,39 @@ function isAllowedReturnTo(value) {
   return ALLOWED_RETURN_PREFIXES.some((prefix) => value.startsWith(prefix));
 }
 
-function decodeJwtUserId(jwtString) {
+function decodeJwtPayload(jwtString) {
   // Parse the JWT payload (no signature verification — frontend can't,
   // and doesn't need to; the backend re-verifies on /connect/token/issue).
-  // We just need the userId claim so we can pass workspace= back.
+  // Returns null if the token is malformed.
   try {
     const parts = jwtString.split('.');
     if (parts.length !== 3) return null;
     const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
-    const payload = JSON.parse(payloadJson);
-    const id = payload.userId ?? payload.id;
-    if (id == null) return null;
-    return String(id);
+    return JSON.parse(payloadJson);
   } catch {
     return null;
   }
+}
+
+function decodeJwtUserId(jwtString) {
+  const payload = decodeJwtPayload(jwtString);
+  if (!payload) return null;
+  const id = payload.userId ?? payload.id;
+  if (id == null) return null;
+  return String(id);
+}
+
+// A stale `authToken` in localStorage would get rejected by the backend
+// with INVALID_TOKEN, which is what the fresh-install-plus-login bug was
+// surfacing on 2026-07-22. Check exp locally BEFORE hitting the API so
+// we can bounce the user back through /signin instead of surfacing the
+// backend's terse rejection copy.
+function isJwtExpired(jwtString) {
+  const payload = decodeJwtPayload(jwtString);
+  if (!payload || typeof payload.exp !== 'number') return true;
+  // Small clock-skew grace (5s) — cheaper than getting rejected by the
+  // backend, walking back to /signin, and re-doing the round-trip.
+  return Date.now() >= (payload.exp - 5) * 1000;
 }
 
 export default function ProofPixAuthorize() {
@@ -77,11 +95,17 @@ export default function ProofPixAuthorize() {
         return;
       }
 
-      // 2. Auth check. If unauthenticated, bounce to /signin with a
-      //    continue= param so the login flow returns to this exact
-      //    authorize URL.
+      // 2. Auth check. If unauthenticated OR the stored JWT has already
+      //    expired, bounce to /signin with a continue= param so the login
+      //    flow returns to this exact authorize URL. Checking exp
+      //    client-side (in addition to the null check) means a fresh
+      //    install with a stale ghost token from an earlier session
+      //    doesn't sail into the backend and come back with the
+      //    generic INVALID_TOKEN copy — we send them through /signin
+      //    the same way an unauth'd user goes.
       const sfJwt = localStorage.getItem('authToken');
-      if (!sfJwt) {
+      const needsSignin = !sfJwt || isJwtExpired(sfJwt);
+      if (needsSignin) {
         const continueUrl = `/integrations/proofpix/authorize?return_to=${encodeURIComponent(returnTo)}`;
         window.location.replace(`/signin?continue=${encodeURIComponent(continueUrl)}`);
         return;
@@ -99,8 +123,30 @@ export default function ProofPixAuthorize() {
           },
         });
         if (!res.ok) {
+          // 404 = feature flag off on this SF instance (bare 404 with no
+          // body from proofpix-service's flag gate). Surface the
+          // per-workspace-admin remediation copy instead of the generic
+          // "token mint failed" line — a team member or an admin whose
+          // owner hasn't enabled the integration would otherwise hit the
+          // same INVALID_TOKEN wall as an actually-broken token, which
+          // is exactly what the 2026-07-22 report flagged.
+          if (res.status === 404) {
+            throw new Error(
+              'INTEGRATION_DISABLED: Ask your workspace owner to enable the ProofPix integration in Settings → Integrations.'
+            );
+          }
           const errBody = await res.json().catch(() => null);
           const code = errBody?.error?.code || `HTTP_${res.status}`;
+          // 401 INVALID_TOKEN post-login almost always means the JWT
+          // was somehow rejected by the backend (secret rotation,
+          // signing mismatch, etc). Nuke the stale credential so the
+          // next attempt starts clean.
+          if (res.status === 401 && code === 'INVALID_TOKEN') {
+            localStorage.removeItem('authToken');
+            const continueUrl = `/integrations/proofpix/authorize?return_to=${encodeURIComponent(returnTo)}`;
+            window.location.replace(`/signin?continue=${encodeURIComponent(continueUrl)}`);
+            return;
+          }
           const message = errBody?.error?.message || `Token mint failed (${res.status}).`;
           throw new Error(`${code}: ${message}`);
         }

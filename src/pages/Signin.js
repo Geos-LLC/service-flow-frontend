@@ -1,11 +1,25 @@
 import { useState, useEffect } from "react"
-import { Link, useNavigate, Navigate } from "react-router-dom"
+import { Link, useNavigate, useLocation, Navigate } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 import GoogleOAuth from "../components/GoogleOAuth"
 import ForgotPasswordModal from "../components/ForgotPasswordModal"
 
+// Safe-continue: must be a same-origin absolute path.
+// Rejects '//example.com/x' (protocol-relative → open redirect) and any
+// non-string. Used by the /integrations/proofpix/authorize flow (PR 4)
+// to survive the login round-trip; safe to reuse for other flows.
+function getSafeContinuePath(search) {
+  const params = new URLSearchParams(search || '')
+  const raw = params.get('continue')
+  if (typeof raw !== 'string' || raw.length === 0) return null
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null
+  return raw
+}
+
 export default function SignInForm() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const continueTo = getSafeContinuePath(location.search) || '/dashboard'
   const { login, user, loading } = useAuth()
   const [formData, setFormData] = useState({
     email: "",
@@ -18,12 +32,14 @@ export default function SignInForm() {
   const [apiError, setApiError] = useState("")
   const [showForgotPassword, setShowForgotPassword] = useState(false)
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated. Honor ?continue=<path> so flows
+  // like /integrations/proofpix/authorize can bounce us here to force a
+  // fresh login and then land the user back on the originating page.
   useEffect(() => {
     if (!loading && user) {
-      navigate('/dashboard', { replace: true })
+      navigate(continueTo, { replace: true })
     }
-  }, [user, loading, navigate])
+  }, [user, loading, navigate, continueTo])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -87,7 +103,7 @@ export default function SignInForm() {
       if (result && result.success) {
         // Small delay to ensure state is updated
         setTimeout(() => {
-          navigate('/dashboard', { replace: true })
+          navigate(continueTo, { replace: true })
         }, 100)
       }
     } catch (error) {
@@ -151,7 +167,7 @@ export default function SignInForm() {
 
   // Redirect if already authenticated (fallback)
   if (user) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to={continueTo} replace />
   }
 
   return (
@@ -276,10 +292,10 @@ export default function SignInForm() {
 
           {/* Google OAuth */}
           <div>
-            <GoogleOAuth 
+            <GoogleOAuth
               onSuccess={(result) => {
                 console.log('✅ Google OAuth success:', result);
-                navigate('/dashboard');
+                navigate(continueTo);
               }}
               onError={(error) => {
                 console.error('❌ Google OAuth error:', error);
