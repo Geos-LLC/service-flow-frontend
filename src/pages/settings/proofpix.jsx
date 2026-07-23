@@ -52,6 +52,10 @@ export default function ProofPixIntegrationSettings() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState(null);
   const [connections, setConnections] = useState([]);
+  // Per-device disconnect state — keyed by connection.id so multiple
+  // simultaneous disconnects each get their own spinner without a
+  // shared "busy" flag blocking the others.
+  const [disconnectingIds, setDisconnectingIds] = useState(() => new Set());
   const [showPairedBanner, setShowPairedBanner] = useState(
     new URLSearchParams(location.search).get('paired') === '1'
   );
@@ -111,6 +115,51 @@ export default function ProofPixIntegrationSettings() {
     window.location.href = `/integrations/proofpix/authorize?return_to=${returnTo}`;
   };
 
+  const handleDisconnect = useCallback(
+    async (connection) => {
+      // Native confirm is fine here — a modal dialog would be
+      // over-engineered for a one-line "are you sure" on a
+      // reversible-ish action (they can re-pair from the same page).
+      const label = connection.device_label || connection.device_model || 'this device';
+      if (!window.confirm(`Disconnect ${label} from Service Flow?`)) return;
+
+      const sfJwt = localStorage.getItem('authToken');
+      if (!sfJwt) {
+        bounceToSigninHere();
+        return;
+      }
+      setDisconnectingIds((prev) => new Set(prev).add(connection.id));
+      try {
+        const res = await fetch(
+          `${API_BASE}/integrations/proofpix/connections/${encodeURIComponent(connection.id)}`,
+          { method: 'DELETE', headers: { Authorization: `Bearer ${sfJwt}` } }
+        );
+        if (res.status === 401) {
+          localStorage.removeItem('authToken');
+          bounceToSigninHere();
+          return;
+        }
+        // 204 = revoked, 404 = already gone (from another tab / device).
+        // Both are user-visible successes — just refresh the list.
+        if (res.status === 204 || res.status === 404) {
+          await loadConnections();
+          return;
+        }
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message || `Disconnect failed (HTTP ${res.status}).`);
+      } catch (err) {
+        setErrorMessage(err.message || 'Failed to disconnect device.');
+      } finally {
+        setDisconnectingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(connection.id);
+          return next;
+        });
+      }
+    },
+    [loadConnections]
+  );
+
   return (
     <div style={pageStyle}>
       <div style={{ marginBottom: '24px' }}>
@@ -142,7 +191,12 @@ export default function ProofPixIntegrationSettings() {
 
       {!loading && !errorMessage && connections.length > 0 && (
         <>
-          <DevicesCard connections={connections} onConnectAnother={handleConnect} />
+          <DevicesCard
+            connections={connections}
+            onConnectAnother={handleConnect}
+            onDisconnect={handleDisconnect}
+            disconnectingIds={disconnectingIds}
+          />
           <LaptopTipCard />
         </>
       )}
@@ -235,7 +289,7 @@ function ConnectCard({ onConnect }) {
   );
 }
 
-function DevicesCard({ connections, onConnectAnother }) {
+function DevicesCard({ connections, onConnectAnother, onDisconnect, disconnectingIds }) {
   return (
     <div style={cardStyle}>
       <h2 style={{ fontSize: '16px', margin: '0 0 4px', color: '#0f172a' }}>
@@ -249,54 +303,13 @@ function DevicesCard({ connections, onConnectAnother }) {
 
       <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px' }}>
         {connections.map((conn, idx) => (
-          <li
+          <DeviceRow
             key={conn.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '12px 0',
-              borderTop: idx === 0 ? '1px solid #e2e8f0' : 'none',
-              borderBottom: '1px solid #e2e8f0',
-            }}
-          >
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                backgroundColor: '#eff6ff',
-                color: '#1976F2',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '14px',
-                fontWeight: 600,
-                flexShrink: 0,
-              }}
-              aria-hidden
-            >
-              📱
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: '14px',
-                  color: '#0f172a',
-                  fontWeight: 500,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {conn.device_label || 'Unnamed device'}
-              </div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                Connected {formatDate(conn.created_at)}
-                {conn.last_used_at && ` • Last used ${formatDate(conn.last_used_at)}`}
-              </div>
-            </div>
-          </li>
+            connection={conn}
+            isFirst={idx === 0}
+            onDisconnect={onDisconnect}
+            isDisconnecting={disconnectingIds.has(conn.id)}
+          />
         ))}
       </ul>
 
@@ -304,6 +317,125 @@ function DevicesCard({ connections, onConnectAnother }) {
         Connect another device
       </button>
     </div>
+  );
+}
+
+function DeviceRow({ connection, isFirst, onDisconnect, isDisconnecting }) {
+  const title =
+    connection.device_label ||
+    connection.device_model ||
+    'Unnamed device';
+
+  // "iPhone 15 Pro • iOS 18.2" — either half is optional. Empty string
+  // if the mobile client sent neither (pre-metadata-rollout rows).
+  const modelParts = [];
+  if (connection.device_model && connection.device_model !== connection.device_label) {
+    modelParts.push(connection.device_model);
+  }
+  if (connection.os_name || connection.os_version) {
+    modelParts.push([connection.os_name, connection.os_version].filter(Boolean).join(' '));
+  }
+  const modelLine = modelParts.join(' • ');
+
+  return (
+    <li
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '12px',
+        padding: '14px 0',
+        borderTop: isFirst ? '1px solid #e2e8f0' : 'none',
+        borderBottom: '1px solid #e2e8f0',
+      }}
+    >
+      <div
+        style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: '8px',
+          backgroundColor: '#eff6ff',
+          color: '#1976F2',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '16px',
+          fontWeight: 600,
+          flexShrink: 0,
+        }}
+        aria-hidden
+      >
+        📱
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span
+            style={{
+              fontSize: '14px',
+              color: '#0f172a',
+              fontWeight: 500,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {title}
+          </span>
+          {connection.role && <RoleBadge role={connection.role} />}
+        </div>
+
+        {modelLine && (
+          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+            {modelLine}
+          </div>
+        )}
+
+        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+          Connected {formatDate(connection.created_at)}
+          {connection.last_used_at && ` • Last used ${formatDate(connection.last_used_at)}`}
+        </div>
+
+        {(connection.paired_from_ip || connection.last_seen_ip) && (
+          <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '2px' }}>
+            {connection.last_seen_ip
+              ? `Last seen from ${connection.last_seen_ip}`
+              : `Paired from ${connection.paired_from_ip}`}
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onDisconnect(connection)}
+        disabled={isDisconnecting}
+        style={{
+          ...disconnectButtonStyle,
+          opacity: isDisconnecting ? 0.5 : 1,
+          cursor: isDisconnecting ? 'default' : 'pointer',
+        }}
+      >
+        {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+      </button>
+    </li>
+  );
+}
+
+function RoleBadge({ role }) {
+  const isAdmin = role === 'admin';
+  return (
+    <span
+      style={{
+        fontSize: '10px',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        padding: '2px 8px',
+        borderRadius: '999px',
+        backgroundColor: isAdmin ? '#eef2ff' : '#f1f5f9',
+        color: isAdmin ? '#4338ca' : '#475569',
+      }}
+    >
+      {isAdmin ? 'Admin' : role.replace(/_/g, ' ')}
+    </span>
   );
 }
 
@@ -372,4 +504,15 @@ const dismissButtonStyle = {
   cursor: 'pointer',
   fontSize: '20px',
   lineHeight: 1,
+};
+
+const disconnectButtonStyle = {
+  padding: '6px 12px',
+  fontSize: '12px',
+  fontWeight: 500,
+  border: '1px solid #fecaca',
+  borderRadius: '6px',
+  backgroundColor: '#ffffff',
+  color: '#dc2626',
+  flexShrink: 0,
 };
