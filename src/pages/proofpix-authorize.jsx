@@ -298,10 +298,13 @@ export default function ProofPixAuthorize() {
         consecutiveFailures = 0;
 
         if (body.status === 'redeemed') {
+          // Just transition — the paired-redirect effect below owns
+          // the delayed window.location handoff. If we scheduled the
+          // setTimeout here, this effect's cleanup (which fires when
+          // status flips to 'paired') would set cancelled=true and
+          // the redirect guard would swallow the navigation — leaving
+          // the user stuck on the "Paired successfully" card.
           setStatus('paired');
-          setTimeout(() => {
-            if (!cancelled) window.location.assign(returnToSfRef.current);
-          }, PAIRED_REDIRECT_DELAY_MS);
           return;
         }
         if (body.status === 'expired' || body.status === 'unknown') {
@@ -349,6 +352,18 @@ export default function ProofPixAuthorize() {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [status, pairToken]);
+
+  // Paired-redirect. Owns the delayed window.location hand-off in its
+  // own effect so its cleanup lifecycle is independent of the polling
+  // loop above — otherwise the polling effect's teardown (fired when
+  // status flips to 'paired') would clobber the redirect timer.
+  useEffect(() => {
+    if (status !== 'paired') return undefined;
+    const id = setTimeout(() => {
+      window.location.assign(returnToSfRef.current);
+    }, PAIRED_REDIRECT_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [status]);
 
   const handleRegenerate = useCallback(async () => {
     if (regenerating || !returnToRef.current || !sfJwtRef.current) return;
