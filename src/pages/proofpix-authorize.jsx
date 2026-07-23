@@ -85,8 +85,11 @@ const PAIRED_REDIRECT_DELAY_MS = 1500;
 
 // Where to send the desktop tab after a successful pair when the
 // caller didn't specify ?return_to_sf. /settings/proofpix is the
-// integration status page (routed in index.js:273).
-const DEFAULT_RETURN_TO_SF = '/settings/proofpix';
+// integration status page (routed in index.js:273). The ?paired=1
+// query tells that page to render a fresh-signal success banner —
+// harmless if the page ever runs without it (it falls back to the
+// devices list which will show the just-paired row anyway).
+const DEFAULT_RETURN_TO_SF = '/settings/proofpix?paired=1';
 
 function isAllowedReturnTo(value) {
   if (typeof value !== 'string' || value.length === 0) return false;
