@@ -407,6 +407,15 @@ function DeviceRow({ connection, isFirst, onDisconnect, isDisconnecting }) {
           </div>
         )}
 
+        {connection.paired_by_name && (
+          <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px' }}>
+            Paired by <span style={{ fontWeight: 500 }}>{connection.paired_by_name}</span>
+            {connection.paired_by_email && (
+              <span style={{ color: '#94a3b8' }}> · {connection.paired_by_email}</span>
+            )}
+          </div>
+        )}
+
         <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
           Connected {formatDate(connection.created_at)}
           {connection.last_used_at && ` • Last used ${formatDate(connection.last_used_at)}`}
