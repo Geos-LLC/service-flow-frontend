@@ -60,13 +60,16 @@ export default function ProofPixIntegrationSettings() {
     new URLSearchParams(location.search).get('paired') === '1'
   );
 
-  const loadConnections = useCallback(async () => {
+  const loadConnections = useCallback(async ({ silent = false } = {}) => {
     const sfJwt = localStorage.getItem('authToken');
     if (!sfJwt) {
       bounceToSigninHere();
       return;
     }
-    setLoading(true);
+    // Silent refetches (from the tab-focus watcher) skip the skeleton
+    // toggle so the UI doesn't flash when the user switches back from
+    // ProofPix mobile after pairing. Errors are still surfaced.
+    if (!silent) setLoading(true);
     setErrorMessage(null);
     try {
       const res = await fetch(`${API_BASE}/integrations/proofpix/connections`, {
@@ -95,12 +98,27 @@ export default function ProofPixIntegrationSettings() {
     } catch (err) {
       setErrorMessage(err.message || 'Failed to load ProofPix devices.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     loadConnections();
+  }, [loadConnections]);
+
+  // Refresh when the SF tab regains focus. Catches the common flow of
+  // "admin opens ProofPix on their phone, pairs from the mobile app,
+  // switches back to the SF laptop tab" — without this the settings
+  // page shows stale connection state until a hard refresh. Silent
+  // refetch so the skeleton doesn't flash on every tab switch.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        loadConnections({ silent: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, [loadConnections]);
 
   // Auto-dismiss the fresh-pair banner.
