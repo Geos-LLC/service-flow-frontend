@@ -128,6 +128,17 @@ export default function ProofPixIntegrationSettings() {
     return () => clearTimeout(id);
   }, [showPairedBanner]);
 
+  // Strip ?paired=1 from the URL immediately after mount so a refresh
+  // (or bookmark reopen) doesn't re-trigger the banner. Without this
+  // the flag survives forever on the URL — combined with a later
+  // disconnect, the user lands on an empty page with a "paired!"
+  // banner and no device to show for it.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('paired') === '1') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   const handleConnect = () => {
     const returnTo = encodeURIComponent('proofpix://connect');
     window.location.href = `/integrations/proofpix/authorize?return_to=${returnTo}`;
@@ -192,7 +203,11 @@ export default function ProofPixIntegrationSettings() {
         up automatically in the customer's Files tab.
       </p>
 
-      {showPairedBanner && (
+      {/* Only render the fresh-pair signal when a device is actually
+          in the list. Suppresses the "paired!" banner on any load
+          where /connections comes back empty (stale ?paired=1 URL
+          after a disconnect, mostly). */}
+      {showPairedBanner && connections.length > 0 && (
         <PairedBanner onDismiss={() => setShowPairedBanner(false)} />
       )}
 
