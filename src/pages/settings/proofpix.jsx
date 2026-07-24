@@ -52,6 +52,11 @@ export default function ProofPixIntegrationSettings() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState(null);
   const [connections, setConnections] = useState([]);
+  // viewer_is_owner from GET /connections. Tells the UI whether the
+  // caller sees a workspace-wide list (owner) vs their own devices
+  // only (team member). Drives header copy + whether attribution
+  // chips render on each row.
+  const [viewerIsOwner, setViewerIsOwner] = useState(true);
   // Per-device disconnect state — keyed by connection.id so multiple
   // simultaneous disconnects each get their own spinner without a
   // shared "busy" flag blocking the others.
@@ -95,6 +100,9 @@ export default function ProofPixIntegrationSettings() {
       }
       const body = await res.json();
       setConnections(Array.isArray(body?.connections) ? body.connections : []);
+      // Default to true if the field is absent — matches pre-team-scoping
+      // backend behavior where every response was implicitly owner-scoped.
+      setViewerIsOwner(body?.viewer_is_owner !== false);
     } catch (err) {
       setErrorMessage(err.message || 'Failed to load ProofPix devices.');
     } finally {
@@ -211,6 +219,7 @@ export default function ProofPixIntegrationSettings() {
         <>
           <DevicesCard
             connections={connections}
+            viewerIsOwner={viewerIsOwner}
             onConnectAnother={handleConnect}
             onDisconnect={handleDisconnect}
             disconnectingIds={disconnectingIds}
@@ -307,16 +316,23 @@ function ConnectCard({ onConnect }) {
   );
 }
 
-function DevicesCard({ connections, onConnectAnother, onDisconnect, disconnectingIds }) {
+function DevicesCard({ connections, viewerIsOwner, onConnectAnother, onDisconnect, disconnectingIds }) {
+  const heading = viewerIsOwner ? 'Connected devices' : 'Your devices';
+  const subtitle = viewerIsOwner
+    ? (connections.length === 1
+        ? '1 device is paired in this workspace.'
+        : `${connections.length} devices are paired in this workspace, across you and your team.`)
+    : (connections.length === 1
+        ? '1 of your devices is paired with this workspace.'
+        : `${connections.length} of your devices are paired with this workspace.`);
+
   return (
     <div style={cardStyle}>
       <h2 style={{ fontSize: '16px', margin: '0 0 4px', color: '#0f172a' }}>
-        Connected devices
+        {heading}
       </h2>
       <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>
-        {connections.length === 1
-          ? '1 device is paired with this workspace.'
-          : `${connections.length} devices are paired with this workspace.`}
+        {subtitle}
       </p>
 
       <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px' }}>
@@ -325,6 +341,10 @@ function DevicesCard({ connections, onConnectAnother, onDisconnect, disconnectin
             key={conn.id}
             connection={conn}
             isFirst={idx === 0}
+            // Attribution chips only render when the viewer is the
+            // owner — team members see just their own rows, so a
+            // chip with their own name would be redundant noise.
+            showAttribution={viewerIsOwner}
             onDisconnect={onDisconnect}
             isDisconnecting={disconnectingIds.has(conn.id)}
           />
@@ -338,11 +358,23 @@ function DevicesCard({ connections, onConnectAnother, onDisconnect, disconnectin
   );
 }
 
-function DeviceRow({ connection, isFirst, onDisconnect, isDisconnecting }) {
+function DeviceRow({ connection, isFirst, showAttribution, onDisconnect, isDisconnecting }) {
   const title =
     connection.device_label ||
     connection.device_model ||
     'Unnamed device';
+
+  // Attribution: "Owner" chip if paired by the workspace owner, or
+  // the team member's name chip if paired by a team member. Only
+  // rendered when the viewer is the owner (see DevicesCard).
+  const attribution = showAttribution
+    ? (connection.team_member
+        ? {
+            kind: 'team_member',
+            label: formatMemberName(connection.team_member),
+          }
+        : { kind: 'owner', label: 'You' })
+    : null;
 
   // "iPhone 15 Pro • iOS 18.2" — either half is optional. Empty string
   // if the mobile client sent neither (pre-metadata-rollout rows).
@@ -398,6 +430,7 @@ function DeviceRow({ connection, isFirst, onDisconnect, isDisconnecting }) {
           >
             {title}
           </span>
+          {attribution && <AttributionChip attribution={attribution} />}
           {connection.role && <RoleBadge role={connection.role} />}
         </div>
 
@@ -455,6 +488,39 @@ function RoleBadge({ role }) {
       {isAdmin ? 'Admin' : role.replace(/_/g, ' ')}
     </span>
   );
+}
+
+function AttributionChip({ attribution }) {
+  const isOwner = attribution.kind === 'owner';
+  return (
+    <span
+      style={{
+        fontSize: '11px',
+        fontWeight: 500,
+        padding: '2px 8px',
+        borderRadius: '999px',
+        backgroundColor: isOwner ? '#f0fdf4' : '#fef3c7',
+        color: isOwner ? '#166534' : '#92400e',
+        border: `1px solid ${isOwner ? '#bbf7d0' : '#fde68a'}`,
+      }}
+      title={isOwner ? 'Paired directly by you (workspace owner)' : `Paired by team member`}
+    >
+      {attribution.label}
+    </span>
+  );
+}
+
+// Prefer "First L." → "First" → email local part → "Team member" as a
+// consistent display shape for the attribution chip. Kept short so the
+// chip doesn't wrap the row.
+function formatMemberName(member) {
+  if (!member) return 'Team member';
+  const first = (member.first_name || '').trim();
+  const last = (member.last_name || '').trim();
+  if (first && last) return `${first} ${last.charAt(0)}.`;
+  if (first) return first;
+  if (member.email) return member.email.split('@')[0];
+  return 'Team member';
 }
 
 function LaptopTipCard() {
