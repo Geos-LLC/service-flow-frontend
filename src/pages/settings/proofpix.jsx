@@ -41,6 +41,37 @@ function formatDate(iso) {
   }
 }
 
+// Extract userId claim from the SF JWT in localStorage. Needed
+// because /api/team-members requires a ?userId= query param that must
+// match the token owner. No signature verification — server
+// re-verifies on every request.
+function readSfUserIdFromLocalJwt() {
+  try {
+    const jwt = localStorage.getItem('authToken');
+    if (!jwt) return null;
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const id = payload.userId ?? payload.id;
+    return id != null ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Compact display name for the team-member picker dropdown and
+// linked-to chip. First-last → first only → email local-part →
+// fallback. Kept short so chips don't wrap the row.
+function formatTeamMemberName(m) {
+  if (!m) return 'Team member';
+  const first = (m.first_name || '').trim();
+  const last = (m.last_name || '').trim();
+  if (first && last) return `${first} ${last.charAt(0)}.`;
+  if (first) return first;
+  if (m.email) return String(m.email).split('@')[0];
+  return 'Team member';
+}
+
 function bounceToSigninHere() {
   window.location.replace(
     `/signin?continue=${encodeURIComponent('/settings/proofpix')}`
@@ -52,6 +83,13 @@ export default function ProofPixIntegrationSettings() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState(null);
   const [connections, setConnections] = useState([]);
+  // Team members loaded for the "Connect device for [X]" dropdown.
+  // Best-effort — a failure here (or an inactive team) collapses the
+  // picker into an admin-only Connect button.
+  const [teamMembers, setTeamMembers] = useState([]);
+  // Currently selected picker value. '' = admin scope. Otherwise a
+  // stringified team_member.id.
+  const [selectedForTeamMemberId, setSelectedForTeamMemberId] = useState('');
   // Per-device disconnect state — keyed by connection.id so multiple
   // simultaneous disconnects each get their own spinner without a
   // shared "busy" flag blocking the others.
@@ -106,6 +144,34 @@ export default function ProofPixIntegrationSettings() {
     loadConnections();
   }, [loadConnections]);
 
+  // Load active team members for the picker. Fires once on mount.
+  // Best-effort — silent failure just collapses the UI to an
+  // admin-only Connect button; the SF integration is still usable.
+  useEffect(() => {
+    const sfJwt = localStorage.getItem('authToken');
+    const sfUserId = readSfUserIdFromLocalJwt();
+    if (!sfJwt || !sfUserId) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const params = new URLSearchParams({ userId: sfUserId, status: 'active', limit: '500' });
+        const res = await fetch(`${API_BASE}/team-members?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${sfJwt}` },
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        const list = Array.isArray(body?.teamMembers) ? body.teamMembers : [];
+        // Filter defensively — the endpoint filters server-side, but
+        // guard against stale/inactive rows leaking through.
+        setTeamMembers(list.filter((m) => !m.status || m.status === 'active'));
+      } catch {
+        // Swallow — connection UI still works without the picker.
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
   // Refresh when the SF tab regains focus. Catches the common flow of
   // "admin opens ProofPix on their phone, pairs from the mobile app,
   // switches back to the SF laptop tab" — without this the settings
@@ -140,8 +206,13 @@ export default function ProofPixIntegrationSettings() {
   }, []);
 
   const handleConnect = () => {
-    const returnTo = encodeURIComponent('proofpix://connect');
-    window.location.href = `/integrations/proofpix/authorize?return_to=${returnTo}`;
+    const params = new URLSearchParams({ return_to: 'proofpix://connect' });
+    // Scope the resulting pair to the picked team member. Empty
+    // selection = admin (device sees all workspace jobs).
+    if (selectedForTeamMemberId) {
+      params.set('for_team_member_id', selectedForTeamMemberId);
+    }
+    window.location.href = `/integrations/proofpix/authorize?${params.toString()}`;
   };
 
   const handleDisconnect = useCallback(
@@ -217,7 +288,12 @@ export default function ProofPixIntegrationSettings() {
 
       {!loading && !errorMessage && connections.length === 0 && (
         <>
-          <ConnectCard onConnect={handleConnect} />
+          <ConnectCard
+            teamMembers={teamMembers}
+            selectedForTeamMemberId={selectedForTeamMemberId}
+            onSelectTeamMember={setSelectedForTeamMemberId}
+            onConnect={handleConnect}
+          />
           <LaptopTipCard />
         </>
       )}
@@ -226,6 +302,9 @@ export default function ProofPixIntegrationSettings() {
         <>
           <DevicesCard
             connections={connections}
+            teamMembers={teamMembers}
+            selectedForTeamMemberId={selectedForTeamMemberId}
+            onSelectTeamMember={setSelectedForTeamMemberId}
             onConnectAnother={handleConnect}
             onDisconnect={handleDisconnect}
             disconnectingIds={disconnectingIds}
@@ -305,7 +384,7 @@ function ErrorCard({ message, onRetry }) {
   );
 }
 
-function ConnectCard({ onConnect }) {
+function ConnectCard({ teamMembers, selectedForTeamMemberId, onSelectTeamMember, onConnect }) {
   return (
     <div style={cardStyle}>
       <h2 style={{ fontSize: '16px', margin: '0 0 8px', color: '#0f172a' }}>
@@ -315,14 +394,79 @@ function ConnectCard({ onConnect }) {
         Tap below on the device where ProofPix is installed. We'll generate a one-time pairing
         token, hand off to ProofPix, and bring you back when it's connected.
       </p>
-      <button type="button" onClick={onConnect} style={primaryButtonStyle}>
-        Connect ProofPix
+
+      <TeamMemberPicker
+        teamMembers={teamMembers}
+        selected={selectedForTeamMemberId}
+        onSelect={onSelectTeamMember}
+      />
+
+      <button
+        type="button"
+        onClick={onConnect}
+        style={{ ...primaryButtonStyle, marginTop: '16px' }}
+      >
+        {buildConnectLabel(teamMembers, selectedForTeamMemberId)}
       </button>
     </div>
   );
 }
 
-function DevicesCard({ connections, onConnectAnother, onDisconnect, disconnectingIds }) {
+function TeamMemberPicker({ teamMembers, selected, onSelect }) {
+  // Hide the picker entirely when there's nobody to pick — collapses
+  // the UI to a plain "Connect ProofPix" button, which was the
+  // pre-team-linking behavior.
+  if (!teamMembers || teamMembers.length === 0) return null;
+  return (
+    <div>
+      <label
+        htmlFor="proofpix-connect-for"
+        style={{
+          display: 'block',
+          fontSize: '12px',
+          color: '#475569',
+          fontWeight: 500,
+          marginBottom: '6px',
+        }}
+      >
+        Connect device for
+      </label>
+      <select
+        id="proofpix-connect-for"
+        value={selected}
+        onChange={(e) => onSelect(e.target.value)}
+        style={selectStyle}
+      >
+        <option value="">Me (admin) — sees all jobs</option>
+        {teamMembers.map((m) => (
+          <option key={m.id} value={String(m.id)}>
+            {formatTeamMemberName(m)}
+            {m.role ? ` · ${m.role}` : ''}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// Button label mirrors the selection so the admin sees exactly who
+// they're about to pair the device for — avoids the "which one did I
+// pick?" ambiguity in a long dropdown.
+function buildConnectLabel(teamMembers, selectedId) {
+  if (!selectedId) return 'Connect ProofPix';
+  const match = (teamMembers || []).find((m) => String(m.id) === String(selectedId));
+  return match ? `Connect ProofPix for ${formatTeamMemberName(match)}` : 'Connect ProofPix';
+}
+
+function DevicesCard({
+  connections,
+  teamMembers,
+  selectedForTeamMemberId,
+  onSelectTeamMember,
+  onConnectAnother,
+  onDisconnect,
+  disconnectingIds,
+}) {
   return (
     <div style={cardStyle}>
       <h2 style={{ fontSize: '16px', margin: '0 0 4px', color: '#0f172a' }}>
@@ -346,8 +490,20 @@ function DevicesCard({ connections, onConnectAnother, onDisconnect, disconnectin
         ))}
       </ul>
 
-      <button type="button" onClick={onConnectAnother} style={secondaryButtonStyle}>
-        Connect another device
+      <TeamMemberPicker
+        teamMembers={teamMembers}
+        selected={selectedForTeamMemberId}
+        onSelect={onSelectTeamMember}
+      />
+
+      <button
+        type="button"
+        onClick={onConnectAnother}
+        style={{ ...secondaryButtonStyle, marginTop: teamMembers && teamMembers.length > 0 ? '12px' : 0 }}
+      >
+        {selectedForTeamMemberId
+          ? buildConnectLabel(teamMembers, selectedForTeamMemberId).replace(/^Connect ProofPix/, 'Connect another')
+          : 'Connect another device'}
       </button>
     </div>
   );
@@ -413,6 +569,9 @@ function DeviceRow({ connection, isFirst, onDisconnect, isDisconnecting }) {
           >
             {title}
           </span>
+          {connection.linked_sf_team_member && (
+            <LinkedTeamMemberChip member={connection.linked_sf_team_member} />
+          )}
           {connection.role && <RoleBadge role={connection.role} />}
         </div>
 
@@ -458,6 +617,31 @@ function DeviceRow({ connection, isFirst, onDisconnect, isDisconnecting }) {
         {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
       </button>
     </li>
+  );
+}
+
+// "Linked to Sarah T." chip — appears next to the device title when
+// the pair was scoped to a specific SF team member (via the admin's
+// pick at connect time). Absent on admin-scoped pairs. This is the
+// authoritative view — the /jobs endpoint filters based on the same
+// link, so a device with this chip only sees Sarah's jobs.
+function LinkedTeamMemberChip({ member }) {
+  const label = formatTeamMemberName(member);
+  return (
+    <span
+      style={{
+        fontSize: '11px',
+        fontWeight: 500,
+        padding: '2px 8px',
+        borderRadius: '999px',
+        backgroundColor: '#eef2ff',
+        color: '#4338ca',
+        border: '1px solid #c7d2fe',
+      }}
+      title={`This device only sees jobs assigned to ${label}${member.email ? ' (' + member.email + ')' : ''}`}
+    >
+      Linked to {label}
+    </span>
   );
 }
 
@@ -536,6 +720,18 @@ const secondaryButtonStyle = {
   backgroundColor: '#ffffff',
   color: '#0f172a',
   cursor: 'pointer',
+};
+
+const selectStyle = {
+  width: '100%',
+  padding: '9px 12px',
+  fontSize: '14px',
+  border: '1px solid #cbd5e1',
+  borderRadius: '8px',
+  backgroundColor: '#ffffff',
+  color: '#0f172a',
+  cursor: 'pointer',
+  boxSizing: 'border-box',
 };
 
 const dismissButtonStyle = {
