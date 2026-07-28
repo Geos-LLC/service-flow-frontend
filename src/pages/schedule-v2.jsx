@@ -45,28 +45,58 @@ import {
 // ── Helpers (duplicated from dashboard-v2 — kept inline rather than
 // abstracted to avoid touching the dashboard's working file) ──────
 
+// Merge date + time parts across candidates in LOCAL time. `new Date("YYYY-MM-DD")`
+// is UTC midnight, which shifts to the previous day west of UTC — that's why
+// the Weekly view was undercounting today.
 const jobStartDateTime = (job) => {
   const candidates = [job.scheduled_date, job.start_time, job.service_time]
+  let y = null, mo = null, d = null, h = null, mi = null, s = null
+
   for (const c of candidates) {
     if (!c) continue
     const raw = String(c).trim()
-    if (/^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)?$/.test(raw)) {
-      const m = raw.match(/^(\d{1,2}):(\d{2})(:(\d{2}))?\s*(AM|PM|am|pm)?$/)
-      if (!m) continue
-      let h = parseInt(m[1], 10)
-      const min = parseInt(m[2], 10)
-      const mer = m[5]?.toUpperCase()
-      if (mer === "PM" && h < 12) h += 12
-      if (mer === "AM" && h === 12) h = 0
-      const today = new Date()
-      today.setHours(h, min, 0, 0)
-      return today
+
+    const dt = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2})?$/)
+    if (dt) {
+      if (dt[7]) {
+        const parsed = new Date(raw.replace(" ", "T"))
+        if (!isNaN(parsed)) return parsed
+      }
+      if (y === null) { y = +dt[1]; mo = +dt[2] - 1; d = +dt[3] }
+      if (h === null) { h = +dt[4]; mi = +dt[5]; s = +(dt[6] || 0) }
+      continue
     }
-    const iso = raw.includes("T") ? raw : raw.replace(" ", "T")
-    const d = new Date(iso)
-    if (!isNaN(d)) return d
+
+    const dOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (dOnly) {
+      if (y === null) { y = +dOnly[1]; mo = +dOnly[2] - 1; d = +dOnly[3] }
+      continue
+    }
+
+    const tOnly = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?$/)
+    if (tOnly) {
+      let hh = parseInt(tOnly[1], 10)
+      const mer = tOnly[4]?.toUpperCase()
+      if (mer === "PM" && hh < 12) hh += 12
+      if (mer === "AM" && hh === 12) hh = 0
+      if (h === null) { h = hh; mi = +tOnly[2]; s = +(tOnly[3] || 0) }
+      continue
+    }
+
+    const parsed = new Date(raw)
+    if (!isNaN(parsed)) return parsed
   }
-  return null
+
+  if (y === null && h === null) return null
+  const now = new Date()
+  return new Date(
+    y ?? now.getFullYear(),
+    mo ?? now.getMonth(),
+    d ?? now.getDate(),
+    h ?? 0,
+    mi ?? 0,
+    s ?? 0,
+  )
 }
 
 const assigneesFor = (job) => {
