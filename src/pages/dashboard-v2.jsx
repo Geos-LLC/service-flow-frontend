@@ -344,6 +344,8 @@ const DashboardV2 = () => {
   const todayJobs = useMemo(() => {
     return jobs
       .filter((j) => {
+        const status = String(j?.status || "").toLowerCase()
+        if (status === "cancelled" || status === "canceled") return false
         const d = (j.scheduled_date || "").split("T")[0].split(" ")[0]
         return d === today
       })
