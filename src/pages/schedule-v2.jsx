@@ -370,14 +370,8 @@ const ScheduleV2 = () => {
     [cleanerNameById]
   )
 
-  // Team-chip selection. Once teamMembers loads, default to "all
-  // selected". Toggling a chip moves us out of "all" mode.
-  useEffect(() => {
-    if (selectedTeams === null && allCleanerIds.length > 0) {
-      setSelectedTeams(new Set(allCleanerIds.map(String)))
-    }
-  }, [allCleanerIds, selectedTeams])
-
+  // Team-chip selection. `null` = all cleaners shown. Clicking a chip
+  // solos that cleaner; clicking the same chip again clears back to all.
   const isCleanerSelected = useCallback(
     (id) => selectedTeams === null || selectedTeams.has(String(id)),
     [selectedTeams]
@@ -385,11 +379,9 @@ const ScheduleV2 = () => {
 
   const toggleCleaner = (id) => {
     setSelectedTeams((prev) => {
-      const next = new Set(prev || allCleanerIds.map(String))
       const key = String(id)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
+      if (prev && prev.size === 1 && prev.has(key)) return null
+      return new Set([key])
     })
   }
 
