@@ -500,7 +500,6 @@ const ScheduleV2 = () => {
               <DayView
                 anchor={anchor}
                 jobs={teamFilteredJobs}
-                cleaners={allCleanerIds}
                 cleanerColor={cleanerColor}
                 resolveName={resolveCleanerName}
                 onJobClick={onJobClick}
@@ -918,50 +917,36 @@ const WeekView = ({ anchor, jobs, cleanerColor, onJobClick }) => {
 }
 
 // ── Day view ───────────────────────────────────────────────
+// Job-oriented list: one row per unique job, sorted by start time. Cleaner
+// avatars render inside each row so team jobs appear once (not duplicated
+// per assignee) and the visible count matches the "N jobs today" number.
 
-const DayView = ({ anchor, jobs, cleaners, cleanerColor, resolveName, onJobClick }) => {
+const DayView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick }) => {
   const day = useMemo(() => startOfDay(anchor), [anchor])
-  const startHr = 7
-  const endHr = 19
-  const hours = []
-  for (let h = startHr; h <= endHr; h++) hours.push(h)
 
-  // Filter jobs to this day
   const dayJobs = useMemo(
-    () => jobs.filter((j) => {
-      const d = jobStartDateTime(j)
-      return d && sameDay(startOfDay(d), day)
-    }),
+    () => jobs
+      .filter((j) => {
+        const d = jobStartDateTime(j)
+        return d && sameDay(startOfDay(d), day)
+      })
+      .sort((a, b) => (jobStartDateTime(a)?.getTime() ?? Infinity) - (jobStartDateTime(b)?.getTime() ?? Infinity)),
     [jobs, day]
   )
 
-  // Group by cleaner. Each cleaner column shows their jobs. Unassigned
-  // jobs land in a trailing column.
-  const cleanerOrder = useMemo(() => {
-    const present = new Set()
-    dayJobs.forEach((j) => assigneesFor(j).forEach((a) => present.add(a.id)))
-    const ordered = cleaners.filter((id) => present.has(id))
-    // Append any cleaner with jobs that wasn't in the global list
-    Array.from(present).forEach((id) => {
-      if (!ordered.includes(id)) ordered.push(id)
-    })
-    return ordered
-  }, [cleaners, dayJobs])
-
-  const unassigned = useMemo(
-    () => dayJobs.filter((j) => assigneesFor(j).length === 0),
+  const teamCount = useMemo(
+    () => dayJobs.filter((j) => assigneesFor(j).length >= 2).length,
+    [dayJobs]
+  )
+  const revenue = useMemo(
+    () => dayJobs.reduce((s, j) => s + (parseFloat(j.total || j.service_price || 0) || 0), 0),
     [dayJobs]
   )
 
-  const columns = [
-    ...cleanerOrder.map((id) => ({ id, type: "cleaner" })),
-    ...(unassigned.length > 0 ? [{ id: "unassigned", type: "unassigned" }] : []),
-  ]
-
   const isToday = sameDay(day, startOfDay(new Date()))
-  const nowMins = new Date().getHours() * 60 + new Date().getMinutes()
+  const nowTs = new Date().getTime()
 
-  if (columns.length === 0) {
+  if (dayJobs.length === 0) {
     return (
       <SfCard>
         <div className="py-12 text-center text-[12.5px] text-[var(--sf-ink-3)]">
@@ -973,187 +958,220 @@ const DayView = ({ anchor, jobs, cleaners, cleanerColor, resolveName, onJobClick
 
   return (
     <SfCard padding={0}>
-      {/* Headers */}
-      <div className="flex border-b border-[var(--sf-border-soft)] bg-[var(--sf-panel)]">
-        <div
-          style={{
-            width: 56,
-            padding: "10px 8px",
-            borderRight: "1px solid var(--sf-border-soft)",
-          }}
-          className="text-[10px] text-[var(--sf-ink-3)] font-bold uppercase text-right"
-        >
-          TIME
-        </div>
-        {columns.map((col, i) => {
-          const isLast = i === columns.length - 1
-          if (col.type === "unassigned") {
-            return (
-              <div
-                key="unassigned"
-                className="flex-1"
+      {/* Header */}
+      <div className="flex items-center border-b border-[var(--sf-border-soft)] px-4 py-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-[13.5px] font-semibold text-[var(--sf-ink)]" style={{ letterSpacing: "-0.005em" }}>
+            {day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            {isToday && (
+              <span
+                className="ml-2 text-[9.5px] font-bold align-middle"
                 style={{
-                  padding: "10px 12px",
-                  borderRight: isLast ? "none" : "1px solid var(--sf-border-soft)",
-                  background: "var(--sf-red-soft)",
+                  color: "#fff",
+                  background: "var(--sf-blue)",
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  fontFamily: "var(--sf-font-mono)",
                 }}
               >
-                <div className="text-[12.5px] font-bold text-[var(--sf-red-dark)]">
-                  Unassigned
-                </div>
-                <div className="text-[10.5px] text-[var(--sf-ink-3)] mt-0.5">
-                  {unassigned.length} job{unassigned.length === 1 ? "" : "s"}
-                </div>
-              </div>
-            )
-          }
-          const color = cleanerColor(col.id)
-          const name = resolveName(col.id, "") || `Cleaner ${col.id}`
-          const colJobs = dayJobs.filter((j) =>
-            assigneesFor(j).some((a) => a.id === col.id)
-          )
-          const value = colJobs.reduce(
-            (s, j) => s + (parseFloat(j.total || j.service_price || 0) || 0),
-            0
-          )
-          return (
-            <div
-              key={col.id}
-              className="flex-1"
-              style={{
-                padding: "10px 12px",
-                borderRight: isLast ? "none" : "1px solid var(--sf-border-soft)",
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <SfAvatar initials={sfInitials(name)} color={color} size={26} />
-                <div className="min-w-0 flex-1">
-                  <div
-                    className="text-[12.5px] font-semibold text-[var(--sf-ink)] truncate"
-                    style={{ lineHeight: 1.2 }}
-                  >
-                    {name}
-                  </div>
-                  <div className="text-[10px] text-[var(--sf-ink-3)] mt-px">
-                    {colJobs.length} job · ${Math.round(value)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        })}
+                TODAY
+              </span>
+            )}
+          </div>
+          <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-0.5">
+            {dayJobs.length} job{dayJobs.length === 1 ? "" : "s"}
+            {teamCount > 0 && ` · ${teamCount} team${teamCount === 1 ? "" : "s"}`}
+            {revenue > 0 && ` · $${Math.round(revenue).toLocaleString()}`}
+          </div>
+        </div>
       </div>
 
-      {/* Time grid */}
-      <div className="flex" style={{ height: 640, overflow: "hidden" }}>
-        <div style={{ width: 56, borderRight: "1px solid var(--sf-border-soft)", position: "relative" }}>
-          {hours.map((h, i) => (
-            <div
-              key={h}
-              style={{
-                position: "absolute",
-                top: `${(i / (hours.length - 1)) * 100}%`,
-                left: 0,
-                right: 0,
-                textAlign: "right",
-                paddingRight: 8,
-                fontSize: 10.5,
-                color: "var(--sf-ink-3)",
-                fontVariantNumeric: "tabular-nums",
-                transform: "translateY(-50%)",
-                fontWeight: 500,
-              }}
-            >
-              {formatHourLabel(h)}
-            </div>
-          ))}
-        </div>
-        {columns.map((col, i) => {
-          const isLast = i === columns.length - 1
-          const colJobs =
-            col.type === "unassigned"
-              ? unassigned
-              : dayJobs.filter((j) => assigneesFor(j).some((a) => a.id === col.id))
+      {/* Job list */}
+      <div>
+        {dayJobs.map((j) => {
+          const start = jobStartDateTime(j)
+          const dur = durationMinutes(j)
+          const assignees = assigneesFor(j)
+          const isTeamJob = assignees.length >= 2
+          const isUnassigned = assignees.length === 0
+          const endTs = start ? start.getTime() + dur * 60000 : 0
+          const startTs = start ? start.getTime() : 0
+          const isPast = isToday && endTs < nowTs
+          const isCurrent = isToday && startTs <= nowTs && endTs > nowTs
+          const live = isLiveJob(j)
+          const jobColor = isUnassigned ? "#DC2626" : cleanerColor(assignees[0].id)
+          const customer = customerLabelForJob(j)
+          const service = j.service_name || j.service?.name || j.title || "Service"
+          const durLabel = dur >= 60
+            ? `${Math.floor(dur / 60)}h${dur % 60 ? ` ${dur % 60}m` : ""}`
+            : `${dur}m`
+          // Per-cleaner share (visible on team jobs) — how much of the
+          // job's clock-time each cleaner effectively covers.
+          const shareMins = isTeamJob ? Math.round(dur / assignees.length) : dur
+          const shareLabel = shareMins >= 60
+            ? `${Math.floor(shareMins / 60)}h${shareMins % 60 ? ` ${shareMins % 60}m` : ""}`
+            : `${shareMins}m`
+
           return (
-            <div
-              key={col.id}
+            <button
+              key={j.id}
+              onClick={() => onJobClick(j)}
+              className="w-full flex items-stretch gap-3 px-4 py-3 border-b border-[var(--sf-border-soft)] hover:bg-[var(--sf-panel-alt)] transition-colors"
               style={{
-                flex: 1,
-                position: "relative",
-                borderRight: isLast ? "none" : "1px solid var(--sf-border-soft)",
-                background:
-                  col.type === "unassigned" ? "rgba(220,38,38,.04)" : "var(--sf-panel)",
+                background: isCurrent ? "var(--sf-blue-soft)" : "transparent",
+                textAlign: "left",
+                cursor: "pointer",
+                border: "none",
+                borderBottom: "1px solid var(--sf-border-soft)",
+                opacity: isPast ? 0.55 : 1,
+                fontFamily: "var(--sf-font-ui)",
               }}
             >
-              {hours.map((h, hi) => (
+              {/* Color spine */}
+              <div
+                style={{
+                  width: 3,
+                  borderRadius: 2,
+                  background: jobColor,
+                  flexShrink: 0,
+                }}
+              />
+
+              {/* Time */}
+              <div style={{ width: 84, flexShrink: 0 }}>
                 <div
-                  key={h}
-                  style={{
-                    position: "absolute",
-                    top: `${(hi / (hours.length - 1)) * 100}%`,
-                    left: 0,
-                    right: 0,
-                    borderBottom: `1px ${hi % 2 === 0 ? "solid" : "dashed"} var(--sf-border-soft)`,
-                    opacity: hi % 2 === 0 ? 1 : 0.6,
-                  }}
-                />
-              ))}
-              {isToday && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: `${((nowMins / 60 - startHr) / (endHr - startHr)) * 100}%`,
-                    left: 0,
-                    right: 0,
-                    height: 2,
-                    background: "var(--sf-red)",
-                    zIndex: 3,
-                  }}
+                  className="text-[13px] font-semibold text-[var(--sf-ink)]"
+                  style={{ fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: -4,
-                      top: -3,
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      background: "var(--sf-red)",
-                    }}
-                  />
-                  {i === 0 && (
-                    <div
+                  {formatJobTime(j)}
+                </div>
+                <div
+                  className="text-[10.5px] text-[var(--sf-ink-3)] mt-0.5"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {durLabel}
+                </div>
+              </div>
+
+              {/* Middle: customer + service */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <span className="text-[13.5px] font-semibold text-[var(--sf-ink)] truncate">
+                    {customer}
+                  </span>
+                  {isTeamJob && (
+                    <span
+                      className="text-[9px] font-bold flex-shrink-0"
                       style={{
-                        position: "absolute",
-                        right: "calc(100% + 6px)",
-                        top: -9,
-                        fontSize: 9.5,
-                        color: "var(--sf-red-dark)",
-                        fontFamily: "var(--sf-font-mono)",
-                        fontWeight: 700,
-                        background: "var(--sf-panel)",
-                        padding: "1px 4px",
+                        color: "#fff",
+                        background: jobColor,
+                        padding: "1px 5px",
                         borderRadius: 3,
-                        whiteSpace: "nowrap",
+                        fontFamily: "var(--sf-font-mono)",
+                        letterSpacing: ".04em",
+                      }}
+                      title={`Team of ${assignees.length} · ${shareLabel} share per cleaner`}
+                    >
+                      TEAM · {assignees.length} · {shareLabel} each
+                    </span>
+                  )}
+                  {isUnassigned && (
+                    <span
+                      className="text-[9px] font-bold flex-shrink-0"
+                      style={{
+                        color: "#fff",
+                        background: "var(--sf-red)",
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontFamily: "var(--sf-font-mono)",
+                      }}
+                    >
+                      UNASSIGNED
+                    </span>
+                  )}
+                  {live && (
+                    <span
+                      className="text-[9px] font-bold flex-shrink-0"
+                      style={{
+                        color: "#fff",
+                        background: jobColor,
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontFamily: "var(--sf-font-mono)",
+                      }}
+                    >
+                      LIVE
+                    </span>
+                  )}
+                  {isCurrent && !live && (
+                    <span
+                      className="text-[9px] font-bold flex-shrink-0"
+                      style={{
+                        color: "var(--sf-red-dark)",
+                        background: "var(--sf-panel)",
+                        border: "1px solid var(--sf-red)",
+                        padding: "0 4px",
+                        borderRadius: 3,
+                        fontFamily: "var(--sf-font-mono)",
                       }}
                     >
                       NOW
-                    </div>
+                    </span>
                   )}
                 </div>
-              )}
-              {colJobs.map((j) => (
-                <ScheduleBlock
-                  key={`${col.id}-${j.id}`}
-                  job={j}
-                  startHr={startHr}
-                  endHr={endHr}
-                  cleanerColor={cleanerColor}
-                  forcedColor={col.type === "unassigned" ? "#DC2626" : undefined}
-                  onClick={() => onJobClick(j)}
-                />
-              ))}
-            </div>
+                <div className="text-[11.5px] text-[var(--sf-ink-2)] mt-0.5 truncate">
+                  {service}
+                </div>
+              </div>
+
+              {/* Right: cleaner chips */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {isUnassigned ? (
+                  <div
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 15,
+                      background: "var(--sf-red-soft)",
+                      color: "var(--sf-red-dark)",
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "1.5px dashed var(--sf-red)",
+                    }}
+                    title="Unassigned"
+                  >
+                    —
+                  </div>
+                ) : (
+                  assignees.map((a) => {
+                    const name = resolveName(a.id, a.name) || `Cleaner ${a.id}`
+                    const first = name.split(" ")[0]
+                    return (
+                      <div
+                        key={a.id}
+                        className="flex items-center gap-1.5"
+                        title={name}
+                      >
+                        <SfAvatar
+                          initials={sfInitials(name) || "?"}
+                          color={cleanerColor(a.id)}
+                          size={26}
+                        />
+                        <span
+                          className="text-[11.5px] font-semibold text-[var(--sf-ink)]"
+                          style={{ maxWidth: 88, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        >
+                          {first}
+                        </span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </button>
           )
         })}
       </div>
@@ -1187,6 +1205,18 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
     })
     return map
   }, [jobs])
+
+  // Cells the user has clicked "+N more" on — those render all jobs
+  // inline instead of navigating to the day view.
+  const [expandedCells, setExpandedCells] = useState(() => new Set())
+  const toggleExpand = useCallback((key) => {
+    setExpandedCells((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   const today = startOfDay(new Date())
 
@@ -1224,7 +1254,10 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
           const row = Math.floor(idx / 7)
           const isOtherMonth = d.getMonth() !== monthStart.getMonth()
           const isToday = sameDay(d, today)
-          const dayJobs = jobsByDay.get(d.toDateString()) || []
+          const dateKey = d.toDateString()
+          const dayJobs = jobsByDay.get(dateKey) || []
+          const isExpanded = expandedCells.has(dateKey)
+          const visibleJobs = isExpanded ? dayJobs : dayJobs.slice(0, 3)
           return (
             <div
               key={idx}
@@ -1291,7 +1324,7 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
                   </span>
                 )}
               </div>
-              {dayJobs.slice(0, 3).map((j) => {
+              {visibleJobs.map((j) => {
                 const a = assigneesFor(j)
                 const color = a.length > 0 ? cleanerColor(a[0].id) : "#DC2626"
                 const live = isLiveJob(j)
@@ -1374,12 +1407,19 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
                 )
               })}
               {dayJobs.length > 3 && (
-                <div
-                  className="text-[10.5px] text-[var(--sf-ink-3)] font-semibold"
-                  style={{ padding: "2px 5px" }}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleExpand(dateKey) }}
+                  className="text-[10.5px] text-[var(--sf-ink-3)] hover:text-[var(--sf-ink)] font-semibold text-left"
+                  style={{
+                    padding: "2px 5px",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    fontFamily: "var(--sf-font-ui)",
+                  }}
                 >
-                  +{dayJobs.length - 3} more
-                </div>
+                  {isExpanded ? "− show less" : `+${dayJobs.length - 3} more`}
+                </button>
               )}
             </div>
           )
