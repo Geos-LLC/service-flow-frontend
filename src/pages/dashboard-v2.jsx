@@ -74,17 +74,22 @@ const formatMoneyExact = (n) => `$${(Number.isFinite(n) ? n : 0).toLocaleString(
 // actual scheduled time, so it's checked last.
 // Merge date + time parts across candidates in LOCAL time. `new Date("YYYY-MM-DD")`
 // is UTC midnight, which shifts to the previous day west of UTC — that's why
-// the Weekly view was undercounting today. See discrepancy fix.
+// the Weekly view was undercounting today.
+//
+// Naive datetime strings ("YYYY-MM-DD HH:MM:SS", no Z/offset) are treated as
+// browser-local wall-clock time — matching how `new Date("YYYY-MM-DDTHH:MM:SS")`
+// already worked. Cross-timezone display (browser TZ ≠ job territory TZ) is a
+// broader codebase issue and not addressed here.
 const jobStartDateTime = (job) => {
   const candidates = [job.scheduled_date, job.start_time, job.service_time]
   let y = null, mo = null, d = null, h = null, mi = null, s = null
+  let fallback = null
 
   for (const c of candidates) {
     if (!c) continue
     const raw = String(c).trim()
 
-    // Date + time in one string, optional timezone
-    const dt = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2})?$/)
+    const dt = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)
     if (dt) {
       if (dt[7]) {
         const parsed = new Date(raw.replace(" ", "T"))
@@ -95,14 +100,12 @@ const jobStartDateTime = (job) => {
       continue
     }
 
-    // Date only — parse as LOCAL midnight, don't hand to new Date()
     const dOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
     if (dOnly) {
       if (y === null) { y = +dOnly[1]; mo = +dOnly[2] - 1; d = +dOnly[3] }
       continue
     }
 
-    // Time only "HH:MM[:SS][ AM/PM]"
     const tOnly = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?$/)
     if (tOnly) {
       let hh = parseInt(tOnly[1], 10)
@@ -113,21 +116,24 @@ const jobStartDateTime = (job) => {
       continue
     }
 
-    // Fallback — let Date parse whatever this is
-    const parsed = new Date(raw)
-    if (!isNaN(parsed)) return parsed
+    if (!fallback) {
+      const parsed = new Date(raw)
+      if (!isNaN(parsed)) fallback = parsed
+    }
   }
 
-  if (y === null && h === null) return null
-  const now = new Date()
-  return new Date(
-    y ?? now.getFullYear(),
-    mo ?? now.getMonth(),
-    d ?? now.getDate(),
-    h ?? 0,
-    mi ?? 0,
-    s ?? 0,
-  )
+  if (y !== null || h !== null) {
+    const now = new Date()
+    return new Date(
+      y ?? now.getFullYear(),
+      mo ?? now.getMonth(),
+      d ?? now.getDate(),
+      h ?? 0,
+      mi ?? 0,
+      s ?? 0,
+    )
+  }
+  return fallback
 }
 
 // Old helper kept for compatibility — same shape, but driven by Date.
