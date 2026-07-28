@@ -719,11 +719,21 @@ const ScheduleTimelineCard = ({ jobs, teamMembers = [], scheduleView, setSchedul
   // assigned cleaner's row with a small team badge. Unassigned jobs land
   // in a single "Unassigned" row at the bottom.
   const rows = useMemo(() => {
+    // Build the cleaner-color map up front so we can stamp every job with
+    // a stable color (first assignee's) — that way the same team job renders
+    // in the same color on every cleaner's row.
+    const cleanerIds = new Set()
+    jobs.forEach((j) => assigneesFor(j).forEach((a) => cleanerIds.add(a.id)))
+    const assignableIds = Array.from(cleanerIds)
+    const colorMap = sfAssignTeamColors(assignableIds)
+    const colorFor = (id) => (id == null ? "#DC2626" : (colorMap.get(String(id)) || sfTeamColor(stableHash(id))))
+
     const map = new Map() // cleanerId -> { id, name, jobs: [...] }
     jobs.forEach((j) => {
       const assignees = assigneesFor(j)
       const teamSize = assignees.length
-      const augmented = { ...j, _teamSize: teamSize }
+      const jobColor = teamSize === 0 ? "#DC2626" : colorFor(assignees[0].id)
+      const augmented = { ...j, _teamSize: teamSize, _color: jobColor }
       if (teamSize === 0) {
         if (!map.has("unassigned")) map.set("unassigned", { id: "unassigned", name: "Unassigned", jobs: [] })
         map.get("unassigned").jobs.push(augmented)
@@ -741,16 +751,12 @@ const ScheduleTimelineCard = ({ jobs, teamMembers = [], scheduleView, setSchedul
       if (b.id === "unassigned") return -1
       return 0
     })
-    // Assign each cleaner a *unique* color among today's rows so two
-    // cleaners never share the same hue on the same screen.
-    const assignableIds = arr.map((r) => r.id).filter((id) => id !== "unassigned")
-    const colorMap = sfAssignTeamColors(assignableIds)
     return arr.map((row) => {
       const resolved = row.id === "unassigned" ? "Unassigned" : resolveName(row.id, row.name)
       return {
         ...row,
         label: resolved || "Team member",
-        color: row.id === "unassigned" ? "#DC2626" : (colorMap.get(String(row.id)) || sfTeamColor(stableHash(row.id))),
+        color: row.id === "unassigned" ? "#DC2626" : colorFor(row.id),
       }
     })
   }, [jobs, resolveName])
@@ -941,8 +947,11 @@ const ScheduleTimelineCard = ({ jobs, teamMembers = [], scheduleView, setSchedul
                       ? (undertimeMins / duration) * 100
                       : 0
 
+                    // Stable per-JOB color so the same team job renders in the
+                    // same color on every cleaner's row (not the row's color).
+                    const jc = j._color || row.color
                     // Variant per status — gives each state a distinct look.
-                    const variant = statusVariant(statusRaw, row.color)
+                    const variant = statusVariant(statusRaw, jc)
                     const isFilled = ["completed", "live", "enroute"].includes(variant.kind)
                     const subFg = isFilled ? "rgba(255,255,255,.88)" : "var(--sf-ink-2)"
 
@@ -962,19 +971,19 @@ const ScheduleTimelineCard = ({ jobs, teamMembers = [], scheduleView, setSchedul
                             left: `${left}%`,
                             width: `${widthPct}%`,
                             background: variant.bg,
-                            border: variant.borderStyle === "dashed" ? `1.5px dashed ${row.color}` : "none",
+                            border: variant.borderStyle === "dashed" ? `1.5px dashed ${jc}` : "none",
                             borderLeft: variant.borderStyle === "dashed"
-                              ? `1.5px dashed ${row.color}`
-                              : `3px solid ${row.color}`,
+                              ? `1.5px dashed ${jc}`
+                              : `3px solid ${jc}`,
                             color: variant.fg,
                             padding: 0,
                             fontSize: 11,
                             fontWeight: 600,
                             fontFamily: "var(--sf-font-ui)",
                             boxShadow: variant.kind === "live"
-                              ? `0 0 0 2px ${row.color}40, 0 1px 4px ${row.color}40`
+                              ? `0 0 0 2px ${jc}40, 0 1px 4px ${jc}40`
                               : variant.kind === "enroute"
-                              ? `0 1px 4px ${row.color}40`
+                              ? `0 1px 4px ${jc}40`
                               : "none",
                           }}
                           title={`${blockTitle} · ${variant.kind}${planned ? ` · planned ${planned}m` : ""}${real ? ` · real ${real}m` : ""}${overtimeMins ? ` · +${overtimeMins}m overtime` : undertimeMins ? ` · −${undertimeMins}m undertime` : ""}`}
@@ -989,7 +998,7 @@ const ScheduleTimelineCard = ({ jobs, teamMembers = [], scheduleView, setSchedul
                                 fontSize: variant.kind === "live" ? 8 : 12,
                                 fontWeight: 800,
                                 color: variant.glyphColor,
-                                background: isFilled ? "rgba(0,0,0,.12)" : `${row.color}1f`,
+                                background: isFilled ? "rgba(0,0,0,.12)" : `${jc}1f`,
                                 animation: variant.pulse ? "sfPulse 1.4s ease-in-out infinite" : undefined,
                               }}
                               aria-hidden="true"
@@ -1027,8 +1036,8 @@ const ScheduleTimelineCard = ({ jobs, teamMembers = [], scheduleView, setSchedul
                                   fontSize: 9,
                                   fontWeight: 700,
                                   fontFamily: "var(--sf-font-mono)",
-                                  background: isFilled ? "rgba(255,255,255,.25)" : `${row.color}55`,
-                                  color: isFilled ? "#fff" : row.color,
+                                  background: isFilled ? "rgba(255,255,255,.25)" : `${jc}55`,
+                                  color: isFilled ? "#fff" : jc,
                                   letterSpacing: "0",
                                 }}
                               >
