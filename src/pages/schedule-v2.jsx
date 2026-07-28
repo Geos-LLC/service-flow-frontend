@@ -420,6 +420,34 @@ const ScheduleV2 = () => {
     [scopedJobs]
   )
 
+  // Cleaners with a job in the currently-visible range (day/week/month).
+  // Drives the toolbar chip row so only actually-scheduled cleaners
+  // appear — the full-team roster stays in `allCleanerIds` so the
+  // color map remains stable across views.
+  const visibleRange = useMemo(() => {
+    if (view === "day") {
+      const start = startOfDay(anchor)
+      return { start, end: addDays(start, 1) }
+    }
+    if (view === "week") {
+      const start = startOfWeek(anchor)
+      return { start, end: addDays(start, 7) }
+    }
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1)
+    return { start, end }
+  }, [view, anchor])
+
+  const rangeCleanerIds = useMemo(() => {
+    const set = new Set()
+    scopedJobs.forEach((j) => {
+      const d = jobStartDateTime(j)
+      if (!d || d < visibleRange.start || d >= visibleRange.end) return
+      assigneesFor(j).forEach((a) => set.add(a.id))
+    })
+    return Array.from(set)
+  }, [scopedJobs, visibleRange])
+
   const onJobClick = useCallback(
     (job) => navigate(`/job/${job.id}`),
     [navigate]
@@ -483,7 +511,7 @@ const ScheduleV2 = () => {
             anchor={anchor}
             setAnchor={setAnchor}
             nudge={nudgeAnchor}
-            cleaners={allCleanerIds}
+            cleaners={rangeCleanerIds}
             cleanerColor={cleanerColor}
             resolveName={resolveCleanerName}
             isSelected={isCleanerSelected}
