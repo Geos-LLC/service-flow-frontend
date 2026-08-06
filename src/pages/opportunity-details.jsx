@@ -437,12 +437,12 @@ const LeadDetailsPage = () => {
   if (error || !lead) {
     return (
       <div className="min-h-screen" style={{ background: "var(--sf-bg, #f7f8fa)" }}>
-        <MobileHeader pageTitle="Lead" />
+        <MobileHeader pageTitle="Opportunity" />
         <div style={{ padding: 60, textAlign: "center" }}>
           <AlertCircle size={28} color={T.redDark} style={{ display: "inline-block", marginBottom: 10 }} />
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.ink2 }}>{error || "Lead not found"}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.ink2 }}>{error || "Opportunity not found"}</div>
           <div style={{ marginTop: 14 }}>
-            <SfButton variant="secondary" size="md" icon={ArrowLeft} onClick={() => navigate("/leads")}>Back to Leads</SfButton>
+            <SfButton variant="secondary" size="md" icon={ArrowLeft} onClick={() => navigate("/opportunities")}>Back to Opportunities</SfButton>
           </div>
         </div>
       </div>
@@ -478,9 +478,9 @@ const LeadDetailsPage = () => {
       <div style={{ background: T.panel, borderBottom: `1px solid ${T.borderS}`, padding: "16px 24px 0" }}>
         {/* Breadcrumb */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, marginBottom: 14 }}>
-          <Link to="/leads" style={{ color: T.ink3, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+          <Link to="/opportunities" style={{ color: T.ink3, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
             <ArrowLeft size={11} />
-            Leads
+            Opportunities
           </Link>
           <ChevronRight size={11} color={T.ink4} />
           <span style={{ color: T.ink, fontWeight: 600 }}>{fullName(lead)}</span>

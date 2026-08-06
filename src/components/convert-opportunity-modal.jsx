@@ -47,7 +47,7 @@ const ConvertLeadModal = ({
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-[var(--sf-border-light)] flex-shrink-0">
           <h2 className="text-lg sm:text-xl font-bold text-[var(--sf-text-primary)]">
-            Convert Lead to Customer
+            Convert Opportunity to Customer
           </h2>
           <button
             onClick={onClose}
@@ -61,7 +61,7 @@ const ConvertLeadModal = ({
         <div className="overflow-y-auto flex-1 p-4 sm:p-6">
           {/* Lead Information Preview */}
           <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[var(--sf-text-primary)] mb-3">Lead Information</h3>
+            <h3 className="text-sm font-semibold text-[var(--sf-text-primary)] mb-3">Opportunity Information</h3>
             <div className="bg-[var(--sf-bg-page)] rounded-lg p-4 space-y-3">
               <div className="flex items-center space-x-2">
                 <User className="w-4 h-4 text-[var(--sf-text-muted)]" />

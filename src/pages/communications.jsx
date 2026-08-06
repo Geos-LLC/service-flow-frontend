@@ -801,10 +801,10 @@ function LeadPanel({ lead, conversation }) {
               { icon: User, label: 'Open Customer', action: () => navigate(`/customer/${lead.id}`) },
               { icon: Briefcase, label: 'Create Job', action: () => navigate(`/jobs?customerId=${lead.id}`) },
             ] : lead?.entityType === 'lead' ? [
-              { icon: User, label: 'Open Lead', action: () => navigate('/leads') },
+              { icon: User, label: 'Open Lead', action: () => navigate('/opportunities') },
               { icon: Briefcase, label: 'Create Job', action: () => navigate('/jobs') },
             ] : [
-              { icon: User, label: 'View Leads', action: () => navigate('/leads') },
+              { icon: User, label: 'View Leads', action: () => navigate('/opportunities') },
               { icon: Star, label: 'View Customers', action: () => navigate('/customers') },
             ]),
             { icon: Calendar, label: 'Schedule', action: () => navigate('/schedule') },

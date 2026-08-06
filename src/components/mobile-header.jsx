@@ -59,7 +59,7 @@ const MobileHeader = ({ pageTitle }) => {
       const path = location.pathname
       if (path.includes('/schedule')) return 'Schedule'
       if (path.includes('/jobs')) return 'Jobs'
-      if (path.includes('/leads')) return 'Leads'
+      if (path.includes('/opportunities') || path.includes('/opportunity/') || path.includes('/leads') || path.includes('/lead/')) return 'Opportunities'
       if (path.includes('/analytics')) return 'Analytics'
       if (path.includes('/calendar')) return 'My Availability'
       if (path.includes('/createjob')) return 'Create Job'

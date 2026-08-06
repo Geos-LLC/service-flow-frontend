@@ -39,9 +39,9 @@ import { formatPhoneNumber } from '../utils/phoneFormatter';
 import Notification, { useNotification } from '../components/notification';
 import TaskCard from '../components/task-card';
 import CreateTaskModal from '../components/create-task-modal';
-import ConvertLeadModal from '../components/convert-lead-modal';
+import ConvertLeadModal from '../components/convert-opportunity-modal';
 import MobileBottomNav from '../components/mobile-bottom-nav';
-import AddressAutocompleteLeads from '../components/address-autocomplete-leads';
+import AddressAutocompleteLeads from '../components/address-autocomplete-opportunities';
 import MobileHeader from '../components/mobile-header';
 import ServiceSelectionModal from '../components/service-selection-modal';
 import SfDatePicker from '../components/sf-date-picker';
@@ -605,7 +605,7 @@ const LeadsOwnersTabView = ({ leads, teamMembers, stages }) => {
   )
 }
 
-const LeadsPipeline = () => {
+const OpportunitiesPipeline = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { notification, showNotification, hideNotification } = useNotification();
@@ -1636,7 +1636,7 @@ const LeadsPipeline = () => {
   return (
     <div className="min-h-screen sm:h-screen sm:overflow-hidden bg-[var(--sf-bg-page)] flex flex-col">
       {/* Mobile Header */}
-      <MobileHeader pageTitle="Leads" />
+      <MobileHeader pageTitle="Opportunities" />
       
       {/* Toast Notification */}
       <Notification
@@ -1835,7 +1835,7 @@ const LeadsPipeline = () => {
               className="inline-flex items-center gap-1.5 px-5 py-2 bg-[var(--sf-blue-500)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--sf-blue-600)] transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Lead</span>
+              <span>Add Opportunity</span>
             </button>
           </div>
         </div>
@@ -2025,7 +2025,7 @@ const LeadsPipeline = () => {
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowCreateLeadModal(true); }}
                     className="ml-1 p-[3px] rounded text-[var(--sf-text-muted)] hover:text-[var(--sf-blue-500)] hover:bg-[var(--sf-bg-hover)] transition-colors"
-                    title="Add lead"
+                    title="Add opportunity"
                   >
                     <Plus className="w-[13px] h-[13px]" />
                   </button>
@@ -2172,7 +2172,7 @@ const LeadsPipeline = () => {
       {/* Mobile: header + search + accordion layout */}
       <div className="sm:hidden flex-shrink-0 bg-white border-b border-[var(--sf-border-light)] sticky top-0 z-10 px-4 py-3">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-lg font-bold text-[var(--sf-text-primary)]">Leads Pipeline</h1>
+          <h1 className="text-lg font-bold text-[var(--sf-text-primary)]">Opportunities Pipeline</h1>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowEditStageModal(true)}
@@ -2193,7 +2193,7 @@ const LeadsPipeline = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--sf-text-muted)]" />
           <input
             type="text"
-            placeholder="Search leads..."
+            placeholder="Search opportunities..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="sf-search-input w-full pl-9 pr-4 py-2 bg-[var(--sf-bg-input)] border border-[var(--sf-border-light)] rounded-lg text-sm placeholder:text-[var(--sf-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)]"
@@ -2317,7 +2317,7 @@ const LeadsPipeline = () => {
           <div className="w-full max-w-lg bg-white shadow-2xl flex flex-col h-full animate-slide-in-right">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--sf-border-light)] flex-shrink-0">
-              <h2 className="text-lg font-bold text-[var(--sf-text-primary)]">New Lead</h2>
+              <h2 className="text-lg font-bold text-[var(--sf-text-primary)]">New Opportunity</h2>
               <div className="flex items-center gap-3">
                 <span className="text-xl font-bold text-[var(--sf-blue-500)]">
                   ${selectedServiceForLead ? calculateServiceEstimatedPrice(selectedServiceForLead).toFixed(2) : '0.00'}
@@ -2898,7 +2898,7 @@ const LeadsPipeline = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 sm:p-6 border-b border-[var(--sf-border-light)] flex-shrink-0">
-              <h2 className="text-lg sm:text-xl font-bold text-[var(--sf-text-primary)]">Edit Lead</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-[var(--sf-text-primary)]">Edit Opportunity</h2>
               <button
                 onClick={() => {
                   setShowEditLeadModal(false);
@@ -3294,7 +3294,7 @@ const LeadsPipeline = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 sm:p-6 border-b border-[var(--sf-border-light)] flex-shrink-0">
-              <h2 className="text-lg sm:text-xl font-bold text-[var(--sf-text-primary)]">Lead Details</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-[var(--sf-text-primary)]">Opportunity Details</h2>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleOpenEditLead(selectedLead)}
@@ -3565,5 +3565,5 @@ const LeadsPipeline = () => {
   );
 };
 
-export default LeadsPipeline;
+export default OpportunitiesPipeline;
 

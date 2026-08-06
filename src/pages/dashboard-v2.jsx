@@ -553,7 +553,7 @@ const DashboardV2 = () => {
           />
         </div>
         <div className="flex flex-col gap-4 min-w-0">
-          <HotLeadsCard leads={recentLeads} onSeePipeline={() => navigate("/leads")} />
+          <HotLeadsCard leads={recentLeads} onSeePipeline={() => navigate("/opportunities")} />
           <ActivityCard
             jobs={jobs}
             leads={leads}

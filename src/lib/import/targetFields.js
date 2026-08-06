@@ -8,7 +8,7 @@
 
 export const TARGET_TYPE_LABELS = {
   customers: 'Customers',
-  leads: 'Leads',
+  leads: 'Opportunities',
   jobs: 'Jobs',
   team_members: 'Team Members',
   services: 'Services',

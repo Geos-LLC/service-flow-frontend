@@ -34,7 +34,7 @@ const Sidebar = ({ isOpen, onClose, forceCollapsed = false }) => {
 
   const allSidebarItems = [
     { icon: Home, label: "Dashboard", path: "/dashboard" },
-    { icon: Target, label: "Leads", path: "/leads" },
+    { icon: Target, label: "Opportunities", path: "/opportunities" },
     { icon: CalendarDays, label: "Tasks", path: "/tasks" },
     { icon: Users, label: "Customers", path: "/customers" },
     { icon: Briefcase, label: "Jobs", path: "/jobs" },

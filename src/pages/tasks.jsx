@@ -332,7 +332,7 @@ const TasksPage = () => {
   }
 
   const openTask = (task) => {
-    if (task.lead_id) navigate(`/leads`)
+    if (task.opportunity_id || task.lead_id) navigate('/opportunities')
   }
 
   const open = useMemo(() => tasks.filter((t) => !isCompleted(t)), [tasks])

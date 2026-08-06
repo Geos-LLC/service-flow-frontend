@@ -83,8 +83,9 @@ const ServiceFlowSettings = () => {
       case "job-assignment":
         navigate("/settings/job-assignment")
         break
+      case "opportunities-settings":
       case "leads-settings":
-        navigate("/settings/leads")
+        navigate("/settings/opportunities")
         break
       case "client-team-notifications":
         navigate("/settings/client-team-notifications")
@@ -215,10 +216,10 @@ const ServiceFlowSettings = () => {
           active: false,
         },
         {
-          id: "leads-settings",
+          id: "opportunities-settings",
           icon: Zap,
-          title: "Leads Settings",
-          description: "Configure lead stage automation for Thumbtack and Yelp leads",
+          title: "Opportunities Settings",
+          description: "Configure opportunity stage automation for Thumbtack and Yelp leads",
           active: true,
         },
       ],
