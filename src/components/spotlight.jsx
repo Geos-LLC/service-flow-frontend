@@ -30,7 +30,7 @@ const NAV_ENTRIES = [
   { kind: "nav", label: "Schedule",       icon: CalendarIcon,    path: "/schedule",       keywords: "calendar week timeline" },
   { kind: "nav", label: "Jobs",           icon: Briefcase,       path: "/jobs",           keywords: "appointments work" },
   { kind: "nav", label: "Customers",      icon: Users,           path: "/customers",      keywords: "clients people" },
-  { kind: "nav", label: "Leads",          icon: Target,          path: "/leads",          keywords: "pipeline prospects" },
+  { kind: "nav", label: "Opportunities",  icon: Target,          path: "/opportunities",  keywords: "leads pipeline prospects sales" },
   { kind: "nav", label: "Inbox",          icon: MessageSquare,   path: "/communications", keywords: "messages sms email" },
   { kind: "nav", label: "Tasks",          icon: CalendarDays,    path: "/tasks",          keywords: "todo" },
   { kind: "nav", label: "Estimates",      icon: FileText,        path: "/estimates",      keywords: "quotes proposals" },
@@ -44,7 +44,7 @@ const NAV_ENTRIES = [
 const QUICK_ACTIONS = [
   { kind: "action", label: "Create job",      icon: Briefcase,    path: "/createjob",          keywords: "new job booking" },
   { kind: "action", label: "Add customer",    icon: Users,        path: "/customers?new=1",    keywords: "new customer client" },
-  { kind: "action", label: "Add lead",        icon: Target,       path: "/leads?new=1",        keywords: "new lead" },
+  { kind: "action", label: "Add opportunity", icon: Target,       path: "/opportunities?new=1", keywords: "new lead opportunity" },
   { kind: "action", label: "New estimate",    icon: FileText,     path: "/estimates?new=1",    keywords: "quote proposal" },
   { kind: "action", label: "New invoice",     icon: Receipt,      path: "/invoices?new=1",     keywords: "bill" },
 ]

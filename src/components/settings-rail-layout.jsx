@@ -125,7 +125,7 @@ export const RAIL_SECTIONS = [
     id: "integrations",
     title: "Integrations",
     items: [
-      { id: "leads",            label: "Leads & sources",  icon: Zap,           to: "/settings/leads" },
+      { id: "opportunities",    label: "Opportunities & sources", icon: Zap,    to: "/settings/opportunities" },
       { id: "calendar-sync",    label: "Calendar sync",    icon: CalendarDays,  to: "/settings/calendar-syncing" },
       { id: "google-sheets",    label: "Google Sheets",    icon: FileSpreadsheet, to: "/settings/google-sheets" },
       { id: "stripe-connect",   label: "Stripe Connect",   icon: Zap,           to: "/settings/stripe-connect" },

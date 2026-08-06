@@ -335,7 +335,7 @@ const DetailDrawer = ({ open, conflict, onClose, onResolve, onDeleteOwner, onCom
                 const detailHref =
                   o.entity_type === "customer" ? `/customers/${o.entity_id}`
                   : o.entity_type === "team_member" ? `/team`
-                  : o.entity_type === "lead" ? `/leads`
+                  : o.entity_type === "lead" ? `/opportunities`
                   : null
                 return (
                   <div

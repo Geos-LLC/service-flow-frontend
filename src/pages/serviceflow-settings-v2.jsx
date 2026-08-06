@@ -144,10 +144,10 @@ const SECTIONS = [
     title: "Sales & marketing",
     items: [
       {
-        id: "leads", icon: Zap,
-        title: "Lead capture",
+        id: "opportunities", icon: Zap,
+        title: "Opportunity capture",
         desc: "Sources, tracking, auto-assignment",
-        to: "/settings/leads",
+        to: "/settings/opportunities",
       },
       {
         id: "online-booking", icon: Globe,

@@ -2496,157 +2496,101 @@ export const placesAPI = {
 };
 
 // Leads Pipeline API functions
-export const leadsAPI = {
+export const opportunitiesAPI = {
   // Get pipeline with stages
   getPipeline: async () => {
-    try {
-      const response = await api.get('/leads/pipeline');
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.get('/opportunities/pipeline');
+    return response.data;
   },
 
   // Update pipeline stages
   updateStages: async (stages) => {
-    try {
-      const response = await api.put('/leads/pipeline/stages', { stages });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.put('/opportunities/pipeline/stages', { stages });
+    return response.data;
   },
 
   // Delete a stage
   deleteStage: async (stageId) => {
-    try {
-      const response = await api.delete(`/leads/pipeline/stages/${stageId}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.delete(`/opportunities/pipeline/stages/${stageId}`);
+    return response.data;
   },
 
-  // Get all leads
+  // Get all opportunities
   getAll: async () => {
-    try {
-      const response = await api.get('/leads');
-      return response.data.leads || [];
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.get('/opportunities');
+    return response.data.leads || response.data.opportunities || [];
   },
 
-  // Get a single lead
+  // Get a single opportunity
   getById: async (id) => {
-    try {
-      const response = await api.get(`/leads/${id}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.get(`/opportunities/${id}`);
+    return response.data;
   },
 
-  // Create a new lead
-  create: async (leadData) => {
-    try {
-      const response = await api.post('/leads', leadData);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+  // Create a new opportunity
+  create: async (opportunityData) => {
+    const response = await api.post('/opportunities', opportunityData);
+    return response.data;
   },
 
-  // Update a lead
-  update: async (id, leadData) => {
-    try {
-      const response = await api.put(`/leads/${id}`, leadData);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+  // Update an opportunity
+  update: async (id, opportunityData) => {
+    const response = await api.put(`/opportunities/${id}`, opportunityData);
+    return response.data;
   },
 
-  // Delete a lead
+  // Delete an opportunity
   delete: async (id) => {
-    try {
-      const response = await api.delete(`/leads/${id}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.delete(`/opportunities/${id}`);
+    return response.data;
   },
 
-  // Move lead to different stage
-  moveToStage: async (leadId, stageId) => {
-    try {
-      const response = await api.put(`/leads/${leadId}/move`, { stageId });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+  // Move opportunity to different stage
+  moveToStage: async (opportunityId, stageId) => {
+    const response = await api.put(`/opportunities/${opportunityId}/move`, { stageId });
+    return response.data;
   },
 
-  // Convert lead to customer
-  convertToCustomer: async (leadId) => {
-    try {
-      const response = await api.post(`/leads/${leadId}/convert`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+  // Convert opportunity to customer
+  convertToCustomer: async (opportunityId) => {
+    const response = await api.post(`/opportunities/${opportunityId}/convert`);
+    return response.data;
   },
 
   // Tasks API
-  getTasks: async (leadId) => {
-    try {
-      const response = await api.get(`/leads/${leadId}/tasks`);
-      return response.data.tasks || [];
-    } catch (error) {
-      throw error;
-    }
+  getTasks: async (opportunityId) => {
+    const response = await api.get(`/opportunities/${opportunityId}/tasks`);
+    return response.data.tasks || [];
   },
 
   getAllTasks: async (params = {}) => {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params.status) queryParams.append('status', params.status);
-      if (params.overdue) queryParams.append('overdue', params.overdue);
-      
-      const response = await api.get(`/leads/tasks?${queryParams}`);
-      return response.data.tasks || [];
-    } catch (error) {
-      throw error;
-    }
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append('status', params.status);
+    if (params.overdue) queryParams.append('overdue', params.overdue);
+
+    const response = await api.get(`/opportunities/tasks?${queryParams}`);
+    return response.data.tasks || [];
   },
 
-  createTask: async (leadId, taskData) => {
-    try {
-      const response = await api.post(`/leads/${leadId}/tasks`, taskData);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+  createTask: async (opportunityId, taskData) => {
+    const response = await api.post(`/opportunities/${opportunityId}/tasks`, taskData);
+    return response.data;
   },
 
   updateTask: async (taskId, taskData) => {
-    try {
-      const response = await api.put(`/leads/tasks/${taskId}`, taskData);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.put(`/opportunities/tasks/${taskId}`, taskData);
+    return response.data;
   },
 
   deleteTask: async (taskId) => {
-    try {
-      const response = await api.delete(`/leads/tasks/${taskId}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  }
+    const response = await api.delete(`/opportunities/tasks/${taskId}`);
+    return response.data;
+  },
 };
+
+// Legacy alias — kept so any importer still using `leadsAPI` keeps working.
+// Prefer `opportunitiesAPI` in new code.
+export const leadsAPI = opportunitiesAPI;
 
 // Cleaner Ledger API
 export const ledgerAPI = {
@@ -2905,30 +2849,33 @@ export const leadbridgeAPI = {
   getEntitySemanticState: async (type, id) => { const r = await api.get(`/integrations/leadbridge/entity/${type}/${id}/semantic-state`); return r.data; },
 };
 
-export const leadAutomationAPI = {
-  getRules: async () => { const r = await api.get('/lead-automation/rules'); return r.data; },
-  saveRule: async (data) => { const r = await api.post('/lead-automation/rules', data); return r.data; },
-  seedDefaults: async () => { const r = await api.post('/lead-automation/seed-defaults'); return r.data; },
-  backfill: async () => { const r = await api.post('/lead-automation/backfill'); return r.data; },
+export const opportunityAutomationAPI = {
+  getRules: async () => { const r = await api.get('/opportunity-automation/rules'); return r.data; },
+  saveRule: async (data) => { const r = await api.post('/opportunity-automation/rules', data); return r.data; },
+  seedDefaults: async () => { const r = await api.post('/opportunity-automation/seed-defaults'); return r.data; },
+  backfill: async () => { const r = await api.post('/opportunity-automation/backfill'); return r.data; },
 };
+export const leadAutomationAPI = opportunityAutomationAPI;
 
-export const leadSourcesAPI = {
-  list: async () => { const r = await api.get('/lead-sources'); return r.data; },
-  create: async (name) => { const r = await api.post('/lead-sources', { name }); return r.data; },
-  update: async (id, data) => { const r = await api.put(`/lead-sources/${id}`, data); return r.data; },
-  remove: async (id) => { const r = await api.delete(`/lead-sources/${id}`); return r.data; },
-  seed: async () => { const r = await api.post('/lead-sources/seed'); return r.data; },
-  reorder: async (order) => { const r = await api.put('/lead-sources/reorder', { order }); return r.data; },
-  importFromOpenPhone: async () => { const r = await api.post('/lead-sources/import-from-openphone'); return r.data; },
+export const opportunitySourcesAPI = {
+  list: async () => { const r = await api.get('/opportunity-sources'); return r.data; },
+  create: async (name) => { const r = await api.post('/opportunity-sources', { name }); return r.data; },
+  update: async (id, data) => { const r = await api.put(`/opportunity-sources/${id}`, data); return r.data; },
+  remove: async (id) => { const r = await api.delete(`/opportunity-sources/${id}`); return r.data; },
+  seed: async () => { const r = await api.post('/opportunity-sources/seed'); return r.data; },
+  reorder: async (order) => { const r = await api.put('/opportunity-sources/reorder', { order }); return r.data; },
+  importFromOpenPhone: async () => { const r = await api.post('/opportunity-sources/import-from-openphone'); return r.data; },
 };
+export const leadSourcesAPI = opportunitySourcesAPI;
 
-export const leadSourceMappingsAPI = {
-  list: async () => { const r = await api.get('/lead-source-mappings'); return r.data; },
-  save: async (data) => { const r = await api.post('/lead-source-mappings', data); return r.data; },
-  saveBulk: async (mappings) => { const r = await api.post('/lead-source-mappings/bulk', { mappings }); return r.data; },
-  remove: async (id) => { const r = await api.delete(`/lead-source-mappings/${id}`); return r.data; },
-  autoSuggest: async () => { const r = await api.post('/lead-source-mappings/auto-suggest'); return r.data; },
+export const opportunitySourceMappingsAPI = {
+  list: async () => { const r = await api.get('/opportunity-source-mappings'); return r.data; },
+  save: async (data) => { const r = await api.post('/opportunity-source-mappings', data); return r.data; },
+  saveBulk: async (mappings) => { const r = await api.post('/opportunity-source-mappings/bulk', { mappings }); return r.data; },
+  remove: async (id) => { const r = await api.delete(`/opportunity-source-mappings/${id}`); return r.data; },
+  autoSuggest: async () => { const r = await api.post('/opportunity-source-mappings/auto-suggest'); return r.data; },
 };
+export const leadSourceMappingsAPI = opportunitySourceMappingsAPI;
 
 export const sourceIssuesAPI = {
   list: async () => { const r = await api.get('/source-issues'); return r.data; },

@@ -68,7 +68,7 @@ const MobileBottomNav = ({ teamMembers = [] }) => {
     { icon: RotateCw, label: "Recurring", path: "/recurring" },
     { icon: CreditCard, label: "Payments", path: "/payments", hidden: true },
     { icon: Users, label: "Customers", path: "/customers" },
-    { icon: Target, label: "Leads", path: "/leads" },
+    { icon: Target, label: "Opportunities", path: "/opportunities" },
     { icon: MessageSquare, label: "Communications", path: "/communications" },
     { icon: UserCheck, label: "Team", path: "/team" },
     { icon: Receipt, label: "Payroll", path: "/payroll" },

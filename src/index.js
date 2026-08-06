@@ -56,7 +56,7 @@ import PaymentProcessing from "./pages/payment-processing"
 // Settings Pages
 import FeedbackReviews from "./pages/settings/feedback-reviews"
 import CommunicationHub from "./pages/settings/communication-hub"
-import LeadsSettings from "./pages/settings/leads-settings"
+import OpportunitiesSettings from "./pages/settings/opportunities-settings"
 import AdminDashboard from "./pages/admin-dashboard"
 import ClientTeamNotifications from "./pages/settings/client-team-notifications"
 import JobAssignment from "./pages/settings/job-assignment"
@@ -115,8 +115,8 @@ import ResetPasswordPage from "./pages/reset-password"
 import DropdownMultiselectDemo from "./pages/dropdown-multiselect-demo"
 import ImportDataPage from "./pages/import-data"
 import ImportJobsPage from "./pages/import-jobs"
-import LeadsPipeline from "./pages/leads-pipeline"
-import LeadDetailsPage from "./pages/lead-details"
+import OpportunitiesPipeline from "./pages/opportunities-pipeline"
+import OpportunityDetailsPage from "./pages/opportunity-details"
 import TasksPage from "./pages/tasks"
 import Communications from "./pages/communications-v2"
 import ConnectedInboxes from "./pages/settings/ConnectedInboxes"
@@ -161,6 +161,15 @@ if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
   })
 }
 
+// /lead/:leadId legacy redirect — preserves the id when routing to the
+// new /opportunity/:opportunityId path. Uses window.location so it works
+// whether or not react-router-dom's useParams is imported at module scope.
+function LegacyLeadRedirect() {
+  const m = window.location.pathname.match(/^\/lead\/(.+?)\/?$/)
+  const id = m ? m[1] : null
+  return <Navigate to={id ? `/opportunity/${id}` : '/opportunities'} replace />
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"))
 root.render(
   <FixPromptBoundary>
@@ -194,8 +203,12 @@ root.render(
       <Route path="/invoices" element={<ProtectedRoute><ServiceFlowInvoices /></ProtectedRoute>} />
       <Route path="/customers" element={<ServiceFlowCustomers />} />
       <Route path="/customer/:customerId" element={<ProtectedRoute><CustomerDetails /></ProtectedRoute>} />
-      <Route path="/leads" element={<ProtectedRoute><LeadsPipeline /></ProtectedRoute>} />
-      <Route path="/lead/:leadId" element={<ProtectedRoute><LeadDetailsPage /></ProtectedRoute>} />
+      <Route path="/opportunities" element={<ProtectedRoute><OpportunitiesPipeline /></ProtectedRoute>} />
+      <Route path="/opportunity/:opportunityId" element={<ProtectedRoute><OpportunityDetailsPage /></ProtectedRoute>} />
+      {/* Legacy /leads and /lead/:leadId redirect to the new /opportunities URLs
+          for bookmarks and any external links that still point at the old paths. */}
+      <Route path="/leads" element={<Navigate to="/opportunities" replace />} />
+      <Route path="/lead/:leadId" element={<LegacyLeadRedirect />} />
       <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
       <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
       <Route path="/invoices/:invoiceId" element={<ProtectedRoute><InvoiceDetails /></ProtectedRoute>} />
@@ -233,7 +246,8 @@ root.render(
       <Route path="/settings/feedback-reviews" element={<FeedbackReviews />} />
       <Route path="/settings/communication-hub" element={<CommunicationHub />} />
       <Route path="/settings/connected-inboxes" element={<ProtectedRoute><ConnectedInboxes /></ProtectedRoute>} />
-      <Route path="/settings/leads" element={<LeadsSettings />} />
+      <Route path="/settings/opportunities" element={<OpportunitiesSettings />} />
+      <Route path="/settings/leads" element={<Navigate to="/settings/opportunities" replace />} />
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/settings/client-team-notifications" element={<ClientTeamNotifications />} />
       <Route path="/settings/client-team-notifications/notification-testing" element={<NotificationTestingSettings />} />

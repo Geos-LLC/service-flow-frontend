@@ -742,7 +742,7 @@ const LeadsSettings = () => {
             <button onClick={() => navigate('/settings')} className="p-1.5 rounded-lg hover:bg-[var(--sf-bg-hover)] text-[var(--sf-text-muted)]"><ChevronLeft size={20} /></button>
             <div className="flex items-center gap-2">
               <Zap size={20} className="text-[var(--sf-blue-500)]" />
-              <h1 className="text-lg font-bold text-[var(--sf-text-primary)]">Leads Settings</h1>
+              <h1 className="text-lg font-bold text-[var(--sf-text-primary)]">Opportunities Settings</h1>
             </div>
           </div>
         </div>
@@ -753,7 +753,7 @@ const LeadsSettings = () => {
           <section>
             <div className="mb-4 flex items-end justify-between gap-3 flex-wrap">
               <div>
-                <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Lead Sources</h2>
+                <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Opportunity Sources</h2>
                 <p className="text-sm text-[var(--sf-text-muted)] mt-0.5">
                   Map incoming values from OpenPhone and LeadBridge to your sources.
                   {unmappedCount > 0 && <span className="text-amber-600 font-medium"> {unmappedCount} unmapped</span>}
@@ -1442,7 +1442,7 @@ const LeadsSettings = () => {
                           Unresolved Customer Sources ({issues.unresolvedCustomerSources.length})
                         </h3>
                         <p className="text-xs text-[var(--sf-text-muted)] mt-0.5">
-                          These raw source values are on customer records but aren't mapped yet. Scroll to the Lead Sources section above — they appear as <span className="font-semibold text-violet-600">CR</span> badges.
+                          These raw source values are on customer records but aren't mapped yet. Scroll to the Opportunity Sources section above — they appear as <span className="font-semibold text-violet-600">CR</span> badges.
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {issues.unresolvedCustomerSources.map(u => (
@@ -1462,7 +1462,7 @@ const LeadsSettings = () => {
           {/* ── LEAD STAGE AUTOMATION ── */}
           <section>
             <div className="mb-4">
-              <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Lead Stage Automation</h2>
+              <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">Opportunity Stage Automation</h2>
               <p className="text-sm text-[var(--sf-text-muted)] mt-0.5">Configure how leads from Thumbtack and Yelp automatically progress through your pipeline stages.</p>
             </div>
             <div className="bg-white rounded-xl border border-[var(--sf-border-light)] overflow-hidden">

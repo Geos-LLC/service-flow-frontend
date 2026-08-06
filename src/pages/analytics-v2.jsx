@@ -1760,9 +1760,9 @@ const ConversionTab = ({ m }) => {
   return (
     <div style={{ padding: "14px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
-        <SfKPI label="Leads" value={s.totalLeads ?? "—"} sub="this period" accent={T.blue} />
-        <SfKPI label="Lead → customer" value={s.conversionRate != null ? `${(s.conversionRate * 100).toFixed(1)}%` : "—"} sub="overall win rate" accent={T.green} />
-        <SfKPI label="Avg time to close" value={s.avgTimeToClose != null ? `${Number(s.avgTimeToClose).toFixed(1)}d` : "—"} sub="median lead age" accent={T.purple} />
+        <SfKPI label="Opportunities" value={s.totalLeads ?? "—"} sub="this period" accent={T.blue} />
+        <SfKPI label="Opportunity → customer" value={s.conversionRate != null ? `${(s.conversionRate * 100).toFixed(1)}%` : "—"} sub="overall win rate" accent={T.green} />
+        <SfKPI label="Avg time to close" value={s.avgTimeToClose != null ? `${Number(s.avgTimeToClose).toFixed(1)}d` : "—"} sub="median opportunity age" accent={T.purple} />
         <SfKPI label="Pipeline value" value={s.pipelineValue != null ? moneyShort(s.pipelineValue) : "—"} sub="open leads" accent={T.amber} />
         <SfKPI label="Time to 1st touch" value={s.timeToFirstTouch != null ? `${Number(s.timeToFirstTouch).toFixed(0)} min` : "—"} sub="avg response" accent={T.teal} />
         <SfKPI label="Lost" value={s.lostCount ?? "—"} sub={s.lossRate != null ? `${(s.lossRate * 100).toFixed(1)}% loss rate` : ""} accent={T.red} />
