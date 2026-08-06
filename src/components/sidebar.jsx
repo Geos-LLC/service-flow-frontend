@@ -38,9 +38,9 @@ const ALL_SIDEBAR_ITEMS = [
   { icon: Briefcase,       label: "Jobs",           path: "/jobs",           section: "today", aliases: ["/job/"] },
   { icon: MessageSquare,   label: "Inbox",          path: "/communications", section: "today" },
 
-  { icon: Users,           label: "Customers",      path: "/customers",      section: "customers", aliases: ["/customer/"] },
   { icon: Target,          label: "Opportunities",  path: "/opportunities",  section: "customers", aliases: ["/opportunity/", "/leads", "/lead/"] },
   { icon: CalendarDays,    label: "Tasks",          path: "/tasks",          section: "customers" },
+  { icon: Users,           label: "Customers",      path: "/customers",      section: "customers", aliases: ["/customer/"] },
 
   { icon: UserCheck,       label: "Team",           path: "/team",           section: "operations", aliases: ["/team/"] },
   { icon: Receipt,         label: "Payroll",        path: "/payroll",        section: "operations" },

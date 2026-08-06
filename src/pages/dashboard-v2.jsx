@@ -507,7 +507,7 @@ const DashboardV2 = () => {
             mono
           />
           <SfKPI
-            label="New leads · wk"
+            label="New opportunities · wk"
             value={kpiData.newLeadsWk}
             accent="var(--sf-amber)"
             sub="past 7 days"
@@ -1345,11 +1345,11 @@ const ActivityCard = ({ jobs, leads, invoices, teamMembers, onSeeAll }) => {
     leads.forEach((l) => {
       const when = new Date(l.created_at || l.createdAt)
       if (isNaN(when) || when.getTime() < cutoff) return
-      const name = l.name || `${l.first_name || ""} ${l.last_name || ""}`.trim() || "Lead"
+      const name = l.name || `${l.first_name || ""} ${l.last_name || ""}`.trim() || "Opportunity"
       out.push({
         kind: "lead",
         when,
-        who: "New lead",
+        who: "New opportunity",
         text: `${name}${l.source ? ` · ${l.source}` : ""}`,
         amount: l.estimated_value || l.value,
       })
@@ -1457,7 +1457,7 @@ const HotLeadsCard = ({ leads, onSeePipeline }) => {
       <SfCardHeader
         title={
           <span className="inline-flex items-center gap-2">
-            Hot leads
+            Hot opportunities
             {leads.length > 0 && (
               <span
                 className="text-[10.5px] font-bold text-white bg-[var(--sf-red)] px-1.5 py-px rounded"
@@ -1476,12 +1476,12 @@ const HotLeadsCard = ({ leads, onSeePipeline }) => {
       />
       {leads.length === 0 ? (
         <div className="py-6 text-center text-[12.5px] text-[var(--sf-ink-3)]">
-          No recent leads.
+          No recent opportunities.
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
           {leads.map((l) => {
-            const name = l.name || `${l.first_name || ""} ${l.last_name || ""}`.trim() || "Lead"
+            const name = l.name || `${l.first_name || ""} ${l.last_name || ""}`.trim() || "Opportunity"
             const value = parseFloat(l.estimated_value || l.value || 0)
             return (
               <div key={l.id} className="flex items-center gap-2.5">
