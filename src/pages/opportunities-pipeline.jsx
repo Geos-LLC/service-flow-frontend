@@ -200,7 +200,7 @@ const LeadsListTabView = ({ leads, teamMembers, stages, selected, setSelected, s
       {/* 6-KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
         <KpiTile label="Active pipeline" value={fmtMoney(pipelineValue)} sub={`${activeLeads.length} open`} accent="#2563EB" />
-        <KpiTile label="Total leads"     value={leads.length}             sub="all-time"                 accent="#16A34A" />
+        <KpiTile label="Total opportunities"     value={leads.length}             sub="all-time"                 accent="#16A34A" />
         <KpiTile label="High priority"   value={highPriority}             sub="needs attention"          accent="#DC2626" />
         <KpiTile label="Stalled > 7d"    value={stalled}                  sub="no recent activity"       accent="#D97706" />
         <KpiTile label="New this week"   value={newThisWeek}              sub="last 7 days"              accent="#7C3AED" />
@@ -219,7 +219,7 @@ const LeadsListTabView = ({ leads, teamMembers, stages, selected, setSelected, s
           </div>
         ) : (
           <div className="text-[12.5px] text-[var(--sf-text-muted)]">
-            Showing <b className="text-[var(--sf-text-primary)]">{sortedLeads.length}</b> lead{sortedLeads.length === 1 ? '' : 's'}
+            Showing <b className="text-[var(--sf-text-primary)]">{sortedLeads.length}</b> opportunit{sortedLeads.length === 1 ? 'y' : 'ies'}
           </div>
         )}
         <div className="flex-1" />
@@ -243,7 +243,7 @@ const LeadsListTabView = ({ leads, teamMembers, stages, selected, setSelected, s
                 <input type="checkbox" checked={allSelected} onChange={toggleAll} />
               </th>
               <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 70 }}>ID</th>
-              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em' }}>Lead</th>
+              <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em' }}>Opportunity</th>
               <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 110 }}>Source</th>
               <th className="px-3 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 130 }}>Stage</th>
               <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 110 }}>Value</th>
@@ -275,7 +275,7 @@ const LeadsListTabView = ({ leads, teamMembers, stages, selected, setSelected, s
                     <input type="checkbox" checked={isSel} onChange={() => toggleOne(l.id)} />
                   </td>
                   <td className="px-3 py-2.5 text-[12px] text-[var(--sf-text-secondary)]" style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, monospace)' }}>
-                    L-{String(l.id).slice(-4).padStart(4, '0')}
+                    O-{String(l.id).slice(-4).padStart(4, '0')}
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -375,7 +375,7 @@ const LeadsListTabView = ({ leads, teamMembers, stages, selected, setSelected, s
             <tfoot style={{ background: 'var(--sf-bg-page)', borderTop: '1px solid var(--sf-border-light)' }}>
               <tr>
                 <td colSpan="5" className="px-3 py-3 text-[11px] font-bold uppercase text-[var(--sf-text-secondary)]" style={{ letterSpacing: '.04em' }}>
-                  {sortedLeads.length} lead{sortedLeads.length === 1 ? '' : 's'} · Total
+                  {sortedLeads.length} opportunit{sortedLeads.length === 1 ? 'y' : 'ies'} · Total
                 </td>
                 <td className="px-3 py-3 text-right text-[14px] font-bold text-[var(--sf-text-primary)]" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {fmtMoney(tableGross)}
@@ -421,7 +421,7 @@ const LeadsSourcesTabView = ({ leads, stages }) => {
   return (
     <div>
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
-        <KpiTile label="Total leads"     value={totalLeads}                          sub="this period"           accent="#2563EB" />
+        <KpiTile label="Total opportunities"     value={totalLeads}                          sub="this period"           accent="#2563EB" />
         <KpiTile label="Pipeline value"  value={fmtMoney(totalPipeline)}             sub="active only"           accent="#16A34A" />
         <KpiTile label="Closed value"    value={fmtMoney(totalClosed)}               sub="won"                   accent="#16A34A" />
         <KpiTile label="Top source"      value={topSource?.name || '—'}              sub={topSource ? `${topSource.leads} leads` : ''} accent="#7C3AED" />
@@ -459,7 +459,7 @@ const LeadsSourcesTabView = ({ leads, stages }) => {
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div>
                   <div className="text-[22px] font-bold text-[var(--sf-text-primary)] leading-none" style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{s.leads}</div>
-                  <div className="text-[10px] uppercase text-[var(--sf-text-muted)] mt-1" style={{ letterSpacing: '.05em' }}>Leads</div>
+                  <div className="text-[10px] uppercase text-[var(--sf-text-muted)] mt-1" style={{ letterSpacing: '.05em' }}>Opportunities</div>
                 </div>
                 <div>
                   <div className="text-[22px] font-bold leading-none" style={{ color: '#16A34A', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{fmtMoney(s.value)}</div>
@@ -544,7 +544,7 @@ const LeadsOwnersTabView = ({ leads, teamMembers, stages }) => {
           <thead style={{ background: 'var(--sf-bg-page)', borderBottom: '1px solid var(--sf-border-light)' }}>
             <tr>
               <th className="px-4 py-2.5 text-left text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em' }}>Owner</th>
-              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 80 }}>Leads</th>
+              <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 80 }}>Opportunities</th>
               <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 100 }}>Active</th>
               <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 120 }}>Pipeline</th>
               <th className="px-3 py-2.5 text-right text-[10.5px] font-bold text-[var(--sf-text-muted)] uppercase" style={{ letterSpacing: '.05em', width: 120 }}>Closed</th>
@@ -1339,7 +1339,7 @@ const OpportunitiesPipeline = () => {
   
   // Handle delete stage
   const handleDeleteStage = async (stageId) => {
-    if (!window.confirm('Are you sure you want to delete this stage? Leads in this stage will need to be moved first.')) {
+    if (!window.confirm('Are you sure you want to delete this stage? Opportunities in this stage will need to be moved first.')) {
       return;
     }
     
@@ -1655,9 +1655,9 @@ const OpportunitiesPipeline = () => {
             <p className="text-[10.5px] font-bold uppercase text-[var(--sf-text-muted)] mb-1" style={{ letterSpacing: '.06em' }}>
               <span>Customers</span>
               <span className="mx-1.5 text-[var(--sf-text-muted)]">›</span>
-              <span className="text-[var(--sf-text-primary)]">Leads</span>
+              <span className="text-[var(--sf-text-primary)]">Opportunities</span>
             </p>
-            <h1 className="text-[22px] font-bold text-[var(--sf-text-primary)]" style={{ letterSpacing: '-0.02em' }}>Leads</h1>
+            <h1 className="text-[22px] font-bold text-[var(--sf-text-primary)]" style={{ letterSpacing: '-0.02em' }}>Opportunities</h1>
             <p className="text-[13px] text-[var(--sf-text-secondary)] mt-1">
               {(() => {
                 const stages = pipeline?.stages || []
@@ -1672,7 +1672,7 @@ const OpportunitiesPipeline = () => {
                 if (leadsTab === 'sources') return 'Channel attribution · conversion + value contribution per source'
                 if (leadsTab === 'owners')  return 'Sales rep leaderboard · win rate, response time, pipeline value'
                 if (leadsTab === 'list')    return `${leads.length} leads · sort, filter, bulk actions`
-                return `${active.length} leads in pipeline · $${Math.round(totalVal).toLocaleString()} potential · ${newThisWeek} new this week`
+                return `${active.length} opportunities in pipeline · $${Math.round(totalVal).toLocaleString()} potential · ${newThisWeek} new this week`
               })()}
             </p>
           </div>
@@ -1920,7 +1920,7 @@ const OpportunitiesPipeline = () => {
             <KpiTile label="In pipeline"     value={fmtShort(activeValue)}      sub={`${active.length} active`}                         accent="#2563EB" />
             <KpiTile label="Won this month"  value={fmtShort(wonValue)}         sub={`${wonThisMonth.length} closed-won`}               accent="#16A34A" />
             <KpiTile label="Win rate"        value={`${winRate}%`}              sub={`${wonThisMonth.length}/${closedThisMonth.length} of closed`} accent="#7C3AED" />
-            <KpiTile label="Avg deal size"   value={fmtShort(avgDeal)}          sub={`${dealValues.length} valued leads`}               accent="#D97706" />
+            <KpiTile label="Avg deal size"   value={fmtShort(avgDeal)}          sub={`${dealValues.length} valued opportunities`}               accent="#D97706" />
             <KpiTile label="Avg time to close" value={avgClose > 0 ? `${avgClose.toFixed(1)}d` : '—'} sub={`${newThisWeek} new this week`} accent="#0D9488" />
           </div>
         )
@@ -2080,7 +2080,7 @@ const OpportunitiesPipeline = () => {
                               )}
                             </div>
                             <div className="text-[10.5px] text-[var(--sf-text-muted)] mt-[1px]" style={{ fontFamily: 'var(--sf-font-mono, ui-monospace, SFMono-Regular, monospace)' }}>
-                              L-{String(lead.id || '').slice(-6).padStart(3, '0')}
+                              O-{String(lead.id || '').slice(-6).padStart(3, '0')}
                             </div>
                           </div>
                           <button
@@ -2134,7 +2134,7 @@ const OpportunitiesPipeline = () => {
 
                   {stageLeads.length === 0 && (
                     <div className="text-center py-6 text-[11.5px] text-[var(--sf-text-muted)] italic">
-                      Drop leads here
+                      Drop opportunities here
                     </div>
                   )}
                 </div>
@@ -2292,7 +2292,7 @@ const OpportunitiesPipeline = () => {
 
                   {stageLeads.length === 0 && (
                     <div className="text-center py-6 text-[var(--sf-text-muted)] text-xs mt-2">
-                      No leads in this stage
+                      No opportunities in this stage
                     </div>
                   )}
                 </div>
@@ -2791,7 +2791,7 @@ const OpportunitiesPipeline = () => {
                 }}
                 className="flex-1 px-4 py-2.5 bg-[var(--sf-blue-500)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--sf-blue-600)] transition-colors"
               >
-                New Lead
+                New Opportunity
               </button>
               <button
                 type="button"

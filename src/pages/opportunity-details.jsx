@@ -486,7 +486,7 @@ const LeadDetailsPage = () => {
           <span style={{ color: T.ink, fontWeight: 600 }}>{fullName(lead)}</span>
           <span style={{
             color: T.ink3, fontFamily: "var(--sf-font-mono, ui-monospace, monospace)", fontSize: 11, marginLeft: 4,
-          }}>L-{String(lead.id).slice(-6).padStart(3, "0")}</span>
+          }}>O-{String(lead.id).slice(-6).padStart(3, "0")}</span>
         </div>
 
         {/* Hero row */}
