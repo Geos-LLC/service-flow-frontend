@@ -45,6 +45,7 @@ import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
 import JobExpensesSection from "../components/job-expenses-section"
 import AssignJobModal from "../components/assign-job-modal"
+import AvailabilityWarning from "../components/AvailabilityWarning"
 import ServiceModifiersForm from "../components/service-modifiers-form"
 import {
   SfCard,
@@ -1464,6 +1465,7 @@ const JobDetailsV2 = () => {
         open={editOpen}
         job={job}
         services={editServices}
+        teamMembers={teamMembers}
         saving={savingEdit}
         onClose={() => setEditOpen(false)}
         onSave={onSaveEdit}
@@ -2263,7 +2265,7 @@ const stringToSkills = (str) => {
   return trimmed.split(",").map((s) => s.trim()).filter(Boolean)
 }
 
-const EditServiceDrawer = ({ open, job, services, saving, onClose, onSave }) => {
+const EditServiceDrawer = ({ open, job, services, teamMembers = [], saving, onClose, onSave }) => {
   const initial = useMemo(() => {
     if (!job) return null
     const { date, time } = splitJobDateTime(job.scheduled_date)
@@ -2293,6 +2295,18 @@ const EditServiceDrawer = ({ open, job, services, saving, onClose, onSave }) => 
   useEffect(() => {
     if (open && initial) setForm(initial)
   }, [open, initial])
+
+  // Resolve the full team_member records (with availability jsonb) for the
+  // cleaners assigned to this job. Lookup by id in the teamMembers prop from
+  // the parent — cheap, since teamMembers is already loaded page-wide.
+  const assignedMembersWithAvailability = useMemo(() => {
+    if (!job || !Array.isArray(teamMembers) || teamMembers.length === 0) return []
+    const assignedIds = new Set(
+      collectAssignedMembers(job).map((m) => String(m.id))
+    )
+    if (assignedIds.size === 0) return []
+    return teamMembers.filter((m) => assignedIds.has(String(m.id)))
+  }, [job, teamMembers])
 
   if (!open || !job || !form) return null
 
@@ -2434,6 +2448,13 @@ const EditServiceDrawer = ({ open, job, services, saving, onClose, onSave }) => 
                 style={inputStyle}
               />
             </Field>
+
+            <AvailabilityWarning
+              members={assignedMembersWithAvailability}
+              date={form.scheduledDate}
+              time={form.scheduledTime}
+              durationMin={parseInt(form.duration, 10) || 60}
+            />
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Bedrooms">
