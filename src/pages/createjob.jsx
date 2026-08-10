@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { formatTime as formatTimeShared } from "../utils/formatTime";
+import AvailabilityWarning from "../components/AvailabilityWarning";
 import { GOOGLE_MAPS_API_KEY } from "../config/maps";
 import {
   Search,
@@ -3691,6 +3692,13 @@ setIntakeQuestionAnswers(answers);
                           ))}
                         </div>
                       )}
+
+                      <AvailabilityWarning
+                        members={selectedTeamMembers}
+                        date={formData.scheduledDate}
+                        time={formData.scheduledTime}
+                        durationMin={calculateTotalDuration() || 60}
+                      />
                       
                    
                                       </div>
