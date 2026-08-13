@@ -159,18 +159,13 @@ const durationMinutes = (job) => {
   return Number.isFinite(n) && n > 0 ? n : 60
 }
 
-// Group overlapping jobs in the same day column into clusters. A
-// cluster spans the union of its members' timespans; a single job
-// renders normally, two or more render as a stacked mini-row card
-// instead of fighting for horizontal lanes.
-//   See ADDON_schedule_overlap_and_assign.md Part 1.
-// Horizontal-row layout: each job renders as a compact horizontal row anchored
-// to its start time on the vertical time grid. When a row would visually
-// overlap a prior row (either same start time or too close to fit), it
-// cascades downward by one row height so each row remains fully readable.
-// Callers pass the visible-hour window; returns items with top/height in px.
-const ROW_HEIGHT_PX = 22
-const ROW_GAP_PX = 1
+// Each job is a card anchored to its start time on the vertical grid, with
+// height = duration (so a 2p-7p job visibly spans 2p-7p). If a card's top
+// would collide with the prior card's header strip, the later card cascades
+// down by the header height so its time/name stays readable — "one over
+// another, leaving place for the info". Returns top/height in px.
+const HEADER_HEIGHT_PX = 22
+const HEADER_GAP_PX = 1
 
 const layoutDay = (dayJobs, startHr, endHr, colHeightPx) => {
   const totalMins = (endHr - startHr) * 60
@@ -179,18 +174,20 @@ const layoutDay = (dayJobs, startHr, endHr, colHeightPx) => {
       const d = jobStartDateTime(j)
       if (!d) return null
       const start = d.getHours() * 60 + d.getMinutes()
-      return { job: j, start }
+      const dur = Math.max(durationMinutes(j), 15)
+      return { job: j, start, dur }
     })
     .filter(Boolean)
     .filter((x) => x.start >= startHr * 60 && x.start <= endHr * 60)
     .sort((a, b) => a.start - b.start)
 
-  let lastBottom = -Infinity
+  let lastHeaderBottom = -Infinity
   return sorted.map((x) => {
     const basePos = ((x.start - startHr * 60) / totalMins) * colHeightPx
-    const top = Math.max(basePos, lastBottom + ROW_GAP_PX)
-    lastBottom = top + ROW_HEIGHT_PX
-    return { job: x.job, start: x.start, top, height: ROW_HEIGHT_PX }
+    const baseHeight = Math.max((x.dur / totalMins) * colHeightPx, HEADER_HEIGHT_PX)
+    const top = Math.max(basePos, lastHeaderBottom + HEADER_GAP_PX)
+    lastHeaderBottom = top + HEADER_HEIGHT_PX
+    return { job: x.job, start: x.start, top, height: baseHeight }
   })
 }
 
@@ -1483,9 +1480,8 @@ const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick })
         left: 4,
         right: 4,
         display: "flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "0 6px",
+        flexDirection: "column",
+        padding: 0,
         background: live ? color : "#fff",
         borderLeft: `3px solid ${color}`,
         border: `1px solid ${live ? color : color + "40"}`,
@@ -1499,67 +1495,79 @@ const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick })
         overflow: "hidden",
       }}
     >
-      {live && (
-        <span
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: 3,
-            background: "#fff",
-            flexShrink: 0,
-          }}
-        />
-      )}
-      <span
+      {/* Info strip pinned to top; card body below is coloured to show duration */}
+      <div
         style={{
-          fontSize: 9.5,
-          color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
-          fontFamily: "var(--sf-font-mono)",
-          fontVariantNumeric: "tabular-nums",
+          height: 22,
           flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "0 6px",
         }}
       >
-        {minsToLabel(startMins)}
-      </span>
-      <span
-        style={{
-          fontSize: 10.5,
-          fontWeight: 600,
-          flex: 1,
-          minWidth: 0,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {first}
-      </span>
-      {assignees.length === 0 ? (
+        {live && (
+          <span
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: 3,
+              background: "#fff",
+              flexShrink: 0,
+            }}
+          />
+        )}
         <span
           style={{
-            fontSize: 8.5,
-            fontWeight: 700,
-            color: "#fff",
-            background: "var(--sf-red)",
-            padding: "0 4px",
-            borderRadius: 2,
-            flexShrink: 0,
-          }}
-        >
-          UNASGN
-        </span>
-      ) : (
-        <span
-          style={{
-            fontSize: 9,
-            fontFamily: "var(--sf-font-mono)",
+            fontSize: 9.5,
             color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
+            fontFamily: "var(--sf-font-mono)",
+            fontVariantNumeric: "tabular-nums",
             flexShrink: 0,
           }}
         >
-          {teamLetter}
+          {minsToLabel(startMins)}
         </span>
-      )}
+        <span
+          style={{
+            fontSize: 10.5,
+            fontWeight: 600,
+            flex: 1,
+            minWidth: 0,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {first}
+        </span>
+        {assignees.length === 0 ? (
+          <span
+            style={{
+              fontSize: 8.5,
+              fontWeight: 700,
+              color: "#fff",
+              background: "var(--sf-red)",
+              padding: "0 4px",
+              borderRadius: 2,
+              flexShrink: 0,
+            }}
+          >
+            UNASGN
+          </span>
+        ) : (
+          <span
+            style={{
+              fontSize: 9,
+              fontFamily: "var(--sf-font-mono)",
+              color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
+              flexShrink: 0,
+            }}
+          >
+            {teamLetter}
+          </span>
+        )}
+      </div>
     </button>
   )
 }
