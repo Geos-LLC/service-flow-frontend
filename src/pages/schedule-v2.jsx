@@ -164,59 +164,34 @@ const durationMinutes = (job) => {
 // renders normally, two or more render as a stacked mini-row card
 // instead of fighting for horizontal lanes.
 //   See ADDON_schedule_overlap_and_assign.md Part 1.
-// Google-Calendar-style layout: each job is anchored to its actual time.
-// Transitively-overlapping jobs form a cluster; within the cluster each job
-// gets a lane (column) so overlapping jobs split the width. Returns a flat
-// list of { job, start, end, lane, laneCount }.
-const layoutDay = (dayJobs) => {
+// Horizontal-row layout: each job renders as a compact horizontal row anchored
+// to its start time on the vertical time grid. When a row would visually
+// overlap a prior row (either same start time or too close to fit), it
+// cascades downward by one row height so each row remains fully readable.
+// Callers pass the visible-hour window; returns items with top/height in px.
+const ROW_HEIGHT_PX = 22
+const ROW_GAP_PX = 1
+
+const layoutDay = (dayJobs, startHr, endHr, colHeightPx) => {
+  const totalMins = (endHr - startHr) * 60
   const sorted = [...dayJobs]
     .map((j) => {
       const d = jobStartDateTime(j)
       if (!d) return null
       const start = d.getHours() * 60 + d.getMinutes()
-      const end = Math.max(start + durationMinutes(j), start + 15) // min 15m for hit area
-      return { job: j, start, end }
+      return { job: j, start }
     })
     .filter(Boolean)
-    .sort((a, b) => a.start - b.start || a.end - b.end)
+    .filter((x) => x.start >= startHr * 60 && x.start <= endHr * 60)
+    .sort((a, b) => a.start - b.start)
 
-  // Build transitive overlap clusters. A new item can bridge multiple prior
-  // clusters (e.g. long job spanning two earlier ones), so merge them all.
-  let clusters = []
-  sorted.forEach((item) => {
-    const hits = clusters.filter((c) => item.start < c.end && item.end > c.start)
-    const rest = clusters.filter((c) => !hits.includes(c))
-    clusters = [
-      ...rest,
-      {
-        start: Math.min(item.start, ...hits.map((c) => c.start)),
-        end: Math.max(item.end, ...hits.map((c) => c.end)),
-        items: [...hits.flatMap((c) => c.items), item],
-      },
-    ]
+  let lastBottom = -Infinity
+  return sorted.map((x) => {
+    const basePos = ((x.start - startHr * 60) / totalMins) * colHeightPx
+    const top = Math.max(basePos, lastBottom + ROW_GAP_PX)
+    lastBottom = top + ROW_HEIGHT_PX
+    return { job: x.job, start: x.start, top, height: ROW_HEIGHT_PX }
   })
-
-  const out = []
-  clusters.forEach((cluster) => {
-    const items = [...cluster.items].sort((a, b) => a.start - b.start || a.end - b.end)
-    const lanes = [] // each lane = array of items placed there
-    items.forEach((item) => {
-      let laneIdx = lanes.findIndex((laneItems) =>
-        laneItems.every((x) => item.start >= x.end || item.end <= x.start)
-      )
-      if (laneIdx === -1) {
-        laneIdx = lanes.length
-        lanes.push([])
-      }
-      lanes[laneIdx].push(item)
-      out.push({ ...item, lane: laneIdx })
-    })
-    const laneCount = lanes.length
-    for (let i = out.length - items.length; i < out.length; i++) {
-      out[i].laneCount = laneCount
-    }
-  })
-  return out
 }
 
 const sameDay = (a, b) =>
@@ -949,16 +924,13 @@ const WeekView = ({ anchor, jobs, cleanerColor, onJobClick }) => {
                   />
                 </div>
               )}
-              {layoutDay(dayJobs).map((item) => (
+              {layoutDay(dayJobs, startHr, endHr, 560).map((item) => (
                 <ScheduleBlock
                   key={item.job.id}
                   job={item.job}
-                  startHr={startHr}
-                  endHr={endHr}
+                  top={item.top}
+                  height={item.height}
                   cleanerColor={cleanerColor}
-                  lane={item.lane}
-                  laneCount={item.laneCount}
-                  compact
                   onClick={() => onJobClick(item.job)}
                 />
               ))}
@@ -1485,28 +1457,20 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
 
 // ── Schedule block (used by Day + Week views) ──────────────
 
-const ScheduleBlock = ({ job, startHr, endHr, cleanerColor, forcedColor, compact, onClick, lane = 0, laneCount = 1 }) => {
-  const start = jobStartDateTime(job)
-  if (!start) return null
-  const startMins = start.getHours() * 60 + start.getMinutes()
-  const dur = durationMinutes(job)
-  const top = ((startMins / 60 - startHr) / (endHr - startHr)) * 100
-  const height = (dur / 60 / (endHr - startHr)) * 100
-  if (top < 0 || top > 100) return null
+const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick }) => {
   const assignees = assigneesFor(job)
   const color = forcedColor || (assignees.length > 0 ? cleanerColor(assignees[0].id) : "#DC2626")
   const live = isLiveJob(job)
-  const customer = customerLabelForJob(job)
-  const service = job.service_name || job.service?.name || job.title || "Service"
-
-  const widthPct = 100 / laneCount
-  const leftPct = lane * widthPct
-  const edgePad = compact ? 4 : 6
-  const gap = 2
-  const leftCss = lane === 0 ? `${edgePad}px` : `calc(${leftPct}% + ${gap}px)`
-  const rightCss = lane === laneCount - 1
-    ? `${edgePad}px`
-    : `calc(${100 - leftPct - widthPct}% + ${gap}px)`
+  const first = (customerLabelForJob(job) || "").split(" ")[0] || "—"
+  const teamLetter = assignees[0]?.name
+    ? assignees[0].name.charAt(0).toUpperCase()
+    : assignees.length === 0
+    ? "?"
+    : "·"
+  const startMins = (() => {
+    const d = jobStartDateTime(job)
+    return d ? d.getHours() * 60 + d.getMinutes() : 0
+  })()
 
   return (
     <button
@@ -1514,76 +1478,87 @@ const ScheduleBlock = ({ job, startHr, endHr, cleanerColor, forcedColor, compact
       className="sf-timeline-block"
       style={{
         position: "absolute",
-        top: `${top}%`,
-        height: `${Math.max(height, 3)}%`,
-        left: leftCss,
-        right: rightCss,
+        top: `${top}px`,
+        height: `${height}px`,
+        left: 4,
+        right: 4,
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "0 6px",
         background: live ? color : "#fff",
         borderLeft: `3px solid ${color}`,
         border: `1px solid ${live ? color : color + "40"}`,
         color: live ? "#fff" : "var(--sf-ink)",
-        borderRadius: 6,
-        padding: compact ? "4px 7px" : "7px 10px",
-        fontSize: compact ? 11 : 12,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        textAlign: "left",
+        borderRadius: 4,
         cursor: "pointer",
         fontFamily: "var(--sf-font-ui)",
-        boxShadow: live ? `0 2px 6px ${color}40` : "var(--sf-shadow)",
+        textAlign: "left",
+        boxShadow: live ? `0 1px 4px ${color}40` : "var(--sf-shadow)",
         zIndex: 2,
+        overflow: "hidden",
       }}
     >
-      <div
+      {live && (
+        <span
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 3,
+            background: "#fff",
+            flexShrink: 0,
+          }}
+        />
+      )}
+      <span
         style={{
-          fontSize: compact ? 10 : 10.5,
-          fontWeight: 600,
+          fontSize: 9.5,
           color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
+          fontFamily: "var(--sf-font-mono)",
           fontVariantNumeric: "tabular-nums",
+          flexShrink: 0,
         }}
       >
-        {formatJobTime(job)} · {dur}m
-        {assignees.length === 0 && (
-          <span
-            style={{
-              marginLeft: 5,
-              fontWeight: 700,
-              color: "#fff",
-              background: "var(--sf-red)",
-              padding: "0 4px",
-              borderRadius: 3,
-            }}
-          >
-            UNASGN
-          </span>
-        )}
-      </div>
-      <div
+        {minsToLabel(startMins)}
+      </span>
+      <span
         style={{
-          fontWeight: 700,
-          lineHeight: 1.2,
-          marginTop: 2,
+          fontSize: 10.5,
+          fontWeight: 600,
+          flex: 1,
+          minWidth: 0,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}
       >
-        {customer}
-      </div>
-      {!compact && (
-        <div
+        {first}
+      </span>
+      {assignees.length === 0 ? (
+        <span
           style={{
-            fontSize: 11,
-            marginTop: 2,
-            opacity: live ? 0.92 : 0.75,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            fontSize: 8.5,
+            fontWeight: 700,
+            color: "#fff",
+            background: "var(--sf-red)",
+            padding: "0 4px",
+            borderRadius: 2,
+            flexShrink: 0,
           }}
         >
-          {service}
-        </div>
+          UNASGN
+        </span>
+      ) : (
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: "var(--sf-font-mono)",
+            color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
+            flexShrink: 0,
+          }}
+        >
+          {teamLetter}
+        </span>
       )}
     </button>
   )
