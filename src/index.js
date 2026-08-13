@@ -3,6 +3,7 @@ import { initFixPrompt } from "@fixprompt/browser"
 import App from "./App"
 import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from "react-router-dom"
 import { FixPromptBoundary } from "./components/FixPromptBoundary"
+import UpdateAvailableBanner from "./components/UpdateAvailableBanner"
 import { AuthProvider } from "./context/AuthContext"
 import { TimeFormatProvider } from "./context/TimeFormatContext"
 import { LocationProvider } from "./context/LocationContext"
@@ -173,6 +174,7 @@ function LegacyLeadRedirect() {
 const root = ReactDOM.createRoot(document.getElementById("root"))
 root.render(
   <FixPromptBoundary>
+  <UpdateAvailableBanner />
   <BrowserRouter style={{fontFamily: 'Montserrat', fontWeight: 500}}>
     <AuthProvider>
       <LocationProvider>
