@@ -2297,12 +2297,13 @@ const EditServiceDrawer = ({ open, job, services, teamMembers = [], saving, onCl
   }, [open, initial])
 
   // Resolve the full team_member records (with availability jsonb) for the
-  // cleaners assigned to this job. Lookup by id in the teamMembers prop from
-  // the parent — cheap, since teamMembers is already loaded page-wide.
+  // cleaners assigned to this job. assigneesFor() at module scope handles all
+  // four job assignment shapes; we just intersect with the teamMembers prop
+  // to get the full row (which carries the availability jsonb).
   const assignedMembersWithAvailability = useMemo(() => {
     if (!job || !Array.isArray(teamMembers) || teamMembers.length === 0) return []
     const assignedIds = new Set(
-      collectAssignedMembers(job).map((m) => String(m.id))
+      assigneesFor(job).map((m) => String(m.id))
     )
     if (assignedIds.size === 0) return []
     return teamMembers.filter((m) => assignedIds.has(String(m.id)))
