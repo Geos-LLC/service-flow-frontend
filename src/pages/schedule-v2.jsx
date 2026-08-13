@@ -164,30 +164,59 @@ const durationMinutes = (job) => {
 // renders normally, two or more render as a stacked mini-row card
 // instead of fighting for horizontal lanes.
 //   See ADDON_schedule_overlap_and_assign.md Part 1.
+// Google-Calendar-style layout: each job is anchored to its actual time.
+// Transitively-overlapping jobs form a cluster; within the cluster each job
+// gets a lane (column) so overlapping jobs split the width. Returns a flat
+// list of { job, start, end, lane, laneCount }.
 const layoutDay = (dayJobs) => {
   const sorted = [...dayJobs]
     .map((j) => {
       const d = jobStartDateTime(j)
       if (!d) return null
       const start = d.getHours() * 60 + d.getMinutes()
-      const end = start + durationMinutes(j)
+      const end = Math.max(start + durationMinutes(j), start + 15) // min 15m for hit area
       return { job: j, start, end }
     })
     .filter(Boolean)
-    .sort((a, b) => a.start - b.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end)
 
-  const clusters = []
-  sorted.forEach(({ job, start, end }) => {
-    const cl = clusters.find((c) => start < c.end && end > c.start)
-    if (cl) {
-      cl.jobs.push({ job, start, end })
-      cl.start = Math.min(cl.start, start)
-      cl.end = Math.max(cl.end, end)
-    } else {
-      clusters.push({ start, end, jobs: [{ job, start, end }] })
+  // Build transitive overlap clusters. A new item can bridge multiple prior
+  // clusters (e.g. long job spanning two earlier ones), so merge them all.
+  let clusters = []
+  sorted.forEach((item) => {
+    const hits = clusters.filter((c) => item.start < c.end && item.end > c.start)
+    const rest = clusters.filter((c) => !hits.includes(c))
+    clusters = [
+      ...rest,
+      {
+        start: Math.min(item.start, ...hits.map((c) => c.start)),
+        end: Math.max(item.end, ...hits.map((c) => c.end)),
+        items: [...hits.flatMap((c) => c.items), item],
+      },
+    ]
+  })
+
+  const out = []
+  clusters.forEach((cluster) => {
+    const items = [...cluster.items].sort((a, b) => a.start - b.start || a.end - b.end)
+    const lanes = [] // each lane = array of items placed there
+    items.forEach((item) => {
+      let laneIdx = lanes.findIndex((laneItems) =>
+        laneItems.every((x) => item.start >= x.end || item.end <= x.start)
+      )
+      if (laneIdx === -1) {
+        laneIdx = lanes.length
+        lanes.push([])
+      }
+      lanes[laneIdx].push(item)
+      out.push({ ...item, lane: laneIdx })
+    })
+    const laneCount = lanes.length
+    for (let i = out.length - items.length; i < out.length; i++) {
+      out[i].laneCount = laneCount
     }
   })
-  return clusters
+  return out
 }
 
 const sameDay = (a, b) =>
@@ -920,28 +949,19 @@ const WeekView = ({ anchor, jobs, cleanerColor, onJobClick }) => {
                   />
                 </div>
               )}
-              {layoutDay(dayJobs).map((cluster, ci) =>
-                cluster.jobs.length === 1 ? (
-                  <ScheduleBlock
-                    key={cluster.jobs[0].job.id}
-                    job={cluster.jobs[0].job}
-                    startHr={startHr}
-                    endHr={endHr}
-                    cleanerColor={cleanerColor}
-                    compact
-                    onClick={() => onJobClick(cluster.jobs[0].job)}
-                  />
-                ) : (
-                  <ClusterCard
-                    key={`cluster-${dayIdx}-${ci}`}
-                    cluster={cluster}
-                    startHr={startHr}
-                    endHr={endHr}
-                    cleanerColor={cleanerColor}
-                    onJobClick={onJobClick}
-                  />
-                )
-              )}
+              {layoutDay(dayJobs).map((item) => (
+                <ScheduleBlock
+                  key={item.job.id}
+                  job={item.job}
+                  startHr={startHr}
+                  endHr={endHr}
+                  cleanerColor={cleanerColor}
+                  lane={item.lane}
+                  laneCount={item.laneCount}
+                  compact
+                  onClick={() => onJobClick(item.job)}
+                />
+              ))}
             </div>
           )
         })}
@@ -1465,7 +1485,7 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
 
 // ── Schedule block (used by Day + Week views) ──────────────
 
-const ScheduleBlock = ({ job, startHr, endHr, cleanerColor, forcedColor, compact, onClick }) => {
+const ScheduleBlock = ({ job, startHr, endHr, cleanerColor, forcedColor, compact, onClick, lane = 0, laneCount = 1 }) => {
   const start = jobStartDateTime(job)
   if (!start) return null
   const startMins = start.getHours() * 60 + start.getMinutes()
@@ -1479,6 +1499,15 @@ const ScheduleBlock = ({ job, startHr, endHr, cleanerColor, forcedColor, compact
   const customer = customerLabelForJob(job)
   const service = job.service_name || job.service?.name || job.title || "Service"
 
+  const widthPct = 100 / laneCount
+  const leftPct = lane * widthPct
+  const edgePad = compact ? 4 : 6
+  const gap = 2
+  const leftCss = lane === 0 ? `${edgePad}px` : `calc(${leftPct}% + ${gap}px)`
+  const rightCss = lane === laneCount - 1
+    ? `${edgePad}px`
+    : `calc(${100 - leftPct - widthPct}% + ${gap}px)`
+
   return (
     <button
       onClick={onClick}
@@ -1487,8 +1516,8 @@ const ScheduleBlock = ({ job, startHr, endHr, cleanerColor, forcedColor, compact
         position: "absolute",
         top: `${top}%`,
         height: `${Math.max(height, 3)}%`,
-        left: compact ? 4 : 6,
-        right: compact ? 4 : 6,
+        left: leftCss,
+        right: rightCss,
         background: live ? color : "#fff",
         borderLeft: `3px solid ${color}`,
         border: `1px solid ${live ? color : color + "40"}`,
@@ -1574,176 +1603,6 @@ const minsToLabel = (m) => {
   const period = h >= 12 ? "p" : "a"
   const h12 = h % 12 === 0 ? 12 : h % 12
   return mm === 0 ? `${h12}${period}` : `${h12}:${String(mm).padStart(2, "0")}${period}`
-}
-
-// Cluster card — rendered when 2+ jobs overlap in the same day column.
-// Anchored at the cluster's start time; height is content-driven so the
-// current-time line reads correctly against real column position.
-const ClusterCard = ({ cluster, startHr, endHr, cleanerColor, onJobClick }) => {
-  const top = ((cluster.start / 60 - startHr) / (endHr - startHr)) * 100
-  if (top < 0 || top > 100) return null
-  return (
-    <div
-      style={{
-        position: "absolute",
-        top: `${top}%`,
-        left: 4,
-        right: 4,
-        background: "var(--sf-panel)",
-        borderLeft: "3px solid #0F172A",
-        border: "1px solid var(--sf-border-soft)",
-        borderRadius: 6,
-        boxShadow: "var(--sf-shadow)",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        zIndex: 2,
-        fontFamily: "var(--sf-font-ui)",
-      }}
-    >
-      {/* Header strip */}
-      <div
-        style={{
-          padding: "3px 7px",
-          background: "var(--sf-panel-alt)",
-          borderBottom: "1px solid var(--sf-border-soft)",
-          display: "flex",
-          alignItems: "center",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 9.5,
-            fontWeight: 600,
-            color: "var(--sf-ink-2)",
-            fontFamily: "var(--sf-font-mono)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {minsToLabel(cluster.start)}–{minsToLabel(cluster.end)}
-        </span>
-        <div style={{ flex: 1 }} />
-        <span
-          style={{
-            fontSize: 9.5,
-            fontWeight: 700,
-            color: "#fff",
-            background: "#0F172A",
-            padding: "1px 6px",
-            borderRadius: 3,
-            fontFamily: "var(--sf-font-mono)",
-            letterSpacing: ".02em",
-          }}
-        >
-          {cluster.jobs.length} jobs
-        </span>
-      </div>
-      {/* Body */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0,
-          overflow: "hidden",
-        }}
-      >
-        {cluster.jobs.map(({ job, start }) => {
-          const assignees = assigneesFor(job)
-          const color = assignees.length > 0 ? cleanerColor(assignees[0].id) : "#DC2626"
-          const live = isLiveJob(job)
-          const first = (customerLabelForJob(job) || "").split(" ")[0] || "—"
-          const teamLetter = assignees[0]?.name
-            ? assignees[0].name.charAt(0).toUpperCase()
-            : assignees.length === 0
-            ? "?"
-            : "·"
-          return (
-            <button
-              key={job.id}
-              onClick={(e) => { e.stopPropagation(); onJobClick(job) }}
-              className="sf-timeline-block"
-              style={{
-                display: "flex",
-                alignItems: "stretch",
-                gap: 5,
-                padding: "2px 6px",
-                background: "transparent",
-                border: "none",
-                borderTop: "1px solid var(--sf-border-soft)",
-                cursor: "pointer",
-                fontFamily: "var(--sf-font-ui)",
-                textAlign: "left",
-                minHeight: 0,
-                flexShrink: 0,
-              }}
-            >
-              <span
-                style={{
-                  width: 3,
-                  alignSelf: "stretch",
-                  background: color,
-                  borderRadius: 1,
-                  flexShrink: 0,
-                }}
-              />
-              {live && (
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: 3,
-                    background: color,
-                    alignSelf: "center",
-                    flexShrink: 0,
-                  }}
-                />
-              )}
-              <span
-                style={{
-                  fontSize: 9.5,
-                  color: "var(--sf-ink-3)",
-                  fontFamily: "var(--sf-font-mono)",
-                  fontVariantNumeric: "tabular-nums",
-                  alignSelf: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {minsToLabel(start)}
-              </span>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: "var(--sf-ink)",
-                  alignSelf: "center",
-                  flex: 1,
-                  minWidth: 0,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {first}
-              </span>
-              <span
-                style={{
-                  fontSize: 9,
-                  fontFamily: "var(--sf-font-mono)",
-                  color: "var(--sf-ink-3)",
-                  alignSelf: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {teamLetter}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 // ── Availability view ──────────────────────────────────────
