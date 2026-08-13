@@ -1577,18 +1577,16 @@ const minsToLabel = (m) => {
 }
 
 // Cluster card — rendered when 2+ jobs overlap in the same day column.
-// Spans the union timespan at full column width and stacks each job
-// as a compact mini-row. See ADDON_schedule_overlap_and_assign.md.
+// Anchored at the cluster's start time; height is content-driven so the
+// current-time line reads correctly against real column position.
 const ClusterCard = ({ cluster, startHr, endHr, cleanerColor, onJobClick }) => {
   const top = ((cluster.start / 60 - startHr) / (endHr - startHr)) * 100
-  const height = (((cluster.end - cluster.start) / 60) / (endHr - startHr)) * 100
   if (top < 0 || top > 100) return null
   return (
     <div
       style={{
         position: "absolute",
         top: `${top}%`,
-        height: `${Math.max(height, 4)}%`,
         left: 4,
         right: 4,
         background: "var(--sf-panel)",
