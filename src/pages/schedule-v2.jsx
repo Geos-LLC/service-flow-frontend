@@ -396,6 +396,20 @@ const ScheduleV2 = () => {
     })
   }, [scopedJobs, selectedTeams])
 
+  // Availability tab shows only active cleaners — inactive / on_leave /
+  // soft-deleted members shouldn't appear on the capacity grid. Same
+  // predicate the Create Job team picker uses.
+  const activeCleaners = useMemo(() => {
+    return (teamMembers || []).filter((m) => {
+      const status = String(m?.status || '').toLowerCase()
+      if (status === 'inactive' || status === 'on_leave') return false
+      if (m?.is_active === false) return false
+      if (m?.active === false) return false
+      if (m?.deleted_at) return false
+      return true
+    })
+  }, [teamMembers])
+
   // Date nav
   const nudgeAnchor = (dir) => {
     setAnchor((prev) => {
@@ -548,7 +562,7 @@ const ScheduleV2 = () => {
       {tab === "availability" && (
         <div className="px-4 sm:px-6 lg:px-8 pb-8 pt-3 flex-1">
           <AvailabilityView
-            cleaners={teamMembers}
+            cleaners={activeCleaners}
             jobs={teamFilteredJobs}
             cleanerColor={cleanerColor}
             resolveName={resolveCleanerName}
