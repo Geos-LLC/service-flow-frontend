@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Plus,
@@ -285,10 +286,7 @@ const JobsV2 = () => {
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef(null)
 
-  // Data
-  const [loading, setLoading] = useState(true)
-  const [jobsAll, setJobsAll] = useState([])
-  const [teamMembers, setTeamMembers] = useState([])
+  // Data — populated from react-query below
 
   // Sync tab → URL
   useEffect(() => {
@@ -350,25 +348,32 @@ const JobsV2 = () => {
     return { start, end }
   }, [dateRange.from, dateRange.to])
 
-  const fetchJobs = useCallback(async () => {
-    if (!user?.id) return
-    setLoading(true)
-    try {
+  // Jobs list keyed by user+window so widening the date range refetches
+  // but a plain remount (route change, back nav) hits the cache instead of
+  // re-pulling 1000 rows every time.
+  const jobsQuery = useQuery({
+    queryKey: ["jobs-list", user?.id, fetchWindow.start, fetchWindow.end],
+    enabled: !!user?.id,
+    queryFn: async () => {
       const range = `${fetchWindow.start} to ${fetchWindow.end}`
-      const [jobsResp, teamResp] = await Promise.allSettled([
-        jobsAPI.getAll(user.id, "", "", 1, 1000, null, range, "scheduled_date", "ASC"),
-        teamAPI.getAll(user.id, { page: 1, limit: 200 }),
-      ])
-      const jobsList = jobsResp.status === "fulfilled" ? normalizeAPIResponse(jobsResp.value, "jobs") : []
-      const teamList = teamResp.status === "fulfilled" ? (teamResp.value.teamMembers || teamResp.value || []) : []
-      setJobsAll(jobsList)
-      setTeamMembers(teamList)
-    } finally {
-      setLoading(false)
-    }
-  }, [user?.id, fetchWindow.start, fetchWindow.end])
-
-  useEffect(() => { fetchJobs() }, [fetchJobs])
+      const resp = await jobsAPI.getAll(
+        user.id, "", "", 1, 1000, null, range, "scheduled_date", "ASC",
+        null, null, null, null, null, null, { noCount: true }
+      )
+      return normalizeAPIResponse(resp, "jobs") || []
+    },
+  })
+  const teamQuery = useQuery({
+    queryKey: ["team-members", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const resp = await teamAPI.getAll(user.id, { page: 1, limit: 200 })
+      return resp?.teamMembers || resp || []
+    },
+  })
+  const jobsAll = jobsQuery.data || []
+  const teamMembers = teamQuery.data || []
+  const loading = jobsQuery.isLoading || teamQuery.isLoading
 
   // Apply location filter
   const jobs = useMemo(() => filterByLocation(jobsAll, locationId), [jobsAll, locationId])
