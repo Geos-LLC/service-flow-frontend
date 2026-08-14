@@ -17,7 +17,14 @@ import {
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { useLocationScope, filterByLocation } from "../context/LocationContext"
-import { jobsAPI, teamAPI } from "../services/api"
+import { jobsAPI, teamAPI, territoriesAPI } from "../services/api"
+import {
+  getWorkingIntervals,
+  subtractIntervals,
+  sumIntervalMinutes,
+  jobIntervalOnDate,
+  formatDateKey,
+} from "../utils/availabilityMath"
 import { normalizeAPIResponse } from "../utils/dataHandler"
 import MobileHeader from "../components/mobile-header"
 import {
@@ -273,8 +280,11 @@ const ScheduleV2 = () => {
   const [anchor, setAnchor] = useState(() => new Date())
   const [jobs, setJobs] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
+  const [territories, setTerritories] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTeams, setSelectedTeams] = useState(null) // null = all
+  // Availability tab: territory scope (null = all territories)
+  const [availabilityTerritoryId, setAvailabilityTerritoryId] = useState(null)
   // Manage-shift modal — opened from any Availability cell or daily
   // tile. Shape: { teamId, dayIdx?, jobId?, openSlot? } or null.
   const [manageShift, setManageShift] = useState(null)
@@ -322,6 +332,13 @@ const ScheduleV2 = () => {
         setTeamMembers(Array.isArray(list) ? list : [])
       } catch {
         setTeamMembers([])
+      }
+      try {
+        const tResp = await territoriesAPI.getAll(user.id, { limit: 200 })
+        const list = tResp?.territories || (Array.isArray(tResp) ? tResp : [])
+        setTerritories(Array.isArray(list) ? list : [])
+      } catch {
+        setTerritories([])
       }
     } finally {
       setLoading(false)
@@ -399,7 +416,8 @@ const ScheduleV2 = () => {
 
   // Availability tab shows only active cleaners — inactive / on_leave /
   // soft-deleted members shouldn't appear on the capacity grid. Same
-  // predicate the Create Job team picker uses.
+  // predicate the Create Job team picker uses. Also filters by the
+  // Availability-tab territory dropdown when one is picked.
   const activeCleaners = useMemo(() => {
     return (teamMembers || []).filter((m) => {
       const status = String(m?.status || '').toLowerCase()
@@ -407,9 +425,18 @@ const ScheduleV2 = () => {
       if (m?.is_active === false) return false
       if (m?.active === false) return false
       if (m?.deleted_at) return false
+      if (availabilityTerritoryId != null) {
+        let terrs = m?.territories
+        if (typeof terrs === 'string') {
+          try { terrs = JSON.parse(terrs) } catch { terrs = [] }
+        }
+        if (!Array.isArray(terrs)) return false
+        const idNum = Number(availabilityTerritoryId)
+        if (!terrs.map(Number).filter(Number.isFinite).includes(idNum)) return false
+      }
       return true
     })
-  }, [teamMembers])
+  }, [teamMembers, availabilityTerritoryId])
 
   // Date nav
   const nudgeAnchor = (dir) => {
@@ -571,6 +598,9 @@ const ScheduleV2 = () => {
             subTab={availabilitySubTab}
             setSubTab={setAvailabilitySubTab}
             onOpenManageShift={(payload) => setManageShift(payload)}
+            territories={territories}
+            selectedTerritoryId={availabilityTerritoryId}
+            onSelectTerritory={setAvailabilityTerritoryId}
           />
         </div>
       )}
@@ -1599,58 +1629,133 @@ const AvailabilityView = ({
   subTab,
   setSubTab,
   onOpenManageShift,
+  territories,
+  selectedTerritoryId,
+  onSelectTerritory,
 }) => {
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor])
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   )
+  const dateKeys = useMemo(() => days.map(formatDateKey), [days])
 
-  // Roll up jobs per cleaner per day. A cleaner with any job on a day
-  // is considered "working" for that day.
+  // Derive per-(cleaner, day) capacity from real team_members.availability
+  // + scheduled jobs. Old behavior derived a fake availability from jobs
+  // alone (a cleaner with no jobs was labeled "Off"); after Aug 2026 we
+  // have ZB-sourced availability jsonb on every synced team_member, so
+  // "Off" now means actually not scheduled.
+  //
+  // Cell shape:
+  //   {
+  //     workingMinutes: number,   // real hours per team_members.availability
+  //     bookedMinutes:  number,   // minutes of jobs assigned to this cleaner
+  //     availableMinutes: number, // max(0, workingMinutes - bookedMinutes)
+  //     jobs: number,             // count of jobs assigned that day
+  //     offDay: boolean,          // true when availability signal says off
+  //     noSignal: boolean,        // no availability data at all for this row
+  //   }
   const status = useMemo(() => {
     const map = new Map()
-    cleaners.forEach((m) => {
-      map.set(String(m.id), Array.from({ length: 7 }, () => ({ minutes: 0, jobs: 0 })))
-    })
+    // Pre-build per-cleaner per-day booked intervals so we don't scan
+    // every job for every cell.
+    const bookedByCleaner = new Map() // cleanerId → dateKey → [[start,end], ...]
     jobs.forEach((j) => {
-      const d = jobStartDateTime(j)
-      if (!d) return
-      const dayIdx = days.findIndex((dd) => sameDay(dd, startOfDay(d)))
+      const startDate = jobStartDateTime(j)
+      if (!startDate) return
+      const dayIdx = days.findIndex((dd) => sameDay(dd, startOfDay(startDate)))
       if (dayIdx < 0) return
+      const dateKey = dateKeys[dayIdx]
       const dur = durationMinutes(j)
+      const interval = jobIntervalOnDate(startDate, dur, dateKey)
+      if (!interval) return
       assigneesFor(j).forEach((a) => {
-        const row = map.get(String(a.id))
-        if (!row) return
-        row[dayIdx].minutes += dur
-        row[dayIdx].jobs += 1
+        const id = String(a.id)
+        if (!bookedByCleaner.has(id)) bookedByCleaner.set(id, new Map())
+        const byDate = bookedByCleaner.get(id)
+        if (!byDate.has(dateKey)) byDate.set(dateKey, [])
+        byDate.get(dateKey).push(interval)
       })
     })
+    cleaners.forEach((m) => {
+      const id = String(m.id)
+      const bookedForCleaner = bookedByCleaner.get(id) || new Map()
+      const row = dateKeys.map((dateKey) => {
+        const working = getWorkingIntervals(m.availability, dateKey)
+        const bookedIntervals = bookedForCleaner.get(dateKey) || []
+        const bookedMinutes = sumIntervalMinutes(bookedIntervals)
+        const jobsCount = bookedIntervals.length
+        if (working === null) {
+          // No availability signal at all — historical rows or manually-
+          // added cleaners without a saved schedule. Distinguish from a
+          // real off-day so the operator can spot rows that need setup.
+          return {
+            workingMinutes: 0,
+            bookedMinutes,
+            availableMinutes: 0,
+            jobs: jobsCount,
+            offDay: false,
+            noSignal: true,
+          }
+        }
+        if (working.length === 0) {
+          return {
+            workingMinutes: 0,
+            bookedMinutes,
+            availableMinutes: 0,
+            jobs: jobsCount,
+            offDay: true,
+            noSignal: false,
+          }
+        }
+        const workingMinutes = sumIntervalMinutes(working)
+        const remaining = subtractIntervals(working, bookedIntervals)
+        const availableMinutes = sumIntervalMinutes(remaining)
+        return {
+          workingMinutes,
+          bookedMinutes,
+          availableMinutes,
+          jobs: jobsCount,
+          offDay: false,
+          noSignal: false,
+        }
+      })
+      map.set(id, row)
+    })
     return map
-  }, [cleaners, jobs, days])
+  }, [cleaners, jobs, days, dateKeys])
 
-  // Top KPIs
+  // Top KPIs — recomputed against real availability instead of a flat
+  // 8h × N × 7 baseline. Capacity now reflects what cleaners actually
+  // have on their schedule for the week.
   const kpis = useMemo(() => {
-    let totalMinutes = 0
-    let workingTeams = 0
+    let totalWorkingMinutes = 0
+    let totalBookedMinutes = 0
+    let totalAvailableMinutes = 0
+    let onShift = 0
     cleaners.forEach((m) => {
       const row = status.get(String(m.id)) || []
-      const total = row.reduce((s, c) => s + c.minutes, 0)
-      if (total > 0) workingTeams += 1
-      totalMinutes += total
+      let cleanerWorking = 0
+      row.forEach((c) => {
+        totalWorkingMinutes += c.workingMinutes
+        totalBookedMinutes += c.bookedMinutes
+        totalAvailableMinutes += c.availableMinutes
+        cleanerWorking += c.workingMinutes
+      })
+      if (cleanerWorking > 0) onShift += 1
     })
     return {
-      workingTeams,
+      onShift,
       totalCleaners: cleaners.length,
-      bookedHours: Math.round(totalMinutes / 60),
-      // Soft 8-hour-per-cleaner-per-day capacity baseline
-      capacityHours: cleaners.length * 8 * 7,
+      capacityHours: Math.round(totalWorkingMinutes / 60),
+      bookedHours:   Math.round(totalBookedMinutes / 60),
+      availableHours: Math.round(totalAvailableMinutes / 60),
     }
   }, [cleaners, status])
   const utilization = kpis.capacityHours
     ? Math.round((kpis.bookedHours / kpis.capacityHours) * 100)
     : 0
-  const availableHours = Math.max(0, kpis.capacityHours - kpis.bookedHours)
+  const availableHours = kpis.availableHours
 
   if (cleaners.length === 0) {
     return (
@@ -1668,15 +1773,15 @@ const AvailabilityView = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <SfKPI
           label="On shift this week"
-          value={`${kpis.workingTeams} / ${kpis.totalCleaners}`}
+          value={`${kpis.onShift} / ${kpis.totalCleaners}`}
           accent="var(--sf-green)"
-          sub="cleaners with jobs"
+          sub="cleaners scheduled"
         />
         <SfKPI
           label="Total capacity"
           value={`${kpis.capacityHours} hrs`}
           accent="var(--sf-blue)"
-          sub={`${kpis.totalCleaners} cleaner${kpis.totalCleaners === 1 ? "" : "s"}`}
+          sub={`${kpis.totalCleaners} cleaner${kpis.totalCleaners === 1 ? "" : "s"} · real hours`}
         />
         <SfKPI
           label="Booked"
@@ -1750,9 +1855,54 @@ const AvailabilityView = ({
               Team availability
             </div>
             <div className="text-[11.5px] text-[var(--sf-ink-3)] mt-px">
-              {formatRangeLabel("week", anchor)} · derived from scheduled jobs
+              {formatRangeLabel("week", anchor)} · from cleaner working hours
+              {selectedTerritoryId != null ? (
+                <>
+                  {" · "}
+                  <span style={{ color: "var(--sf-blue-dark)" }}>
+                    {territories?.find((t) => Number(t.id) === Number(selectedTerritoryId))?.name || "Territory"}
+                  </span>
+                </>
+              ) : null}
             </div>
           </div>
+          {Array.isArray(territories) && territories.length > 0 && (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <label
+                htmlFor="availability-territory-picker"
+                className="text-[11px] text-[var(--sf-ink-3)] font-semibold uppercase"
+                style={{ letterSpacing: ".05em" }}
+              >
+                Territory
+              </label>
+              <select
+                id="availability-territory-picker"
+                value={selectedTerritoryId ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value
+                  onSelectTerritory?.(v === "" ? null : Number(v))
+                }}
+                style={{
+                  padding: "6px 10px",
+                  border: "1px solid var(--sf-border-soft)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontFamily: "var(--sf-font-ui)",
+                  background: "var(--sf-panel)",
+                  color: "var(--sf-ink)",
+                  cursor: "pointer",
+                  minWidth: 160,
+                }}
+              >
+                <option value="">All territories</option>
+                {territories.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name || `Territory ${t.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Day headers */}
@@ -1838,10 +1988,48 @@ const AvailabilityView = ({
               </div>
               {row.map((cell, di) => {
                 const isToday = sameDay(days[di], startOfDay(new Date()))
-                const working = cell.minutes > 0
-                const meta = working
-                  ? { c: "var(--sf-green-dark)", bg: "var(--sf-green-soft)", icon: Check, label: `${Math.round(cell.minutes / 60 * 10) / 10}h` }
-                  : { c: "var(--sf-ink-3)", bg: "var(--sf-panel-soft)", icon: Minus, label: "Off" }
+                const workingH = cell.workingMinutes / 60
+                const availableH = cell.availableMinutes / 60
+                let meta
+                if (cell.noSignal) {
+                  // No availability data at all — flag for setup, don't
+                  // silently pretend "Off".
+                  meta = {
+                    c: "var(--sf-ink-3)",
+                    bg: "var(--sf-panel-soft)",
+                    icon: Minus,
+                    label: "—",
+                    sub: "no schedule",
+                  }
+                } else if (cell.offDay) {
+                  meta = {
+                    c: "var(--sf-ink-3)",
+                    bg: "var(--sf-panel-soft)",
+                    icon: Minus,
+                    label: "Off",
+                    sub: cell.jobs > 0 ? `${cell.jobs} job${cell.jobs === 1 ? "" : "s"}` : null,
+                  }
+                } else if (cell.availableMinutes === 0) {
+                  // Working but fully booked — amber so it stands out from
+                  // both green (free) and grey (off).
+                  meta = {
+                    c: "var(--sf-amber-dark)",
+                    bg: "var(--sf-amber-soft)",
+                    icon: Check,
+                    label: `${(Math.round(availableH * 10) / 10)}h free`,
+                    sub: `${cell.jobs} job${cell.jobs === 1 ? "" : "s"} · ${Math.round(workingH)}h shift`,
+                  }
+                } else {
+                  meta = {
+                    c: "var(--sf-green-dark)",
+                    bg: "var(--sf-green-soft)",
+                    icon: Check,
+                    label: `${(Math.round(availableH * 10) / 10)}h free`,
+                    sub: cell.jobs > 0
+                      ? `${cell.jobs} job${cell.jobs === 1 ? "" : "s"} · ${Math.round(workingH)}h shift`
+                      : `${Math.round(workingH)}h shift`,
+                  }
+                }
                 const Icon = meta.icon
                 return (
                   <div
@@ -1884,10 +2072,8 @@ const AvailabilityView = ({
                     >
                       <Icon size={12} />
                       <span style={{ fontVariantNumeric: "tabular-nums" }}>{meta.label}</span>
-                      {working && cell.jobs > 0 && (
-                        <span className="text-[10px] opacity-80">
-                          {cell.jobs} job{cell.jobs === 1 ? "" : "s"}
-                        </span>
+                      {meta.sub && (
+                        <span className="text-[10px] opacity-80">{meta.sub}</span>
                       )}
                     </button>
                   </div>
