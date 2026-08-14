@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Plus,
@@ -146,9 +147,6 @@ const CustomersV2 = () => {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
-  const [loading, setLoading] = useState(true)
-  const [customersAll, setCustomersAll] = useState([])
-  const [jobsAll, setJobsAll] = useState([])
   const [selected, setSelected] = useState(() => new Set())
 
   useEffect(() => {
@@ -164,29 +162,39 @@ const CustomersV2 = () => {
     return () => clearTimeout(t)
   }, [search])
 
-  const fetchData = useCallback(async () => {
-    if (!user?.id) return
-    setLoading(true)
-    try {
-      // Customers don't have jobs/LTV/recurring columns — aggregate
-      // from the jobs table client-side. A single page caps at 1000
-      // rows (Supabase default). For tenants with more than 1000 total
-      // jobs a single fetch undercounts the detail-page LTV — page
-      // through until exhausted so the list matches the detail.
+  // Customers list. Cached by user id — same tenant navigating back to
+  // the page skips the full customers fetch entirely within staleTime.
+  const customersQuery = useQuery({
+    queryKey: ["customers-list", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const resp = await customersAPI
+        .getAll(user.id, { page: 1, limit: 1000, noCount: true })
+        .catch(() => null)
+      const list = resp ? normalizeAPIResponse(resp, "customers") : []
+      return Array.isArray(list) ? list : []
+    },
+  })
+
+  // Full jobs list (for client-side LTV aggregation). Cached separately so
+  // it can be invalidated after job mutations without also invalidating
+  // customer profile edits. Still fetches up to 20 pages of 1000, but only
+  // once per staleTime window instead of every mount.
+  const jobsAggQuery = useQuery({
+    queryKey: ["customer-jobs-agg", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
       const PAGE = 1000
       const MAX_PAGES = 20
-
-      const custResp = await customersAPI
-        .getAll(user.id, { page: 1, limit: PAGE })
-        .catch(() => null)
-      const custList = custResp ? normalizeAPIResponse(custResp, "customers") : []
-      setCustomersAll(Array.isArray(custList) ? custList : [])
-
       let allJobs = []
       for (let p = 1; p <= MAX_PAGES; p++) {
         let chunk = []
         try {
-          const resp = await jobsAPI.getAll(user.id, "", "", p, PAGE)
+          const resp = await jobsAPI.getAll(
+            user.id, "", "", p, PAGE,
+            null, null, null, null, null, null, null, null, null, null,
+            { noCount: true }
+          )
           chunk = normalizeAPIResponse(resp, "jobs") || []
         } catch {
           chunk = []
@@ -195,13 +203,13 @@ const CustomersV2 = () => {
         allJobs = allJobs.concat(chunk)
         if (chunk.length < PAGE) break
       }
-      setJobsAll(allJobs)
-    } finally {
-      setLoading(false)
-    }
-  }, [user?.id])
+      return allJobs
+    },
+  })
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const customersAll = customersQuery.data || []
+  const jobsAll = jobsAggQuery.data || []
+  const loading = customersQuery.isLoading || jobsAggQuery.isLoading
 
   const customers = useMemo(
     () => filterByLocation(customersAll, locationId),

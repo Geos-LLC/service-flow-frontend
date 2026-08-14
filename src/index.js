@@ -1,5 +1,6 @@
 import ReactDOM from "react-dom/client"
 import { initFixPrompt } from "@fixprompt/browser"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import App from "./App"
 import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from "react-router-dom"
 import { FixPromptBoundary } from "./components/FixPromptBoundary"
@@ -171,8 +172,26 @@ function LegacyLeadRedirect() {
   return <Navigate to={id ? `/opportunity/${id}` : '/opportunities'} replace />
 }
 
+// Shared React Query client. staleTime of 60s means list pages don't refetch
+// on every mount within the same minute (Schedule/Jobs/Customers were
+// re-pulling thousands of rows every navigation). gcTime keeps unmounted
+// pages in cache for 5 min so back-nav is instant. Refetch on window focus
+// is off because these pages don't need the aggressive freshness that
+// react-query's default assumes.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60 * 1000,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+})
+
 const root = ReactDOM.createRoot(document.getElementById("root"))
 root.render(
+  <QueryClientProvider client={queryClient}>
   <FixPromptBoundary>
   <UpdateAvailableBanner />
   <BrowserRouter style={{fontFamily: 'Montserrat', fontWeight: 500}}>
@@ -332,5 +351,6 @@ root.render(
       </LocationProvider>
     </AuthProvider>
   </BrowserRouter>
-  </FixPromptBoundary>,
+  </FixPromptBoundary>
+  </QueryClientProvider>,
 )

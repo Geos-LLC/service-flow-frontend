@@ -376,7 +376,8 @@ export const customersAPI = {
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.sortBy) queryParams.append('sortBy', params.sortBy);
       if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
-      
+      if (params.noCount) queryParams.append('noCount', '1');
+
       console.log('Making customers API call with params:', { userId, ...params });
       const response = await api.get(`/customers?${queryParams}`);
       console.log('Customers API response:', response);
@@ -869,7 +870,7 @@ export const recurringBookingsAPI = {
 };
 
 export const jobsAPI = {
-  getAll: async (userId, status, search, page = 1, limit = 20, dateFilter, dateRange, sortBy, sortOrder, teamMember, invoiceStatus, customerId, territoryId, recurring, signal) => {
+  getAll: async (userId, status, search, page = 1, limit = 20, dateFilter, dateRange, sortBy, sortOrder, teamMember, invoiceStatus, customerId, territoryId, recurring, signal, opts = {}) => {
     try {
       const params = new URLSearchParams({ userId });
       if (status) params.append('status', status);
@@ -885,7 +886,11 @@ export const jobsAPI = {
       if (customerId) params.append('customerId', customerId);
       if (territoryId) params.append('territoryId', territoryId);
       if (recurring) params.append('recurring', recurring);
-      
+      // Callers that don't need a total (bulk list fetches for the calendar
+      // / customers page) pass noCount to skip the COUNT(*) round-trip on
+      // the server. Cuts query time roughly in half on big tenants.
+      if (opts.noCount) params.append('noCount', '1');
+
       const config = signal ? { signal } : {};
       const response = await api.get(`/jobs?${params}`, config);
       return response.data;

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   ChevronLeft,
@@ -270,6 +271,7 @@ const ScheduleV2 = () => {
   const { user } = useAuth()
   const { locationId } = useLocationScope()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const initialTab = TABS.find((t) => t.id === searchParams.get("tab"))?.id || "schedule"
@@ -278,10 +280,6 @@ const ScheduleV2 = () => {
   const [tab, setTab] = useState(initialTab)
   const [view, setView] = useState(initialView)
   const [anchor, setAnchor] = useState(() => new Date())
-  const [jobs, setJobs] = useState([])
-  const [teamMembers, setTeamMembers] = useState([])
-  const [territories, setTerritories] = useState([])
-  const [loading, setLoading] = useState(true)
   const [selectedTeams, setSelectedTeams] = useState(null) // null = all
   // Availability tab: territory scope (null = all territories)
   const [availabilityTerritoryId, setAvailabilityTerritoryId] = useState(null)
@@ -302,50 +300,63 @@ const ScheduleV2 = () => {
     }, { replace: true })
   }, [tab, view, setSearchParams])
 
-  // Load jobs + team members
-  const fetchData = useCallback(async () => {
-    if (!user?.id) return
-    setLoading(true)
-    try {
-      const PAGE = 1000
-      const MAX_PAGES = 10
-      let all = []
-      for (let p = 1; p <= MAX_PAGES; p++) {
-        let chunk = []
-        try {
-          const resp = await jobsAPI.getAll(user.id, "", "", p, PAGE)
-          chunk = normalizeAPIResponse(resp, "jobs") || []
-        } catch {
-          chunk = []
-        }
-        if (!Array.isArray(chunk) || chunk.length === 0) break
-        all = all.concat(chunk)
-        if (chunk.length < PAGE) break
-      }
-      setJobs(all.filter((j) => !isCancelledJob(j)))
+  // Constrain job fetch to a ~5-month window centered on the visible
+  // anchor, quantized to month boundaries so nudging within the window
+  // hits the cache instead of refetching. Old behavior pulled every job
+  // ever created (up to 10k rows sequentially) on every mount.
+  const fetchWindow = useMemo(() => {
+    const a = anchor || new Date()
+    const start = new Date(a.getFullYear(), a.getMonth() - 2, 1)
+    const end = new Date(a.getFullYear(), a.getMonth() + 3, 0)
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    return { start: fmt(start), end: fmt(end) }
+  }, [anchor])
 
-      try {
-        const tmResp = await teamAPI.getAll(user.id, { page: 1, limit: 500 })
-        // Backend returns { teamMembers: [...] }; match dashboard-v2's
-        // shape so the lookup always finds names.
-        const list = tmResp?.teamMembers || tmResp?.members || (Array.isArray(tmResp) ? tmResp : [])
-        setTeamMembers(Array.isArray(list) ? list : [])
-      } catch {
-        setTeamMembers([])
-      }
-      try {
-        const tResp = await territoriesAPI.getAll(user.id, { limit: 200 })
-        const list = tResp?.territories || (Array.isArray(tResp) ? tResp : [])
-        setTerritories(Array.isArray(list) ? list : [])
-      } catch {
-        setTerritories([])
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [user?.id])
+  const jobsQuery = useQuery({
+    queryKey: ["schedule-jobs", user?.id, fetchWindow.start, fetchWindow.end],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const range = `${fetchWindow.start} to ${fetchWindow.end}`
+      const resp = await jobsAPI.getAll(
+        user.id, "", "", 1, 1000, null, range, "scheduled_date", "ASC",
+        null, null, null, null, null, null, { noCount: true }
+      )
+      const list = normalizeAPIResponse(resp, "jobs") || []
+      return list.filter((j) => !isCancelledJob(j))
+    },
+  })
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const teamQuery = useQuery({
+    queryKey: ["schedule-team", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const tmResp = await teamAPI.getAll(user.id, { page: 1, limit: 500 })
+      const list = tmResp?.teamMembers || tmResp?.members || (Array.isArray(tmResp) ? tmResp : [])
+      return Array.isArray(list) ? list : []
+    },
+  })
+
+  const territoriesQuery = useQuery({
+    queryKey: ["schedule-territories", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const tResp = await territoriesAPI.getAll(user.id, { limit: 200 })
+      const list = tResp?.territories || (Array.isArray(tResp) ? tResp : [])
+      return Array.isArray(list) ? list : []
+    },
+  })
+
+  const jobs = jobsQuery.data || []
+  const teamMembers = teamQuery.data || []
+  const territories = territoriesQuery.data || []
+  const loading = jobsQuery.isLoading || teamQuery.isLoading || territoriesQuery.isLoading
+
+  // Callback for child modals that mutate jobs. Invalidates every window
+  // of the schedule-jobs cache so the next render pulls fresh rows.
+  const fetchData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["schedule-jobs", user?.id] })
+    queryClient.invalidateQueries({ queryKey: ["schedule-team", user?.id] })
+  }, [queryClient, user?.id])
 
   // Location filter
   const scopedJobs = useMemo(() => filterByLocation(jobs, locationId), [jobs, locationId])
