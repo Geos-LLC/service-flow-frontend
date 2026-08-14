@@ -667,9 +667,18 @@ const ScheduleV2 = () => {
         anchor={anchor}
         onMutated={fetchData}
         onOpenJob={onJobClick}
-        onNewJob={(teamId) =>
-          navigate(teamId ? `/createjob?teamMemberId=${teamId}` : "/createjob")
-        }
+        onNewJob={(teamId, slot) => {
+          const params = new URLSearchParams()
+          if (teamId) params.set("teamMemberId", String(teamId))
+          if (slot?.day instanceof Date) params.set("scheduledDate", formatDateKey(slot.day))
+          if (slot?.start != null) {
+            const hh = String(Math.floor(slot.start / 60)).padStart(2, "0")
+            const mm = String(slot.start % 60).padStart(2, "0")
+            params.set("scheduledTime", `${hh}:${mm}`)
+          }
+          const qs = params.toString()
+          navigate(qs ? `/createjob?${qs}` : "/createjob")
+        }}
       />
     </div>
   )
@@ -2453,6 +2462,24 @@ const ManageShiftModal = ({
     })
     .filter(Boolean)
   const freeIvs = subtractIntervals(workingIvs, bookedIvs)
+
+  // Assigned-tab timeline: interleave free-slot cards between assigned
+  // job rows in chronological order. Lets the operator see when the
+  // cleaner is free between cleanings — with exact times.
+  const assignedTimeline = (() => {
+    if (subTab !== "assigned") return null
+    const items = []
+    assigned.forEach((j) => {
+      const sd = jobStartDateTime(j)
+      const start = sd ? sd.getHours() * 60 + sd.getMinutes() : 0
+      items.push({ type: "job", start, job: j })
+    })
+    freeIvs.forEach(([s, e]) => {
+      items.push({ type: "free", start: s, end: e })
+    })
+    items.sort((a, b) => a.start - b.start)
+    return items
+  })()
   const shiftSummary =
     workingIvs.length === 0
       ? null
@@ -2619,11 +2646,51 @@ const ManageShiftModal = ({
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {list.length === 0 ? (
+          {subTab === "assigned" ? (
+            assignedTimeline.length === 0 ? (
+              <div className="py-10 text-center text-[12.5px] text-[var(--sf-ink-3)]">
+                {workingIvs.length === 0
+                  ? `${teamName.split(" ")[0]} is not on shift this day.`
+                  : `No jobs currently assigned to ${teamName.split(" ")[0]} on this day.`}
+              </div>
+            ) : (
+              assignedTimeline.map((item, i) => {
+                const isLast = i === assignedTimeline.length - 1
+                if (item.type === "job") {
+                  return (
+                    <ShiftJobRow
+                      key={`j-${item.job.id}`}
+                      job={item.job}
+                      isLast={isLast}
+                      teamColor={teamColor}
+                      cleanerColor={cleanerColor}
+                      resolveName={resolveName}
+                      subTab={subTab}
+                      teamName={teamName}
+                      busy={busy}
+                      highlight={String(item.job.id) === String(payload.jobId)}
+                      onOpen={() => onOpenJob?.(item.job)}
+                      onAssign={() => onAssignToTeam(item.job)}
+                      onPull={() => onPullToTeam(item.job)}
+                      onUnassign={() => onUnassign(item.job)}
+                    />
+                  )
+                }
+                return (
+                  <FreeSlotRow
+                    key={`f-${item.start}-${item.end}`}
+                    start={item.start}
+                    end={item.end}
+                    isLast={isLast}
+                    teamName={teamName}
+                    onNewJob={() => onNewJob?.(teamId, { day, start: item.start, end: item.end })}
+                  />
+                )
+              })
+            )
+          ) : list.length === 0 ? (
             <div className="py-10 text-center text-[12.5px] text-[var(--sf-ink-3)]">
-              {subTab === "assigned"
-                ? `No jobs currently assigned to ${teamName.split(" ")[0]} on this day.`
-                : subTab === "unassigned"
+              {subTab === "unassigned"
                 ? payload.openSlot
                   ? "No unassigned jobs fit this open slot."
                   : "Every job today already has a cleaner."
@@ -2788,6 +2855,61 @@ const ShiftJobRow = ({
             </SfButton>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Free-slot card (in manage-shift modal, Assigned tab) ────
+//
+// A gap between assigned cleanings shown inline in the timeline so the
+// operator sees exactly when the cleaner is free without having to
+// eyeball job start/end times.
+const FreeSlotRow = ({ start, end, isLast, teamName, onNewJob }) => {
+  const durMin = end - start
+  const h = Math.floor(durMin / 60)
+  const m = durMin % 60
+  const durLabel = m === 0 ? `${h}h` : h === 0 ? `${m}m` : `${h}h ${m}m`
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 16px",
+        borderBottom: isLast ? "none" : "1px solid var(--sf-border-soft)",
+        background: "var(--sf-green-soft)",
+        borderLeft: "3px solid var(--sf-green)",
+      }}
+    >
+      <div style={{ width: 82, textAlign: "center", flexShrink: 0 }}>
+        <div
+          className="text-[12px] font-bold"
+          style={{
+            color: "var(--sf-green-dark)",
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {minsToLabel(start)}–{minsToLabel(end)}
+        </div>
+        <div className="text-[10px] text-[var(--sf-ink-3)] mt-px">{durLabel}</div>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div
+          className="text-[12.5px] font-semibold"
+          style={{ color: "var(--sf-green-dark)" }}
+        >
+          Free window
+        </div>
+        <div className="text-[11px] text-[var(--sf-ink-2)] mt-0.5">
+          {durLabel} open on {teamName.split(" ")[0]}'s shift
+        </div>
+      </div>
+      <div className="flex-shrink-0">
+        <SfButton variant="primary" size="sm" icon={Plus} onClick={onNewJob}>
+          Book job
+        </SfButton>
       </div>
     </div>
   )
