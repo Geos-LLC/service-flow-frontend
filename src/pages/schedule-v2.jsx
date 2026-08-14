@@ -1999,8 +1999,13 @@ const AvailabilityView = ({
               </div>
               {row.map((cell, di) => {
                 const isToday = sameDay(days[di], startOfDay(new Date()))
-                const workingH = cell.workingMinutes / 60
-                const availableH = cell.availableMinutes / 60
+                const shiftH = cell.workingMinutes / 60
+                const workedH = cell.bookedMinutes / 60
+                const freeH = cell.availableMinutes / 60
+                const fmtH = (h) => {
+                  const r = Math.round(h * 10) / 10
+                  return Number.isInteger(r) ? String(r) : r.toFixed(1)
+                }
                 let meta
                 if (cell.noSignal) {
                   // No availability data at all — flag for setup, don't
@@ -2013,12 +2018,14 @@ const AvailabilityView = ({
                     sub: "no schedule",
                   }
                 } else if (cell.offDay) {
+                  // Off-day but with jobs (unusual, e.g. asked to cover a
+                  // day off) still owes a worked-hours count.
                   meta = {
                     c: "var(--sf-ink-3)",
                     bg: "var(--sf-panel-soft)",
                     icon: Minus,
                     label: "Off",
-                    sub: cell.jobs > 0 ? `${cell.jobs} job${cell.jobs === 1 ? "" : "s"}` : null,
+                    sub: cell.jobs > 0 ? `${fmtH(workedH)}h worked` : null,
                   }
                 } else if (cell.availableMinutes === 0) {
                   // Working but fully booked — amber so it stands out from
@@ -2027,18 +2034,18 @@ const AvailabilityView = ({
                     c: "var(--sf-amber-dark)",
                     bg: "var(--sf-amber-soft)",
                     icon: Check,
-                    label: `${(Math.round(availableH * 10) / 10)}h free`,
-                    sub: `${cell.jobs} job${cell.jobs === 1 ? "" : "s"} · ${Math.round(workingH)}h shift`,
+                    label: `${fmtH(shiftH)}h shift`,
+                    sub: `${fmtH(workedH)}h worked · 0h free`,
                   }
                 } else {
                   meta = {
                     c: "var(--sf-green-dark)",
                     bg: "var(--sf-green-soft)",
                     icon: Check,
-                    label: `${(Math.round(availableH * 10) / 10)}h free`,
-                    sub: cell.jobs > 0
-                      ? `${cell.jobs} job${cell.jobs === 1 ? "" : "s"} · ${Math.round(workingH)}h shift`
-                      : `${Math.round(workingH)}h shift`,
+                    label: `${fmtH(shiftH)}h shift`,
+                    sub: cell.bookedMinutes > 0
+                      ? `${fmtH(workedH)}h worked · ${fmtH(freeH)}h free`
+                      : `${fmtH(freeH)}h free`,
                   }
                 }
                 const Icon = meta.icon
