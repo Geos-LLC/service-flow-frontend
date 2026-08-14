@@ -236,6 +236,17 @@ const formatJobTime = (job) => {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(":00", "")
 }
 
+// "10a–2:30p" — start + start+duration end. Compact so it fits inside the
+// narrow time column of ShiftJobRow / modal listings. minsToLabel is
+// hoisted so it's safe to call at render time.
+const formatJobRange = (job) => {
+  const d = jobStartDateTime(job)
+  if (!d) return ""
+  const startMin = d.getHours() * 60 + d.getMinutes()
+  const endMin = startMin + durationMinutes(job)
+  return `${minsToLabel(startMin)}–${minsToLabel(endMin % (24 * 60))}`
+}
+
 const formatRangeLabel = (view, anchor) => {
   if (view === "day") {
     return anchor.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
@@ -2431,6 +2442,28 @@ const ManageShiftModal = ({
   const counts = { assigned: assigned.length, unassigned: slotFiltered.length, other: others.length }
   const list = subTab === "assigned" ? assigned : subTab === "unassigned" ? slotFiltered : others
 
+  // Working window(s) + free window(s) for this cleaner on this day, so
+  // the operator sees when open time exists without leaving the modal.
+  const dateKey = formatDateKey(day)
+  const workingIvs = getWorkingIntervals(team?.availability, dateKey) || []
+  const bookedIvs = assigned
+    .map((j) => {
+      const sd = jobStartDateTime(j)
+      return sd ? jobIntervalOnDate(sd, durationMinutes(j), dateKey) : null
+    })
+    .filter(Boolean)
+  const freeIvs = subtractIntervals(workingIvs, bookedIvs)
+  const shiftSummary =
+    workingIvs.length === 0
+      ? null
+      : `Shift ${workingIvs.map(([s, e]) => `${minsToLabel(s)}–${minsToLabel(e)}`).join(" · ")}`
+  const freeSummary =
+    workingIvs.length === 0
+      ? null
+      : freeIvs.length === 0
+        ? "Fully booked"
+        : `Free ${freeIvs.map(([s, e]) => `${minsToLabel(s)}–${minsToLabel(e)}`).join(" · ")}`
+
   const updateAssignment = async (job, nextPrimaryId) => {
     setBusy(true)
     try {
@@ -2503,6 +2536,28 @@ const ManageShiftModal = ({
                 <> · open slot {minsToLabel(payload.openSlot.start)}–{minsToLabel(payload.openSlot.end)}</>
               )}
             </div>
+            {(shiftSummary || freeSummary) && (
+              <div
+                className="text-[11px] mt-1"
+                style={{ display: "flex", gap: 10, flexWrap: "wrap" }}
+              >
+                {shiftSummary && (
+                  <span style={{ color: "var(--sf-ink-3)" }}>{shiftSummary}</span>
+                )}
+                {freeSummary && (
+                  <span
+                    style={{
+                      color: freeIvs.length === 0
+                        ? "var(--sf-amber-dark)"
+                        : "var(--sf-green-dark)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {freeSummary}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -2629,7 +2684,7 @@ const ShiftJobRow = ({
   busy, highlight, onOpen, onAssign, onPull, onUnassign,
 }) => {
   const d = jobStartDateTime(job)
-  const timeLabel = d ? formatJobTime(job) : "—"
+  const rangeLabel = d ? formatJobRange(job) : "—"
   const dur = durationMinutes(job)
   const customer = customerLabelForJob(job)
   const service = job.service_name || job.service?.name || job.title || "Service"
@@ -2654,12 +2709,12 @@ const ShiftJobRow = ({
         borderLeft: `3px solid ${subTab === "assigned" ? teamColor : currentTeamColor}`,
       }}
     >
-      <div style={{ width: 56, textAlign: "center", flexShrink: 0 }}>
+      <div style={{ width: 82, textAlign: "center", flexShrink: 0 }}>
         <div
-          className="text-[13px] font-bold text-[var(--sf-ink)]"
-          style={{ fontVariantNumeric: "tabular-nums" }}
+          className="text-[12px] font-bold text-[var(--sf-ink)]"
+          style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
         >
-          {timeLabel}
+          {rangeLabel}
         </div>
         <div className="text-[10px] text-[var(--sf-ink-3)] mt-px">{dur}m</div>
       </div>
