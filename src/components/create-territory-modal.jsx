@@ -34,6 +34,7 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [newZipCode, setNewZipCode] = useState("")
+  const [zipError, setZipError] = useState("")
   const [availableTeamMembers, setAvailableTeamMembers] = useState([])
   const [availableServices, setAvailableServices] = useState([])
 
@@ -69,11 +70,18 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
         }
       }
 
+      // Defensive: DB may contain legacy free-text tokens (older paste
+      // handler accepted anything). Only keep valid 5-digit ZIPs so a
+      // garbage entry can't render as a huge chip and can't round-trip
+      // back to the DB on save.
+      const cleanZipCodes = (Array.isArray(territory.zip_codes) ? territory.zip_codes : [])
+        .map(z => String(z || '').trim().replace(/-.*$/, ''))
+        .filter(z => /^\d{5}$/.test(z))
       setFormData({
         name: territory.name || "",
         description: territory.description || "",
         location: territory.location || "",
-        zipCodes: territory.zip_codes || [],
+        zipCodes: cleanZipCodes,
         radiusMiles: territory.radius_miles || 25,
         timezone: territory.timezone || "America/New_York",
         status: territory.status || "active",
@@ -145,10 +153,64 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
     }))
   }
 
+  // Parse a raw ZIP-list string (single value, comma/space/newline-separated
+  // paste, or a mix) and return the valid additions + count of skipped
+  // tokens. A US ZIP is 5 digits; ZIP+4 (`12345-6789`) is collapsed to the
+  // 5-digit prefix. Already-present ZIPs are treated as "skipped" (not an
+  // error) so re-pasting a superset list is safe.
+  const parseZipList = (raw, existing) => {
+    const existingSet = new Set(existing || [])
+    const seen = new Set()
+    const valid = []
+    let invalid = 0
+    const tokens = String(raw || '')
+      .split(/[\s,;]+/)
+      .map(t => t.trim())
+      .filter(Boolean)
+    for (const t of tokens) {
+      const five = t.replace(/-.*$/, '')  // strip +4 suffix
+      if (!/^\d{5}$/.test(five)) { invalid += 1; continue }
+      if (existingSet.has(five) || seen.has(five)) continue
+      seen.add(five)
+      valid.push(five)
+    }
+    return { valid, invalid }
+  }
+
   const addZipCode = () => {
-    if (newZipCode && !formData.zipCodes.includes(newZipCode)) {
-      handleInputChange('zipCodes', [...formData.zipCodes, newZipCode])
+    if (!newZipCode.trim()) return
+    const { valid, invalid } = parseZipList(newZipCode, formData.zipCodes)
+    if (valid.length === 0 && invalid === 0) {
+      // All tokens were already present — nothing to do, quietly clear.
       setNewZipCode("")
+      setZipError("")
+      return
+    }
+    if (valid.length > 0) {
+      handleInputChange('zipCodes', [...formData.zipCodes, ...valid])
+    }
+    setZipError(invalid > 0 ? `${invalid} entry${invalid === 1 ? '' : 'ies'} skipped (must be 5-digit ZIP).` : "")
+    setNewZipCode("")
+  }
+
+  // Paste-friendly: if the user pastes a comma-separated list, apply it
+  // immediately instead of forcing them to click the plus button.
+  const handleZipPaste = (e) => {
+    const pasted = (e.clipboardData || window.clipboardData).getData('text')
+    if (!pasted || !/[,\s;]/.test(pasted)) return  // single value → let default input behavior handle it
+    e.preventDefault()
+    const { valid, invalid } = parseZipList(pasted, formData.zipCodes)
+    if (valid.length > 0) {
+      handleInputChange('zipCodes', [...formData.zipCodes, ...valid])
+    }
+    setZipError(invalid > 0 ? `${invalid} entry${invalid === 1 ? '' : 'ies'} skipped (must be 5-digit ZIP).` : "")
+    setNewZipCode("")
+  }
+
+  const handleZipKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addZipCode()
     }
   }
 
@@ -186,12 +248,17 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
     setError("")
 
     try {
+      // Final validation gate — never send anything other than 5-digit
+      // ZIPs to the backend, even if state was contaminated by legacy paste.
+      const zipCodesToSend = (formData.zipCodes || [])
+        .map(z => String(z || '').trim().replace(/-.*$/, ''))
+        .filter(z => /^\d{5}$/.test(z))
       const territoryData = {
         userId: userId, // Use the userId prop
         name: formData.name,
         description: formData.description,
         location: formData.location,
-        zipCodes: formData.zipCodes,
+        zipCodes: zipCodesToSend,
         radiusMiles: formData.radiusMiles,
         timezone: formData.timezone,
         status: formData.status,
@@ -350,8 +417,10 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
                     type="text"
                     value={newZipCode}
                     onChange={(e) => setNewZipCode(e.target.value)}
+                    onPaste={handleZipPaste}
+                    onKeyDown={handleZipKeyDown}
                     className="flex-1 px-3 py-2 border border-[var(--sf-border-light)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--sf-blue-500)] focus:border-[var(--sf-blue-500)]"
-                    placeholder="Enter ZIP code"
+                    placeholder="One ZIP or a comma-separated list (e.g. 33556, 33594, 33596)"
                   />
                   <button
                     type="button"
@@ -361,6 +430,9 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
+                {zipError && (
+                  <p className="text-xs text-amber-600 mb-2">{zipError}</p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {formData.zipCodes.map((zipCode) => (
                     <span

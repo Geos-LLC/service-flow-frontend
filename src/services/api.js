@@ -1851,6 +1851,25 @@ export const territoriesAPI = {
     }
   },
 
+  // Preview territory resolution BEFORE saving a customer or job.
+  // Backend runs the same resolver used at job-create time and returns:
+  //   { territory, territoryId, confidence, warning, source, alternatives, available }
+  // Confidence 'zip_match' or 'exact_name' → prefill the chip.
+  // Confidence 'ambiguous' or 'no_match' → open the picker; `alternatives` populates it.
+  previewTerritory: async ({ userId, zipCode, city, customerId } = {}) => {
+    try {
+      const response = await api.post('/territories/preview', {
+        userId,
+        zipCode: zipCode || null,
+        city: city || null,
+        customerId: customerId || null,
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
   // Get available team members for a territory
   getTerritoryTeamMembers: async (territoryId) => {
     try {
