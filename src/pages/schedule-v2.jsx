@@ -1734,8 +1734,15 @@ const SyncFromZBButton = ({ onDone }) => {
   }, [onDone])
 
   const busy = status === "running"
-  const written = summary?.written ?? 0
+  const updated = summary?.updated ?? 0
+  const unchanged = summary?.unchanged ?? 0
   const scanned = summary?.scanned ?? 0
+  const noMatch = (summary?.skipped_no_zb_id ?? 0) + (summary?.skipped_no_zb_match ?? 0)
+  const doneLabel = updated > 0
+    ? `✓ Updated ${updated} of ${scanned} cleaners`
+    : scanned > 0
+      ? `✓ Already up to date${noMatch > 0 ? ` (${noMatch} not on ZB)` : ""}`
+      : "✓ Nothing to sync"
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1743,8 +1750,9 @@ const SyncFromZBButton = ({ onDone }) => {
         <span
           className="text-[11px]"
           style={{ color: "var(--sf-green-dark)", fontWeight: 600 }}
+          title={`updated=${updated} unchanged=${unchanged} scanned=${scanned} not_on_zb=${noMatch}`}
         >
-          ✓ Synced {written}/{scanned} cleaners
+          {doneLabel}
         </span>
       )}
       {status === "error" && (
