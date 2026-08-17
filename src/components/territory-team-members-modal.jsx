@@ -79,14 +79,20 @@ const TerritoryTeamMembersModal = ({ isOpen, onClose, onSuccess, territoryId, us
       // Get current territory data to preserve other fields
       const territoryData = await territoriesAPI.getById(territoryId)
       const territory = territoryData.territory || territoryData
-      
+
+      // Sanitize zip_codes on round-trip so legacy garbage doesn't get
+      // re-saved by this modal (which only edits team members).
+      const cleanZipCodes = (Array.isArray(territory.zip_codes) ? territory.zip_codes : [])
+        .map(z => String(z || '').trim().replace(/-.*$/, ''))
+        .filter(z => /^\d{5}$/.test(z))
+
       // Update territory with new team members array
       await territoriesAPI.update(territoryId, {
         userId: userId,
         name: territory.name,
         description: territory.description,
         location: territory.location,
-        zipCodes: territory.zip_codes || [],
+        zipCodes: cleanZipCodes,
         radiusMiles: territory.radius_miles || 25,
         timezone: territory.timezone || "America/New_York",
         status: territory.status || "active",

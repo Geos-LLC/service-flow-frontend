@@ -207,6 +207,10 @@ export default function CreateJobPage() {
   const [detectedTerritory, setDetectedTerritory] = useState(null);
   const [territories, setTerritories] = useState([]);
   const [territoriesLoading, setTerritoriesLoading] = useState(false);
+  const [territoryWarning, setTerritoryWarning] = useState(null);
+  // True after the operator has manually picked a territory via the modal.
+  // Locks out the ZIP-based auto-fill so we don't overwrite their choice.
+  const [territoryManualOverride, setTerritoryManualOverride] = useState(false);
   const [addressAutoPopulated, setAddressAutoPopulated] = useState(false);
 
   // Customer properties (multi-address). The selected one drives serviceAddress
@@ -1901,6 +1905,10 @@ export default function CreateJobPage() {
   const handleTerritorySelect = (territory) => {
     setDetectedTerritory(territory);
     setFormData(prev => ({ ...prev, territory: territory.name, territoryId: territory.id }));
+    // Operator has committed to a specific territory — don't let ZIP-based
+    // auto-detect overwrite it if the address changes afterwards.
+    setTerritoryManualOverride(true);
+    setTerritoryWarning(null);
     setShowTerritoryModal(false);
   };
 
@@ -2387,6 +2395,58 @@ setIntakeQuestionAnswers(answers);
       });
     }
   }, [calculationTrigger, editedModifierPrices, selectedModifiers, calculateTotalPrice]);
+
+  // Auto-resolve territory from the service address (ZIP-first, city fallback).
+  // Runs on address change; skipped once the operator manually picks a
+  // territory via the modal. Debounced so typing a ZIP doesn't fire a
+  // request per keystroke.
+  useEffect(() => {
+    if (!user?.id) return;
+    if (territoryManualOverride) return;
+    const zip = formData.serviceAddress?.zipCode?.trim();
+    const city = formData.serviceAddress?.city?.trim();
+    if (!zip && !city) {
+      // No signal at all — clear stale detection so the UI shows Unassigned.
+      setDetectedTerritory(null);
+      setTerritoryWarning(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await territoriesAPI.previewTerritory({
+          userId: user.id,
+          zipCode: zip || null,
+          city: city || null,
+          customerId: selectedCustomer?.id || null,
+        });
+        if (cancelled) return;
+        // High-confidence hits: assign automatically.
+        if (res && res.territory && (res.confidence === 'zip_match' || res.confidence === 'exact_name')) {
+          setDetectedTerritory({ id: res.territoryId, name: res.territory });
+          setFormData(prev => ({ ...prev, territory: res.territory, territoryId: res.territoryId }));
+          setTerritoryWarning(null);
+          return;
+        }
+        // Location-prefix / inherited: assign but surface the warning so the
+        // operator can verify.
+        if (res && res.territory) {
+          setDetectedTerritory({ id: res.territoryId, name: res.territory });
+          setFormData(prev => ({ ...prev, territory: res.territory, territoryId: res.territoryId }));
+          setTerritoryWarning(res.warning || null);
+          return;
+        }
+        // No confident match — leave the chip empty and show the warning so
+        // the operator opens the picker.
+        setDetectedTerritory(null);
+        setFormData(prev => ({ ...prev, territory: '', territoryId: null }));
+        setTerritoryWarning(res?.warning || null);
+      } catch (err) {
+        if (!cancelled) console.warn('[territory-preview] failed', err);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [formData.serviceAddress?.zipCode, formData.serviceAddress?.city, user?.id, selectedCustomer?.id, territoryManualOverride]);
 
   // Calculate total duration including modifiers
   const calculateTotalDuration = () => {
@@ -3968,6 +4028,11 @@ setIntakeQuestionAnswers(answers);
                         <span className="text-[var(--sf-text-muted)] italic">Unassigned</span>
                       )}
                     </p>
+                    {territoryWarning && (
+                      <p className="text-xs text-[var(--sf-amber-600, #b45309)] mt-1" style={{ fontFamily: 'Montserrat', fontWeight: 400 }}>
+                        {territoryWarning}
+                      </p>
+                    )}
                   </div>
 
                   {/* Payment Method */}
