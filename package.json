@@ -45,7 +45,9 @@
     "build:strict": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "icons:generate": "node scripts/generate-icons.js"
+    "icons:generate": "node scripts/generate-icons.js",
+    "postinstall": "node scripts/fetch-zcta.js",
+    "prebuild": "node scripts/fetch-zcta.js"
   },
   "eslintConfig": {
     "extends": [

@@ -1,79 +1,156 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { MapPin, Target, Users, DollarSign, Clock } from 'lucide-react'
-import { GOOGLE_MAPS_API_KEY } from '../config/maps'
+import { MapPin, Target, Users, DollarSign } from 'lucide-react'
+import { GOOGLE_MAPS_API_KEY, getGoogleMapsApiKey } from '../config/maps'
+import { loadGoogleMapsScript } from '../utils/googleMaps'
+import { getZipBoundaries } from '../utils/zipBoundaries'
 
-const TerritoryMap = ({ 
-  territory, 
+// Purple palette matches the Thumbtack-style service-area rendering.
+const POLYGON_FILL = '#8B5CF6'
+const POLYGON_STROKE = '#7C3AED'
+const POLYGON_FILL_OPACITY = 0.35
+const POLYGON_STROKE_WEIGHT = 2
+
+const TerritoryMap = ({
+  territory,
   height = '400px',
-  showDetails = true, 
+  showDetails = true,
   className = '',
   onTerritoryClick = null,
-  compact = false
+  compact = false,
 }) => {
   const mapRef = useRef(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
-  const [mapError, setMapError] = useState(false)
-
-  // Generate Google Maps URL with territory boundary visualization
-  const generateTerritoryMapUrl = (territory) => {
-    if (!territory || !territory.location) {
-      return null
-    }
-
-    const encodedLocation = encodeURIComponent(territory.location)
-    const radius = territory.radius_miles || 25
-    // Adjust zoom to show territory better - lower zoom shows more area
-    const zoom = Math.max(10, Math.min(13, 15 - Math.log2(radius))) // Dynamic zoom based on radius
-    
-    // Create a custom map URL that shows the territory with boundary visualization
-    // Using Google Maps embed with custom styling to show territory boundaries
-    const mapUrl = `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_API_KEY}&q=${encodedLocation}&zoom=${zoom}&maptype=roadmap`
-    
-    return mapUrl
-  }
-
-  // Generate a more advanced map URL with territory visualization
-  const generateAdvancedTerritoryMapUrl = (territory) => {
-    if (!territory || !territory.location) {
-      return null
-    }
-
-    const encodedLocation = encodeURIComponent(territory.location)
-    const radius = territory.radius_miles || 25
-    
-    // Create a custom map with territory boundary using Google Maps JavaScript API
-    // This would require loading the Google Maps JavaScript API
-    return `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_API_KEY}&q=${encodedLocation}&zoom=12&maptype=roadmap`
-  }
-
-  const handleMapLoad = () => {
-    setMapLoaded(true)
-    setMapError(false)
-  }
-
-  const handleMapError = () => {
-    setMapError(true)
-    setMapLoaded(false)
-  }
-
-  const formatTerritoryDetails = (territory) => {
-    if (!territory) return null
-
-    return {
-      name: territory.name || 'Unnamed Territory',
-      location: territory.location || 'No location specified',
-      radius: territory.radius_miles || 25,
-      teamMembers: territory.team_members?.length || 0,
-      pricingMultiplier: territory.pricing_multiplier || 1.0,
-      status: territory.status || 'active',
-      zipCodes: territory.zip_codes || []
-    }
-  }
+  const mapInstanceRef = useRef(null)
+  const dataLayerFeaturesRef = useRef([])
+  const fallbackCircleRef = useRef(null)
+  const [status, setStatus] = useState('idle')  // 'idle' | 'loading' | 'ready' | 'error'
+  const [errorMessage, setErrorMessage] = useState('')
 
   const details = formatTerritoryDetails(territory)
-  const mapUrl = generateTerritoryMapUrl(territory)
+  const zipCodes = Array.isArray(details?.zipCodes) ? details.zipCodes : []
+  const openInGoogleMapsUrl = territory?.location
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(territory.location)}`
+    : null
 
-  if (!territory || !mapUrl) {
+  // Initialize the map once the container is mounted and Google Maps is
+  // available. We deliberately re-initialize when `territory.id` changes
+  // so the map picks up a completely different territory cleanly.
+  useEffect(() => {
+    let cancelled = false
+    if (!territory || !mapRef.current) return
+
+    setStatus('loading')
+    setErrorMessage('')
+
+    const apiKey = getGoogleMapsApiKey() || GOOGLE_MAPS_API_KEY
+    if (!apiKey) {
+      setStatus('error')
+      setErrorMessage('Google Maps API key not configured.')
+      return
+    }
+
+    loadGoogleMapsScript(apiKey)
+      .then(() => {
+        if (cancelled || !mapRef.current) return
+        // Initialize a bare map centered on Florida — proper bounds are set
+        // once polygons/geocoding resolve.
+        const map = new window.google.maps.Map(mapRef.current, {
+          center: { lat: 27.994402, lng: -81.760254 },
+          zoom: 7,
+          disableDefaultUI: compact,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: !compact,
+          zoomControl: true,
+        })
+        mapInstanceRef.current = map
+        map.data.setStyle({
+          fillColor: POLYGON_FILL,
+          fillOpacity: POLYGON_FILL_OPACITY,
+          strokeColor: POLYGON_STROKE,
+          strokeWeight: POLYGON_STROKE_WEIGHT,
+          clickable: false,
+        })
+
+        return renderTerritory(map, territory, zipCodes)
+      })
+      .then(() => { if (!cancelled) setStatus('ready') })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('[TerritoryMap] init failed', err)
+        setStatus('error')
+        setErrorMessage(err?.message || 'Failed to load map.')
+      })
+
+    return () => {
+      cancelled = true
+      // Cleanup: remove any features we added to the data layer and drop
+      // the fallback circle. We leave the map instance itself alone —
+      // Google Maps handles container teardown when the div unmounts.
+      if (mapInstanceRef.current) {
+        for (const f of dataLayerFeaturesRef.current) {
+          try { mapInstanceRef.current.data.remove(f) } catch { /* ignore */ }
+        }
+        dataLayerFeaturesRef.current = []
+      }
+      if (fallbackCircleRef.current) {
+        try { fallbackCircleRef.current.setMap(null) } catch { /* ignore */ }
+        fallbackCircleRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [territory?.id, territory?.location, territory?.radius_miles, zipCodes.join(',')])
+
+  async function renderTerritory(map, terr, zips) {
+    if (zips && zips.length > 0) {
+      // Path 1: render ZIP polygons and fit bounds.
+      const fc = await getZipBoundaries(zips)
+      if (!fc.features.length) {
+        // ZIPs entered but none matched the Florida ZCTA file — either
+        // they're outside FL or the file is missing them. Fall back to
+        // the radius circle so the operator still sees something.
+        return renderRadiusFallback(map, terr)
+      }
+      const added = map.data.addGeoJson(fc)
+      dataLayerFeaturesRef.current = added
+
+      const bounds = new window.google.maps.LatLngBounds()
+      extendBoundsFromGeoJson(bounds, fc)
+      if (!bounds.isEmpty()) map.fitBounds(bounds, compact ? 20 : 40)
+      return
+    }
+    // Path 2: no ZIPs configured — draw the legacy radius circle so
+    // existing territories still get a visual.
+    return renderRadiusFallback(map, terr)
+  }
+
+  async function renderRadiusFallback(map, terr) {
+    if (!terr?.location) return
+    try {
+      const geocoder = new window.google.maps.Geocoder()
+      const { results } = await geocoder.geocode({ address: terr.location })
+      if (!results || results.length === 0) return
+      const center = results[0].geometry.location
+      map.setCenter(center)
+      map.setZoom(Math.max(9, Math.min(13, 14 - Math.log2(terr.radius_miles || 25))))
+      const circle = new window.google.maps.Circle({
+        map,
+        center,
+        radius: (terr.radius_miles || 25) * 1609.34,  // miles → meters
+        fillColor: POLYGON_FILL,
+        fillOpacity: POLYGON_FILL_OPACITY,
+        strokeColor: POLYGON_STROKE,
+        strokeWeight: POLYGON_STROKE_WEIGHT,
+        clickable: false,
+      })
+      fallbackCircleRef.current = circle
+    } catch (err) {
+      // Geocoding failure isn't fatal — the map still shows the general
+      // area, just without the circle overlay.
+      console.warn('[TerritoryMap] geocode fallback failed', err)
+    }
+  }
+
+  if (!territory) {
     return (
       <div className={`bg-[var(--sf-bg-page)] rounded-lg flex items-center justify-center ${className}`} style={{ height }}>
         <div className="text-center text-[var(--sf-text-muted)]">
@@ -85,138 +162,115 @@ const TerritoryMap = ({
   }
 
   return (
-    <div className={`relative bg-white overflow-hidden ${className || 'rounded-lg border border-[var(--sf-border-light)]'}`} style={height === '100%' ? { height: '100%' } : {}}>
-      {/* Map Container */}
+    <div
+      className={`relative bg-white overflow-hidden ${className || 'rounded-lg border border-[var(--sf-border-light)]'}`}
+      style={height === '100%' ? { height: '100%' } : {}}
+      onClick={onTerritoryClick ? () => onTerritoryClick(territory) : undefined}
+    >
       <div className="relative h-full" style={height !== '100%' ? { height } : {}}>
-        {!mapError ? (
-          <iframe
-            title="Territory Map"
-            ref={mapRef}
-            src={mapUrl}
-            width="100%"
-            height="100%"
-            style={{ border: 0 }}
-            allowFullScreen=""
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            onLoad={handleMapLoad}
-            onError={handleMapError}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full bg-[var(--sf-bg-page)]">
-            <div className="text-center text-[var(--sf-text-muted)]">
-              <MapPin className="w-8 h-8 mx-auto mb-2 text-[var(--sf-text-muted)]" />
-              <p>Map failed to load</p>
+        <div ref={mapRef} className="w-full h-full" />
+
+        {/* Status overlays */}
+        {status === 'loading' && (
+          <div className="absolute inset-0 bg-[var(--sf-bg-page)] bg-opacity-70 flex items-center justify-center pointer-events-none">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--sf-blue-500)] mx-auto mb-2"></div>
+              <p className="text-[var(--sf-text-secondary)] text-sm">Loading map…</p>
+            </div>
+          </div>
+        )}
+        {status === 'error' && (
+          <div className="absolute inset-0 bg-[var(--sf-bg-page)] flex items-center justify-center">
+            <div className="text-center text-[var(--sf-text-muted)] px-4">
+              <MapPin className="w-8 h-8 mx-auto mb-2" />
+              <p className="text-sm">{errorMessage || 'Map failed to load'}</p>
             </div>
           </div>
         )}
 
-        {/* Territory Boundary Overlay */}
-        <div className="absolute inset-0 pointer-events-none">
-          {/* Territory Center Marker */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-            <div className={`${compact ? 'w-5 h-5' : 'w-6 h-6'} ${compact ? 'border' : 'border-2'} bg-[var(--sf-blue-500)] rounded-full border-white shadow-lg flex items-center justify-center`}>
-              <div className={`${compact ? 'w-1.5 h-1.5' : 'w-2 h-2'} bg-white rounded-full`}></div>
+        {/* Info card — non-compact only */}
+        {!compact && status !== 'error' && (
+          <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 max-w-xs pointer-events-none">
+            <div className="flex items-center space-x-2 mb-2">
+              <Target className="w-4 h-4 text-[var(--sf-blue-500)]" />
+              <h3 className="font-semibold text-[var(--sf-text-primary)]">{details.name}</h3>
             </div>
-          </div>
-
-          {/* Territory Radius Circle */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-            <div 
-              className={`${compact ? 'border' : 'border-2'} border-blue-500 border-dashed rounded-full bg-[var(--sf-blue-500)] bg-opacity-10`}
-              style={{
-                width: `${compact ? Math.min(250, Math.max(60, details.radius * 10)) : Math.min(200, Math.max(50, details.radius * 8))}px`,
-                height: `${compact ? Math.min(250, Math.max(60, details.radius * 10)) : Math.min(200, Math.max(50, details.radius * 8))}px`
-              }}
-            ></div>
-          </div>
-
-          {/* Territory Info Overlay */}
-          {!compact && (
-            <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 max-w-xs">
-              <div className="flex items-center space-x-2 mb-2">
-                <Target className="w-4 h-4 text-[var(--sf-blue-500)]" />
-                <h3 className="font-semibold text-[var(--sf-text-primary)]">{details.name}</h3>
+            <div className="space-y-1 text-sm text-[var(--sf-text-secondary)]">
+              <div className="flex items-center space-x-2">
+                <MapPin className="w-3 h-3" />
+                <span className="truncate">{details.location}</span>
               </div>
-              <div className="space-y-1 text-sm text-[var(--sf-text-secondary)]">
-                <div className="flex items-center space-x-2">
-                  <MapPin className="w-3 h-3" />
-                  <span>{details.location}</span>
-                </div>
+              {zipCodes.length > 0 ? (
                 <div className="flex items-center space-x-2">
                   <Target className="w-3 h-3" />
-                  <span>{details.radius} mile radius</span>
+                  <span>{zipCodes.length} ZIP{zipCodes.length === 1 ? '' : 's'}</span>
                 </div>
+              ) : (
                 <div className="flex items-center space-x-2">
-                  <Users className="w-3 h-3" />
-                  <span>{details.teamMembers} team members</span>
+                  <Target className="w-3 h-3" />
+                  <span>{details.radius} mi radius</span>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <DollarSign className="w-3 h-3" />
-                  <span>{details.pricingMultiplier}x pricing</span>
-                </div>
+              )}
+              <div className="flex items-center space-x-2">
+                <Users className="w-3 h-3" />
+                <span>{details.teamMembers} team members</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <DollarSign className="w-3 h-3" />
+                <span>{details.pricingMultiplier}x pricing</span>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Compact Territory Info Overlay */}
-          {compact && (
-            <div className="absolute top-2 left-2 bg-white rounded-md shadow-md p-2 max-w-[140px]">
-              <div className="flex items-center space-x-1 mb-1">
-                <Target className="w-3 h-3 text-[var(--sf-blue-500)]" />
-                <h3 className="font-medium text-[var(--sf-text-primary)] text-xs truncate">{details.name}</h3>
-              </div>
-              <div className="text-xs text-[var(--sf-text-secondary)]">
-                <div className="flex items-center space-x-1">
-                  <Target className="w-2 h-2" />
-                  <span>{details.radius} mi</span>
-                </div>
-              </div>
+        {/* Compact info chip */}
+        {compact && status !== 'error' && (
+          <div className="absolute top-2 left-2 bg-white rounded-md shadow-md p-2 max-w-[160px] pointer-events-none">
+            <div className="flex items-center space-x-1 mb-1">
+              <Target className="w-3 h-3 text-[var(--sf-blue-500)]" />
+              <h3 className="font-medium text-[var(--sf-text-primary)] text-xs truncate">{details.name}</h3>
             </div>
-          )}
+            <div className="text-xs text-[var(--sf-text-secondary)]">
+              {zipCodes.length > 0
+                ? `${zipCodes.length} ZIP${zipCodes.length === 1 ? '' : 's'}`
+                : `${details.radius} mi`}
+            </div>
+          </div>
+        )}
 
-          {/* Territory Status Badge */}
+        {/* Status badge */}
+        {status !== 'error' && (
           <div className={`absolute ${compact ? 'top-2 right-2' : 'top-4 right-4'}`}>
             <span className={`inline-flex items-center ${compact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm'} rounded-full font-medium ${
-              details.status === 'active' 
-                ? 'bg-green-100 text-green-800' 
+              details.status === 'active'
+                ? 'bg-green-100 text-green-800'
                 : 'bg-[var(--sf-bg-page)] text-[var(--sf-text-primary)]'
             }`}>
               {details.status}
             </span>
           </div>
+        )}
 
-          {/* Radius Indicator */}
-          <div className={`absolute ${compact ? 'bottom-2 left-2' : 'bottom-4 left-4'} bg-[var(--sf-blue-500)] text-white ${compact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm'} rounded-lg font-medium`}>
-            {details.radius} mi
-          </div>
-
-          {/* Map Controls */}
-          <div className={`absolute ${compact ? 'bottom-2 right-2' : 'bottom-4 right-4'} flex space-x-2`}>
-            <button 
-              className={`${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
-              onClick={() => window.open(mapUrl.replace('embed', 'maps'), '_blank')}
+        {/* "Open in Google Maps" — bottom right */}
+        {openInGoogleMapsUrl && status !== 'error' && (
+          <div className={`absolute ${compact ? 'bottom-2 right-2' : 'bottom-4 right-4'}`}>
+            <a
+              href={openInGoogleMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
               title="Open in Google Maps"
+              onClick={(e) => e.stopPropagation()}
             >
               <svg className={`${compact ? 'w-3 h-3' : 'w-4 h-4'}`} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M15 3L21 3M21 3V9M21 3L13 11M10 5H7C4.79086 5 3 6.79086 3 9V17C3 19.2091 4.79086 21 7 21H15C17.2091 21 19 19.2091 19 17V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Loading Overlay */}
-        {!mapLoaded && !mapError && (
-          <div className="absolute inset-0 bg-[var(--sf-bg-page)] flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-              <p className="text-[var(--sf-text-secondary)]">Loading map...</p>
-            </div>
+            </a>
           </div>
         )}
       </div>
 
-      {/* Territory Details Section */}
+      {/* Detail strip below the map */}
       {showDetails && details && (
         <div className="p-4 border-t border-[var(--sf-border-light)]">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -233,14 +287,51 @@ const TerritoryMap = ({
               <div className="text-sm text-[var(--sf-text-secondary)]">Pricing Multiplier</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">{details.zipCodes.length}</div>
+              <div className="text-2xl font-bold text-orange-600">{zipCodes.length}</div>
               <div className="text-sm text-[var(--sf-text-secondary)]">ZIP Codes</div>
             </div>
           </div>
         </div>
-        )}
-      </div>
+      )}
+    </div>
   )
+}
+
+function formatTerritoryDetails(territory) {
+  if (!territory) return null
+  return {
+    name: territory.name || 'Unnamed Territory',
+    location: territory.location || 'No location specified',
+    radius: territory.radius_miles || 25,
+    teamMembers: Array.isArray(territory.team_members) ? territory.team_members.length : 0,
+    pricingMultiplier: territory.pricing_multiplier || 1.0,
+    status: territory.status || 'active',
+    zipCodes: (Array.isArray(territory.zip_codes) ? territory.zip_codes : [])
+      .map(z => String(z || '').trim())
+      .filter(z => /^\d{5}$/.test(z)),
+  }
+}
+
+// Walk raw GeoJSON coordinates so we can build a LatLngBounds without
+// materializing Data.Feature objects (which forces us into the async
+// forEach loop). Handles Polygon and MultiPolygon.
+function extendBoundsFromGeoJson(bounds, fc) {
+  const g = window.google
+  for (const feature of fc.features || []) {
+    const geom = feature.geometry
+    if (!geom) continue
+    if (geom.type === 'Polygon') {
+      for (const ring of geom.coordinates || []) {
+        for (const [lng, lat] of ring) bounds.extend(new g.maps.LatLng(lat, lng))
+      }
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates || []) {
+        for (const ring of poly) {
+          for (const [lng, lat] of ring) bounds.extend(new g.maps.LatLng(lat, lng))
+        }
+      }
+    }
+  }
 }
 
 export default TerritoryMap

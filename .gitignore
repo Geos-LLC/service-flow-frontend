@@ -11,6 +11,10 @@
 # production
 /build
 
+# Fetched at build time by scripts/fetch-zcta.js — ~22 MB of Census ZCTA
+# polygons used by TerritoryMap. Not checked in.
+/public/zcta-fl.geojson
+
 # misc
 .DS_Store
 .env
