@@ -12,6 +12,7 @@ import {
   Globe,
   Loader2,
   Trash2,
+  Map as MapIcon,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { useNavigate } from "react-router-dom"
@@ -194,6 +195,14 @@ const ServiceFlowTerritories = () => {
 
             {/* Controls Bar */}
             <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
+              <button
+                onClick={() => navigate('/territories/zip-manager')}
+                className="px-4 py-2 border border-[var(--sf-border-light)] text-[var(--sf-text-primary)] rounded-lg text-sm font-medium hover:bg-[var(--sf-bg-page)] flex items-center gap-2"
+                style={{ fontFamily: 'Montserrat', fontWeight: 500 }}
+              >
+                <MapIcon className="w-4 h-4" />
+                Manage ZIPs
+              </button>
               <button
                 onClick={handleCreateTerritory}
                 className="px-4 py-2 bg-[var(--sf-blue-500)] text-white rounded-lg text-sm font-medium hover:bg-[var(--sf-blue-600)] flex items-center gap-2"
