@@ -48,6 +48,7 @@ const ZipEditorMap = ({
   const allFcRef = useRef(null)         // full ZCTA FeatureCollection cache
   const zipCodesRef = useRef(zipCodes)  // latest zipCodes for click closure
   const otherOwnersRef = useRef(new Map())  // zip → territoryName (for confirms)
+  const didInitialFitRef = useRef(false)   // fit-bounds once, then respect user's pan/zoom
 
   const [status, setStatus] = useState("loading")
   const [showUnassigned, setShowUnassigned] = useState(false)
@@ -172,6 +173,10 @@ const ZipEditorMap = ({
     const added = map.data.addGeoJson({ type: "FeatureCollection", features: featuresToAdd })
     featuresRef.current = added
 
+    // Only fit bounds ONCE per open — subsequent ZIP toggles would
+    // otherwise reset the operator's zoom every time they clicked.
+    if (didInitialFitRef.current) return
+
     // Fit bounds to THIS territory's polygons. If empty (brand-new
     // territory or one that hasn't claimed any ZIPs yet), geocode
     // its `location` string and center there — NOT bounds-to-siblings,
@@ -185,6 +190,7 @@ const ZipEditorMap = ({
     }
     if (!bounds.isEmpty()) {
       map.fitBounds(bounds, 40)
+      didInitialFitRef.current = true
       return
     }
     // No ZIPs on this territory yet → geocode location and center.
@@ -194,6 +200,7 @@ const ZipEditorMap = ({
         if (statusCode === "OK" && results?.[0]) {
           map.setCenter(results[0].geometry.location)
           map.setZoom(10)
+          didInitialFitRef.current = true
         }
       })
     }

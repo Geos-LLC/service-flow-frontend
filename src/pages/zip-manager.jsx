@@ -65,6 +65,8 @@ const ZipManager = () => {
   const dataLayerFeatures = useRef([])  // features added so we can clear on redraw
   const zipToFeature = useRef(new Map())  // zip → Data.Feature for style refresh
   const allFeaturesRef = useRef(null)  // full ZCTA FeatureCollection cache
+  const didInitialFitRef = useRef(false)  // fit-bounds once at start; then respect user pan/zoom
+  const lastFocusedTerritoryRef = useRef(null)  // fit again when operator picks a different territory
   const [mapStatus, setMapStatus] = useState("loading")
 
   // Load territories
@@ -222,15 +224,37 @@ const ZipManager = () => {
       if (z) zipToFeature.current.set(z, f)
     }
 
-    // Fit bounds to assigned polygons only (unassigned would zoom out
-    // to the whole state and lose focus).
+    // Fit bounds only when it makes sense to re-frame — otherwise the
+    // operator loses their zoom every time they toggle a ZIP.
+    //   1. First render (didInitialFitRef flips true after) → fit to
+    //      all assigned polygons.
+    //   2. Operator picks a DIFFERENT territory in the sidebar → fit
+    //      to that territory's polygons so they see where they are.
+    // Any change driven by clicking a ZIP polygon (which only mutates
+    // `assignments`) is ignored.
+    const selectionChanged = lastFocusedTerritoryRef.current !== selectedTerritoryId
+    const shouldFit = !didInitialFitRef.current || selectionChanged
+    if (!shouldFit) return
+
     const bounds = new window.google.maps.LatLngBounds()
-    for (const f of added) {
-      if (!f.getProperty("assigned")) continue
-      f.getGeometry().forEachLatLng((ll) => bounds.extend(ll))
+    if (selectionChanged && selectedTerritoryId) {
+      // Fit to the newly-selected territory's polygons.
+      const zips = assignments[selectedTerritoryId] || new Set()
+      for (const f of added) {
+        const z = f.getProperty("zip")
+        if (zips.has(z)) f.getGeometry().forEachLatLng((ll) => bounds.extend(ll))
+      }
+    } else {
+      // First-time fit: everything assigned.
+      for (const f of added) {
+        if (!f.getProperty("assigned")) continue
+        f.getGeometry().forEachLatLng((ll) => bounds.extend(ll))
+      }
     }
     if (!bounds.isEmpty()) map.fitBounds(bounds, 60)
-  }, [assignments, showUnassigned, mapStatus, territories])
+    didInitialFitRef.current = true
+    lastFocusedTerritoryRef.current = selectedTerritoryId
+  }, [assignments, showUnassigned, mapStatus, territories, selectedTerritoryId])
 
   // Style function — closes over the latest zipOwnership + selection.
   // Re-set on each dependency change so Google Maps picks up the new
