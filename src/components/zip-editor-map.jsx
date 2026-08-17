@@ -172,26 +172,32 @@ const ZipEditorMap = ({
     const added = map.data.addGeoJson({ type: "FeatureCollection", features: featuresToAdd })
     featuresRef.current = added
 
-    // Fit bounds to THIS territory's polygons. Fall back to OTHER
-    // context if no THIS polygons yet (so a brand-new territory zooms
-    // to the operator's existing service area instead of the whole state).
+    // Fit bounds to THIS territory's polygons. If empty (brand-new
+    // territory or one that hasn't claimed any ZIPs yet), geocode
+    // its `location` string and center there — NOT bounds-to-siblings,
+    // which would show the wrong metro (e.g., opening Miami and
+    // seeing Tampa because Tampa is the only territory with ZIPs).
     const bounds = new window.google.maps.LatLngBounds()
-    let anchor = "this"
     for (const f of added) {
       if (f.getProperty("bucket") === "this") {
         f.getGeometry().forEachLatLng((ll) => bounds.extend(ll))
       }
     }
-    if (bounds.isEmpty()) {
-      anchor = "other"
-      for (const f of added) {
-        if (f.getProperty("bucket") === "other") {
-          f.getGeometry().forEachLatLng((ll) => bounds.extend(ll))
-        }
-      }
+    if (!bounds.isEmpty()) {
+      map.fitBounds(bounds, 40)
+      return
     }
-    if (!bounds.isEmpty()) map.fitBounds(bounds, 40)
-  }, [zipCodes.join(","), otherOwnersByZip, showUnassigned, status])
+    // No ZIPs on this territory yet → geocode location and center.
+    if (location && window.google?.maps?.Geocoder) {
+      const geocoder = new window.google.maps.Geocoder()
+      geocoder.geocode({ address: location }, (results, statusCode) => {
+        if (statusCode === "OK" && results?.[0]) {
+          map.setCenter(results[0].geometry.location)
+          map.setZoom(10)
+        }
+      })
+    }
+  }, [zipCodes.join(","), otherOwnersByZip, showUnassigned, status, location])
 
   // Re-set style function so it re-reads the latest zipCodes / owners.
   useEffect(() => {
