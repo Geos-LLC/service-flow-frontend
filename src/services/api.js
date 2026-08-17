@@ -1221,6 +1221,18 @@ export const teamAPI = {
     }
   },
 
+  // On-demand ZB availability reconcile — pairs with GET /sync/progress
+  // for polling. Server returns 202 immediately and runs in background.
+  syncAvailabilityFromZenbooker: async () => {
+    const response = await api.post('/team-availability/sync');
+    return response.data;
+  },
+
+  getAvailabilitySyncProgress: async () => {
+    const response = await api.get('/team-availability/sync/progress');
+    return response.data;
+  },
+
   // Time tracking and salary
   recordStartTime: async (jobId, startTime) => {
     try {
