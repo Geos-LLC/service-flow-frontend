@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { MapPin, Target, Users, DollarSign, Maximize2, X } from 'lucide-react'
 import { GOOGLE_MAPS_API_KEY, getGoogleMapsApiKey } from '../config/maps'
 import { loadGoogleMapsScript } from '../utils/googleMaps'
@@ -10,6 +11,18 @@ const POLYGON_STROKE = '#7C3AED'
 const POLYGON_FILL_OPACITY = 0.35
 const POLYGON_STROKE_WEIGHT = 2
 
+// Debug logger — TEMPORARILY enabled by default while diagnosing the
+// small↔large view flip loop. To silence: `window.__SF_TM_DEBUG = false`
+// in devtools. Remove the default-on once the root cause is fixed.
+const tmLog = (...args) => {
+  const on = typeof window === 'undefined' || window.__SF_TM_DEBUG !== false
+  if (!on) return
+  // eslint-disable-next-line no-console
+  console.log('[TM]', ...args)
+}
+
+let __tmInstanceCounter = 0
+
 const TerritoryMap = ({
   territory,
   height = '400px',
@@ -20,11 +33,31 @@ const TerritoryMap = ({
   enlargeable = true,  // show Expand button; disable when this IS the enlarged instance
 }) => {
   const [expanded, setExpanded] = useState(false)
+
+  // Instance id + render counter so we can tell WHICH TerritoryMap
+  // (outer card vs. enlarged modal) is churning.
+  const instanceIdRef = useRef(0)
+  if (instanceIdRef.current === 0) instanceIdRef.current = ++__tmInstanceCounter
+  const renderCountRef = useRef(0)
+  renderCountRef.current += 1
+  tmLog(`render #${renderCountRef.current}`, {
+    inst: instanceIdRef.current,
+    territoryId: territory?.id,
+    territoryName: territory?.name,
+    expanded,
+    compact,
+    enlargeable,
+  })
+
   useEffect(() => {
     if (!expanded) return
+    tmLog('escape-listener MOUNTED', { inst: instanceIdRef.current })
     const onKey = (e) => { if (e.key === 'Escape') setExpanded(false) }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      tmLog('escape-listener UNMOUNTED', { inst: instanceIdRef.current })
+      window.removeEventListener('keydown', onKey)
+    }
   }, [expanded])
 
   const mapRef = useRef(null)
@@ -270,7 +303,11 @@ const TerritoryMap = ({
             {enlargeable && (
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setExpanded(true) }}
+                onClick={(e) => {
+                  tmLog('MAXIMIZE clicked', { inst: instanceIdRef.current, target: e.target?.tagName })
+                  e.stopPropagation()
+                  setExpanded(true)
+                }}
                 className={`pointer-events-auto inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
                 title="Expand map"
               >
@@ -319,17 +356,27 @@ const TerritoryMap = ({
         </div>
       )}
 
-      {/* Enlarged view — a fresh, non-compact TerritoryMap in a full-screen
-          overlay. `enlargeable={false}` prevents the child from recursively
-          rendering its own Expand button + modal. */}
-      {expanded && (
+      {/* Enlarged view — portaled to document.body so backdrop clicks
+          can't bubble back into the map card's DOM and re-trigger
+          anything. `enlargeable={false}` on the nested map prevents
+          recursion. */}
+      {expanded && typeof document !== 'undefined' && createPortal(
         <div
           className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4"
-          onClick={() => setExpanded(false)}
+          onMouseDown={(e) => {
+            // Only close if the actual mousedown is on the backdrop
+            // itself, not on a descendant (which would mean the drag
+            // started inside the map and released on the backdrop).
+            if (e.target !== e.currentTarget) return
+            tmLog('BACKDROP mousedown → close', { inst: instanceIdRef.current })
+            e.stopPropagation()
+            setExpanded(false)
+          }}
         >
           <div
             className="bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden flex flex-col"
             style={{ height: '85vh' }}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--sf-border-light)]">
@@ -346,7 +393,11 @@ const TerritoryMap = ({
               </div>
               <button
                 type="button"
-                onClick={() => setExpanded(false)}
+                onClick={(e) => {
+                  tmLog('CLOSE-X clicked', { inst: instanceIdRef.current })
+                  e.stopPropagation()
+                  setExpanded(false)
+                }}
                 className="text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)] transition-colors"
                 title="Close (Esc)"
               >
@@ -364,7 +415,8 @@ const TerritoryMap = ({
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
