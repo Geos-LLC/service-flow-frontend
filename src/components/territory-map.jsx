@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { MapPin, Target, Users, DollarSign } from 'lucide-react'
+import { MapPin, Target, Users, DollarSign, Maximize2, X } from 'lucide-react'
 import { GOOGLE_MAPS_API_KEY, getGoogleMapsApiKey } from '../config/maps'
 import { loadGoogleMapsScript } from '../utils/googleMaps'
 import { getZipBoundaries } from '../utils/zipBoundaries'
@@ -17,7 +17,16 @@ const TerritoryMap = ({
   className = '',
   onTerritoryClick = null,
   compact = false,
+  enlargeable = true,  // show Expand button; disable when this IS the enlarged instance
 }) => {
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e) => { if (e.key === 'Escape') setExpanded(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded])
+
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const dataLayerFeaturesRef = useRef([])
@@ -251,21 +260,33 @@ const TerritoryMap = ({
           </div>
         )}
 
-        {/* "Open in Google Maps" — bottom right */}
-        {openInGoogleMapsUrl && status !== 'error' && (
-          <div className={`absolute ${compact ? 'bottom-2 right-2' : 'bottom-4 right-4'}`}>
-            <a
-              href={openInGoogleMapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
-              title="Open in Google Maps"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <svg className={`${compact ? 'w-3 h-3' : 'w-4 h-4'}`} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M15 3L21 3M21 3V9M21 3L13 11M10 5H7C4.79086 5 3 6.79086 3 9V17C3 19.2091 4.79086 21 7 21H15C17.2091 21 19 19.2091 19 17V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </a>
+        {/* Bottom-right button stack — Expand + Open in Google Maps */}
+        {status !== 'error' && (
+          <div className={`absolute ${compact ? 'bottom-2 right-2' : 'bottom-4 right-4'} flex gap-2`}>
+            {enlargeable && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpanded(true) }}
+                className={`inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
+                title="Expand map"
+              >
+                <Maximize2 className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} text-[var(--sf-text-primary)]`} />
+              </button>
+            )}
+            {openInGoogleMapsUrl && (
+              <a
+                href={openInGoogleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
+                title="Open in Google Maps"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg className={`${compact ? 'w-3 h-3' : 'w-4 h-4'}`} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M15 3L21 3M21 3V9M21 3L13 11M10 5H7C4.79086 5 3 6.79086 3 9V17C3 19.2091 4.79086 21 7 21H15C17.2091 21 19 19.2091 19 17V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </a>
+            )}
           </div>
         )}
       </div>
@@ -289,6 +310,54 @@ const TerritoryMap = ({
             <div className="text-center">
               <div className="text-2xl font-bold text-orange-600">{zipCodes.length}</div>
               <div className="text-sm text-[var(--sf-text-secondary)]">ZIP Codes</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged view — a fresh, non-compact TerritoryMap in a full-screen
+          overlay. `enlargeable={false}` prevents the child from recursively
+          rendering its own Expand button + modal. */}
+      {expanded && (
+        <div
+          className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden flex flex-col"
+            style={{ height: '85vh' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--sf-border-light)]">
+              <div className="flex items-center gap-2">
+                <Target className="w-5 h-5 text-[var(--sf-blue-500)]" />
+                <h3 className="text-lg font-semibold text-[var(--sf-text-primary)]">
+                  {details.name}
+                  <span className="ml-2 text-sm font-normal text-[var(--sf-text-secondary)]">
+                    {zipCodes.length > 0
+                      ? `${zipCodes.length} ZIP${zipCodes.length === 1 ? '' : 's'}`
+                      : `${details.radius} mi radius`}
+                  </span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)] transition-colors"
+                title="Close (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <TerritoryMap
+                territory={territory}
+                height="100%"
+                showDetails={false}
+                compact={false}
+                enlargeable={false}
+                className="h-full rounded-none border-0"
+              />
             </div>
           </div>
         </div>
