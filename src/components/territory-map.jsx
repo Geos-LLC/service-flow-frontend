@@ -247,9 +247,11 @@ const TerritoryMap = ({
           </div>
         )}
 
-        {/* Status badge */}
+        {/* Status badge — non-interactive, keep it out of the map's
+            pointer stream so the cursor doesn't flicker between grab
+            (map) and default (badge) as it crosses the boundary. */}
         {status !== 'error' && (
-          <div className={`absolute ${compact ? 'top-2 right-2' : 'top-4 right-4'}`}>
+          <div className={`absolute ${compact ? 'top-2 right-2' : 'top-4 right-4'} pointer-events-none`}>
             <span className={`inline-flex items-center ${compact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm'} rounded-full font-medium ${
               details.status === 'active'
                 ? 'bg-green-100 text-green-800'
@@ -260,14 +262,16 @@ const TerritoryMap = ({
           </div>
         )}
 
-        {/* Bottom-right button stack — Expand + Open in Google Maps */}
+        {/* Bottom-right button stack — Expand + Open in Google Maps.
+            Wrapper is pointer-events-none so hovering the gap doesn't
+            steal the map's grab cursor; each button re-enables events. */}
         {status !== 'error' && (
-          <div className={`absolute ${compact ? 'bottom-2 right-2' : 'bottom-4 right-4'} flex gap-2`}>
+          <div className={`absolute ${compact ? 'bottom-2 right-2' : 'bottom-4 right-4'} flex gap-2 pointer-events-none`}>
             {enlargeable && (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setExpanded(true) }}
-                className={`inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
+                className={`pointer-events-auto inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
                 title="Expand map"
               >
                 <Maximize2 className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} text-[var(--sf-text-primary)]`} />
@@ -278,7 +282,7 @@ const TerritoryMap = ({
                 href={openInGoogleMapsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
+                className={`pointer-events-auto inline-flex ${compact ? 'p-1.5' : 'p-2'} bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors`}
                 title="Open in Google Maps"
                 onClick={(e) => e.stopPropagation()}
               >
