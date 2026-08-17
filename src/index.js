@@ -34,6 +34,7 @@ import ServiceFlowCoupons from "./pages/serviceflow-coupons"
 import CreateCoupon from "./pages/create-coupon"
 import ServiceFlowTerritories from "./pages/serviceflow-territories"
 import TerritoryDetails from "./pages/territory-details"
+import ZipManager from "./pages/zip-manager"
 import Analytics from "./pages/analytics-v2"
 import ServiceFlowOnlineBooking from "./pages/serviceflow-online-booking"
 import ServiceFlowWebsiteEmbed from "./pages/serviceflow-website-embed"
@@ -247,6 +248,7 @@ root.render(
       <Route path="/coupons" element={<ServiceFlowCoupons />} />
       <Route path="/coupons/create" element={<CreateCoupon />} />
       <Route path="/territories" element={<ServiceFlowTerritories />} />
+      <Route path="/territories/zip-manager" element={<ZipManager />} />
       <Route path="/territories/:territoryId" element={<TerritoryDetails />} />
       <Route path="/analytics" element={<RoleProtectedRoute path="/analytics"><Analytics /></RoleProtectedRoute>} />
       <Route path="/online-booking" element={<ServiceFlowOnlineBooking />} />

@@ -67,3 +67,17 @@ export async function getZipBoundaries(zipCodes) {
 export function prewarmZipBoundaries() {
   loadAll().catch(() => { /* swallow — will retry on demand */ });
 }
+
+// Full FeatureCollection — used by the ZIP manager page which needs
+// every polygon in the state (not just the ones a single territory
+// claims). Reuses the same module-level cache as getZipBoundaries.
+export async function getAllZipBoundaries() {
+  const { fc } = await loadAll();
+  return fc;
+}
+
+// Return a Feature for a single ZIP, or null. Cheap after loadAll().
+export async function getZipBoundary(zip) {
+  const { byZip } = await loadAll();
+  return byZip.get(String(zip || '').trim()) || null;
+}
