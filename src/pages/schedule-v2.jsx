@@ -15,6 +15,7 @@ import {
   Minus,
   X,
   Calendar as CalendarIcon,
+  RefreshCw,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { useLocationScope, filterByLocation } from "../context/LocationContext"
@@ -623,6 +624,7 @@ const ScheduleV2 = () => {
             territories={territories}
             selectedTerritoryId={availabilityTerritoryId}
             onSelectTerritory={setAvailabilityTerritoryId}
+            onSyncFromZB={fetchData}
           />
         </div>
       )}
@@ -1649,6 +1651,110 @@ const minsToLabel = (m) => {
   return mm === 0 ? `${h12}${period}` : `${h12}:${String(mm).padStart(2, "0")}${period}`
 }
 
+// ── ZB availability sync button ────────────────────────────
+//
+// Calls POST /api/team-availability/sync (kicks off in background) then
+// polls GET /api/team-availability/sync/progress until it hits a terminal
+// state. Invokes onDone(summary) on success so the parent can invalidate
+// the team query and refresh cell data.
+const SyncFromZBButton = ({ onDone }) => {
+  const [status, setStatus] = useState("idle") // idle | running | done | error
+  const [summary, setSummary] = useState(null)
+  const [error, setError] = useState(null)
+
+  const run = useCallback(async () => {
+    setStatus("running")
+    setError(null)
+    setSummary(null)
+    try {
+      await teamAPI.syncAvailabilityFromZenbooker()
+    } catch (e) {
+      // 409 = already running elsewhere — start polling anyway
+      if (e?.response?.status !== 409) {
+        setStatus("error")
+        setError(e?.response?.data?.error || e?.message || "Sync failed to start")
+        return
+      }
+    }
+    // Poll every 2s for up to 3 minutes
+    const started = Date.now()
+    while (Date.now() - started < 180_000) {
+      await new Promise((r) => setTimeout(r, 2000))
+      let p
+      try {
+        p = await teamAPI.getAvailabilitySyncProgress()
+      } catch {
+        continue
+      }
+      if (p?.status === "done") {
+        setStatus("done")
+        setSummary(p.summary || null)
+        onDone?.(p.summary)
+        return
+      }
+      if (p?.status === "error") {
+        setStatus("error")
+        setError(p.error || "Reconcile failed")
+        return
+      }
+    }
+    setStatus("error")
+    setError("Timed out waiting for sync to finish")
+  }, [onDone])
+
+  const busy = status === "running"
+  const written = summary?.written ?? 0
+  const scanned = summary?.scanned ?? 0
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {status === "done" && (
+        <span
+          className="text-[11px]"
+          style={{ color: "var(--sf-green-dark)", fontWeight: 600 }}
+        >
+          ✓ Synced {written}/{scanned} cleaners
+        </span>
+      )}
+      {status === "error" && (
+        <span
+          className="text-[11px]"
+          style={{ color: "var(--sf-red-dark)", fontWeight: 600 }}
+          title={error || ""}
+        >
+          Sync failed
+        </span>
+      )}
+      <button
+        onClick={run}
+        disabled={busy}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 10px",
+          border: "1px solid var(--sf-border-soft)",
+          borderRadius: 6,
+          fontSize: 12,
+          fontFamily: "var(--sf-font-ui)",
+          fontWeight: 600,
+          background: busy ? "var(--sf-panel-soft)" : "var(--sf-panel)",
+          color: busy ? "var(--sf-ink-3)" : "var(--sf-blue-dark)",
+          cursor: busy ? "wait" : "pointer",
+        }}
+        title="Pull latest availability from Zenbooker /timeslots"
+      >
+        <RefreshCw
+          size={12}
+          style={{ animation: busy ? "sf-spin 1s linear infinite" : "none" }}
+        />
+        {busy ? "Syncing…" : "Sync from Zenbooker"}
+      </button>
+      <style>{`@keyframes sf-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
+
 // ── Availability view ──────────────────────────────────────
 
 const AvailabilityView = ({
@@ -1663,6 +1769,7 @@ const AvailabilityView = ({
   territories,
   selectedTerritoryId,
   onSelectTerritory,
+  onSyncFromZB,
 }) => {
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor])
   const days = useMemo(
@@ -1897,43 +2004,46 @@ const AvailabilityView = ({
               ) : null}
             </div>
           </div>
-          {Array.isArray(territories) && territories.length > 0 && (
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <label
-                htmlFor="availability-territory-picker"
-                className="text-[11px] text-[var(--sf-ink-3)] font-semibold uppercase"
-                style={{ letterSpacing: ".05em" }}
-              >
-                Territory
-              </label>
-              <select
-                id="availability-territory-picker"
-                value={selectedTerritoryId ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value
-                  onSelectTerritory?.(v === "" ? null : Number(v))
-                }}
-                style={{
-                  padding: "6px 10px",
-                  border: "1px solid var(--sf-border-soft)",
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontFamily: "var(--sf-font-ui)",
-                  background: "var(--sf-panel)",
-                  color: "var(--sf-ink)",
-                  cursor: "pointer",
-                  minWidth: 160,
-                }}
-              >
-                <option value="">All territories</option>
-                {territories.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name || `Territory ${t.id}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+            {Array.isArray(territories) && territories.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label
+                  htmlFor="availability-territory-picker"
+                  className="text-[11px] text-[var(--sf-ink-3)] font-semibold uppercase"
+                  style={{ letterSpacing: ".05em" }}
+                >
+                  Territory
+                </label>
+                <select
+                  id="availability-territory-picker"
+                  value={selectedTerritoryId ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    onSelectTerritory?.(v === "" ? null : Number(v))
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    border: "1px solid var(--sf-border-soft)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontFamily: "var(--sf-font-ui)",
+                    background: "var(--sf-panel)",
+                    color: "var(--sf-ink)",
+                    cursor: "pointer",
+                    minWidth: 160,
+                  }}
+                >
+                  <option value="">All territories</option>
+                  {territories.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name || `Territory ${t.id}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <SyncFromZBButton onDone={onSyncFromZB} />
+          </div>
         </div>
 
         {/* Day headers */}
