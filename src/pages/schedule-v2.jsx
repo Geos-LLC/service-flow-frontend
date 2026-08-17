@@ -611,22 +611,43 @@ const ScheduleV2 = () => {
       )}
 
       {tab === "availability" && (
-        <div className="px-4 sm:px-6 lg:px-8 pb-8 pt-3 flex-1">
-          <AvailabilityView
-            cleaners={activeCleaners}
-            jobs={teamFilteredJobs}
-            cleanerColor={cleanerColor}
-            resolveName={resolveCleanerName}
-            anchor={anchor}
-            subTab={availabilitySubTab}
-            setSubTab={setAvailabilitySubTab}
-            onOpenManageShift={(payload) => setManageShift(payload)}
-            territories={territories}
-            selectedTerritoryId={availabilityTerritoryId}
-            onSelectTerritory={setAvailabilityTerritoryId}
-            onSyncFromZB={fetchData}
-          />
-        </div>
+        <>
+          {(() => {
+            // Availability uses the same DateNavigator as Schedule. View
+            // is derived from the sub-tab: weekly shows a 7-day pill and
+            // nudges by 7 days; daily windows show a single-day pill and
+            // nudges by 1 day.
+            const availabilityView = availabilitySubTab === "daily" ? "day" : "week"
+            const availabilityNudge = (dir) =>
+              setAnchor((prev) => addDays(prev, availabilityView === "day" ? dir : dir * 7))
+            return (
+              <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-2 flex items-center gap-2 flex-wrap">
+                <DateNavigator
+                  view={availabilityView}
+                  anchor={anchor}
+                  setAnchor={setAnchor}
+                  nudge={availabilityNudge}
+                />
+              </div>
+            )
+          })()}
+          <div className="px-4 sm:px-6 lg:px-8 pb-8 flex-1">
+            <AvailabilityView
+              cleaners={activeCleaners}
+              jobs={teamFilteredJobs}
+              cleanerColor={cleanerColor}
+              resolveName={resolveCleanerName}
+              anchor={anchor}
+              subTab={availabilitySubTab}
+              setSubTab={setAvailabilitySubTab}
+              onOpenManageShift={(payload) => setManageShift(payload)}
+              territories={territories}
+              selectedTerritoryId={availabilityTerritoryId}
+              onSelectTerritory={setAvailabilityTerritoryId}
+              onSyncFromZB={fetchData}
+            />
+          </div>
+        </>
       )}
 
       {tab === "routes" && (
@@ -688,42 +709,52 @@ const ScheduleV2 = () => {
 
 // ── Toolbar ────────────────────────────────────────────────
 
+// Date range pill + Today button. Shared between the Schedule and
+// Availability toolbars so the calendar-switcher UX stays identical
+// across tabs. `view` controls both the label shape (day vs week vs
+// month) and the nudge stride.
+const DateNavigator = ({ view, anchor, setAnchor, nudge }) => (
+  <>
+    <div
+      className="flex items-center bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] rounded-md"
+      style={{ boxShadow: "var(--sf-shadow)" }}
+    >
+      <button
+        onClick={() => nudge(-1)}
+        aria-label="Previous"
+        className="px-2 py-1.5 text-[var(--sf-ink-2)] hover:text-[var(--sf-ink)]"
+        style={{ background: "transparent", border: "none", borderRight: "1px solid var(--sf-border-soft)", cursor: "pointer" }}
+      >
+        <ChevronLeft size={14} />
+      </button>
+      <span
+        className="px-3 py-1.5 text-[12.5px] font-semibold text-[var(--sf-ink)]"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        {formatRangeLabel(view, anchor)}
+      </span>
+      <button
+        onClick={() => nudge(1)}
+        aria-label="Next"
+        className="px-2 py-1.5 text-[var(--sf-ink-2)] hover:text-[var(--sf-ink)]"
+        style={{ background: "transparent", border: "none", borderLeft: "1px solid var(--sf-border-soft)", cursor: "pointer" }}
+      >
+        <ChevronRight size={14} />
+      </button>
+    </div>
+    <SfButton variant="secondary" size="sm" onClick={() => setAnchor(new Date())}>
+      Today
+    </SfButton>
+  </>
+)
+
 const ScheduleToolbar = ({
   view, setView, anchor, setAnchor, nudge,
   cleaners, cleanerColor, resolveName, isSelected, toggleCleaner,
 }) => {
   return (
     <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-2 flex items-center gap-2 flex-wrap">
-      <div
-        className="flex items-center bg-[var(--sf-panel)] border border-[var(--sf-border-soft)] rounded-md"
-        style={{ boxShadow: "var(--sf-shadow)" }}
-      >
-        <button
-          onClick={() => nudge(-1)}
-          aria-label="Previous"
-          className="px-2 py-1.5 text-[var(--sf-ink-2)] hover:text-[var(--sf-ink)] border-r border-[var(--sf-border-soft)]"
-          style={{ background: "transparent", border: "none", borderRight: "1px solid var(--sf-border-soft)", cursor: "pointer" }}
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <span
-          className="px-3 py-1.5 text-[12.5px] font-semibold text-[var(--sf-ink)]"
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {formatRangeLabel(view, anchor)}
-        </span>
-        <button
-          onClick={() => nudge(1)}
-          aria-label="Next"
-          className="px-2 py-1.5 text-[var(--sf-ink-2)] hover:text-[var(--sf-ink)]"
-          style={{ background: "transparent", border: "none", borderLeft: "1px solid var(--sf-border-soft)", cursor: "pointer" }}
-        >
-          <ChevronRight size={14} />
-        </button>
-      </div>
-      <SfButton variant="secondary" size="sm" onClick={() => setAnchor(new Date())}>
-        Today
-      </SfButton>
+      <DateNavigator view={view} anchor={anchor} setAnchor={setAnchor} nudge={nudge} />
 
       <div className="flex-1" />
 
