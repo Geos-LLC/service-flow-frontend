@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { X, MapPin, Clock, Users, DollarSign, Settings, Globe, Target, Plus, Minus } from "lucide-react"
 import { territoriesAPI } from "../services/api"
 import AddressAutocomplete from "./address-autocomplete"
+import ZipEditorMap from "./zip-editor-map"
 
 // API base URL for Google Places API proxy
 const API_BASE_URL = 'https://service-flow-backend-production-4568.up.railway.app/api'
@@ -449,6 +450,27 @@ const CreateTerritoryModal = ({ isOpen, onClose, onSuccess, territory = null, is
                       </button>
                     </span>
                   ))}
+                </div>
+
+                {/* Interactive ZIP map — see + click to add/remove
+                    without leaving the modal. Loads FL ZCTA polygons
+                    on demand + fetches sibling territories once for
+                    ownership context. */}
+                <div className="mt-4">
+                  <ZipEditorMap
+                    userId={userId}
+                    territoryId={territory?.id || null}
+                    zipCodes={formData.zipCodes}
+                    onToggleZip={(zip) => {
+                      const has = formData.zipCodes.includes(zip)
+                      if (has) {
+                        handleInputChange('zipCodes', formData.zipCodes.filter((z) => z !== zip))
+                      } else {
+                        handleInputChange('zipCodes', [...formData.zipCodes, zip])
+                      }
+                    }}
+                    location={formData.location}
+                  />
                 </div>
               </div>
             </div>
