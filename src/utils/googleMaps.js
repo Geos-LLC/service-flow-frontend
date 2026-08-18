@@ -4,8 +4,11 @@ let googleMapsLoaded = false;
 let googleMapsLoading = false;
 const loadingCallbacks = [];
 
-// Load Google Maps JavaScript API with Places API (New)
-export const loadGoogleMapsScript = (apiKey, libraries = 'places') => {
+// Load Google Maps JavaScript API with Places + Geometry.
+// Geometry is needed by the polyline-offset helper in JobRouteMap
+// (computeHeading + computeOffset). Loading both by default so no
+// matter which component loads the script first, geometry is there.
+export const loadGoogleMapsScript = (apiKey, libraries = 'places,geometry') => {
   return new Promise((resolve, reject) => {
     // If already loaded, resolve immediately
     if (googleMapsLoaded && window.google && window.google.maps && window.google.maps.places) {
