@@ -316,10 +316,6 @@ const JobDetailsV2 = () => {
   // route from their previous stop instead of home when applicable.
   // originOverrides is keyed by assignee id → {address, label}.
   const [originOverrides, setOriginOverrides] = useState({})
-  // On-page debug panel so we can inspect the previous-job lookup
-  // without asking the operator to open DevTools. Remove after the
-  // routing feature is verified working.
-  const [prevJobDebug, setPrevJobDebug] = useState(null)
   useEffect(() => {
     const tenantId = job?.user_id || user?.id
     if (!job?.scheduled_date || !tenantId || assignees.length === 0) {
@@ -329,12 +325,19 @@ const JobDetailsV2 = () => {
     // Normalize this job's date + start time in minutes for comparison.
     const dateStr = String(job.scheduled_date).slice(0, 10)  // YYYY-MM-DD prefix
     const dateRange = `${dateStr} to ${dateStr}`
-    const parseHM = (t) => {
-      if (!t) return null
-      const m = String(t).match(/(\d{1,2}):(\d{2})/)
-      return m ? Number(m[1]) * 60 + Number(m[2]) : null
+    // `scheduled_time` is unreliable — many rows store "09:00:00" as a
+    // placeholder while the ACTUAL start time is embedded in
+    // `scheduled_date` (e.g. "2026-08-18 15:00:00"). Parse the time
+    // component out of scheduled_date first; fall back to scheduled_time
+    // only when scheduled_date is date-only.
+    const extractStartMin = (j) => {
+      const d = String(j?.scheduled_date || '')
+      const md = d.match(/\d{4}-\d{2}-\d{2}[ T](\d{1,2}):(\d{2})/)
+      if (md) return Number(md[1]) * 60 + Number(md[2])
+      const mt = String(j?.scheduled_time || '').match(/(\d{1,2}):(\d{2})/)
+      return mt ? Number(mt[1]) * 60 + Number(mt[2]) : null
     }
-    const thisStartMin = parseHM(job.scheduled_time)
+    const thisStartMin = extractStartMin(job)
     console.log('[prev-job] START', { tenantId, dateStr, dateRange, thisJobId: job.id, thisStartMin, assignees: assignees.map(a => a.id) })
     let cancelled = false
     ;(async () => {
@@ -356,27 +359,6 @@ const JobDetailsV2 = () => {
           )
         )
         if (cancelled) return
-        // Render the diagnostic ON THE PAGE so we can just screenshot
-        // it — no console gymnastics required. Remove after verified.
-        const debugPayload = {
-          jobId: job.id,
-          dateStr,
-          thisStartMin,
-          this_scheduled_date: job.scheduled_date,
-          this_scheduled_time: job.scheduled_time,
-          per_assignee: perAssigneeJobs.map((r) => ({
-            id: r.id,
-            count: r.jobs.length,
-            jobs: r.jobs.map((j) => ({
-              id: j.id,
-              date: j.scheduled_date,
-              time: j.scheduled_time,
-              status: j.status,
-            })),
-          })),
-        }
-        window.__prevJobDebug = debugPayload
-        setPrevJobDebug(debugPayload)
 
         const next = {}
         for (const { id: aId, jobs: aJobs } of perAssigneeJobs) {
@@ -384,13 +366,14 @@ const JobDetailsV2 = () => {
             if (String(oj.id) === String(job.id)) return false
             if (oj.status === "cancelled") return false
             if (String(oj.scheduled_date || "").slice(0, 10) !== dateStr) return false
-            const startMin = parseHM(oj.scheduled_time)
+            const startMin = extractStartMin(oj)
             if (thisStartMin == null || startMin == null) return false
             return startMin < thisStartMin
           })
-          console.log('[prev-job] candidates for', aId, candidates.map((c) => ({ id: c.id, time: c.scheduled_time })))
           if (candidates.length === 0) continue
-          candidates.sort((x, y) => parseHM(y.scheduled_time) - parseHM(x.scheduled_time))
+          // Latest start is the closest-in-time previous stop (list
+          // response doesn't carry duration for a proper end-time sort).
+          candidates.sort((x, y) => extractStartMin(y) - extractStartMin(x))
           const prev = candidates[0]
           const addr = [
             prev.service_address_street,
@@ -399,16 +382,16 @@ const JobDetailsV2 = () => {
             prev.service_address_zip,
           ].filter(Boolean).join(", ")
           if (!addr) continue
-          const timeLabel = prev.scheduled_time
-            ? new Date(`2000-01-01T${String(prev.scheduled_time).slice(0, 5)}:00`)
-                .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-            : "earlier"
+          const prevStartMin = extractStartMin(prev)
+          const hh = Math.floor(prevStartMin / 60)
+          const mm = prevStartMin % 60
+          const timeLabel = new Date(`2000-01-01T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00`)
+            .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
           next[aId] = {
             address: addr,
             label: `from previous job at ${timeLabel}`,
           }
         }
-        console.log('[prev-job] result overrides', next)
         if (!cancelled) setOriginOverrides(next)
       } catch (err) {
         console.warn("[job-details] previous-job lookup failed", err)
@@ -1105,22 +1088,6 @@ const JobDetailsV2 = () => {
                     originOverrides={originOverrides}
                     height={280}
                   />
-                  {prevJobDebug && (
-                    <div style={{
-                      padding: "12px",
-                      background: "#FEF3C7",
-                      borderTop: "1px solid #F59E0B",
-                      fontFamily: "monospace",
-                      fontSize: 11,
-                      whiteSpace: "pre-wrap",
-                      color: "#92400E",
-                      maxHeight: 320,
-                      overflow: "auto",
-                    }}>
-                      <div style={{ fontWeight: 700, marginBottom: 6 }}>[prev-job debug — remove after fix verified]</div>
-                      {JSON.stringify(prevJobDebug, null, 2)}
-                    </div>
-                  )}
                 </SfCard>
               )}
 
