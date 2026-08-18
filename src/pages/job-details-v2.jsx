@@ -311,6 +311,74 @@ const JobDetailsV2 = () => {
   }, [teamMembers])
 
   const assignees = useMemo(() => (job ? assigneesFor(job) : []), [job])
+
+  // Look up each assignee's OTHER jobs on the same date so we can
+  // route from their previous stop instead of home when applicable.
+  // originOverrides is keyed by assignee id → {address, label}.
+  const [originOverrides, setOriginOverrides] = useState({})
+  useEffect(() => {
+    if (!job?.scheduled_date || !job?.user_id || assignees.length === 0) {
+      setOriginOverrides({})
+      return
+    }
+    // Normalize this job's date + start time in minutes for comparison.
+    const dateStr = String(job.scheduled_date).slice(0, 10)  // YYYY-MM-DD prefix
+    const dateRange = `${dateStr} to ${dateStr}`
+    const parseHM = (t) => {
+      if (!t) return null
+      const m = String(t).match(/(\d{1,2}):(\d{2})/)
+      return m ? Number(m[1]) * 60 + Number(m[2]) : null
+    }
+    const thisStartMin = parseHM(job.scheduled_time)
+    let cancelled = false
+    ;(async () => {
+      try {
+        const resp = await jobsAPI.getAll(job.user_id, "", "", 1, 500, null, dateRange)
+        if (cancelled) return
+        const otherJobs = (resp?.jobs || []).filter((j) =>
+          String(j.id) !== String(job.id) &&
+          String(j.scheduled_date || "").slice(0, 10) === dateStr &&
+          j.status !== "cancelled"
+        )
+        const next = {}
+        for (const a of assignees) {
+          const aId = String(a.id)
+          // Any other-job on this date that is assigned to `a` and starts
+          // strictly before this job.
+          const candidates = otherJobs.filter((oj) => {
+            const others = assigneesFor(oj).map((x) => String(x.id))
+            if (!others.includes(aId)) return false
+            const startMin = parseHM(oj.scheduled_time)
+            if (thisStartMin == null || startMin == null) return false
+            return startMin < thisStartMin
+          })
+          if (candidates.length === 0) continue
+          // Pick the latest — that's the "previous cleaning."
+          candidates.sort((x, y) => parseHM(y.scheduled_time) - parseHM(x.scheduled_time))
+          const prev = candidates[0]
+          const addr = [
+            prev.service_address_street,
+            prev.service_address_city,
+            prev.service_address_state,
+            prev.service_address_zip,
+          ].filter(Boolean).join(", ")
+          if (!addr) continue
+          const timeLabel = prev.scheduled_time
+            ? new Date(`2000-01-01T${String(prev.scheduled_time).slice(0, 5)}:00`)
+                .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+            : "earlier"
+          next[a.id] = {
+            address: addr,
+            label: `from previous job at ${timeLabel}`,
+          }
+        }
+        if (!cancelled) setOriginOverrides(next)
+      } catch (err) {
+        console.warn("[job-details] previous-job lookup failed", err)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [job?.id, job?.scheduled_date, job?.scheduled_time, job?.user_id, assignees])
   const cleanerColors = useMemo(
     () => sfAssignTeamColors(assignees.map((a) => a.id)),
     [assignees]
@@ -997,6 +1065,7 @@ const JobDetailsV2 = () => {
                       .join(", ")}
                     assignees={assignees}
                     teamMembers={teamMembers}
+                    originOverrides={originOverrides}
                     height={280}
                   />
                 </SfCard>

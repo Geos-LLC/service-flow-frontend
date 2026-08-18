@@ -7,6 +7,7 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
   const mapInstanceRef = useRef(null)
   const markersRef = useRef([])
   const homeMarkersRef = useRef([])  // separate track so home markers don't count toward job-bounds
+  const routesRef = useRef([])         // DirectionsRenderer per cleaner (home → job1 → job2 …)
   const geocodeCacheRef = useRef({}) // Cache geocoded addresses
   const [useEmbedAPI, setUseEmbedAPI] = useState(false) // Only use Embed API on actual script load failures
   const [mapReady, setMapReady] = useState(false) // Track when map is fully ready for markers
@@ -343,6 +344,120 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
     })
   }
 
+  // Chain a cleaner's day: draw home → job1 → job2 → … as a single
+  // DirectionsRenderer polyline colored per cleaner. Reads job positions
+  // out of markersRef.current (populated after markers are placed), groups
+  // by the PRIMARY assigned cleaner, sorts by scheduled_time, calls
+  // DirectionsService once per cleaner (waypoints are cheap — a single
+  // billed request each).
+  //
+  // Deferred slightly so both the direct-coords and async-geocode marker
+  // paths have a chance to populate markersRef.current before we group.
+  const CLEANER_ROUTE_PALETTE = ['#7C3AED', '#059669', '#F97316', '#3B82F6', '#EC4899', '#EAB308', '#0891B2', '#DC2626']
+  const routeColorForCleaner = (id) => {
+    const n = Math.abs(Number(id) || 0)
+    return CLEANER_ROUTE_PALETTE[n % CLEANER_ROUTE_PALETTE.length]
+  }
+  const parseTimeMinutes = (t) => {
+    if (!t) return null
+    const m = String(t).match(/(\d{1,2}):(\d{2})/)
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null
+  }
+  const placeCleanerRoutes = async () => {
+    if (!mapInstanceRef.current || !window.google?.maps) return
+    // Clear prior routes.
+    routesRef.current.forEach(r => { try { r.setMap(null) } catch { /* ignore */ } })
+    routesRef.current = []
+    if (!markersRef.current || markersRef.current.length === 0) return
+    if (!teamMembers || teamMembers.length === 0) return
+
+    // Group markers by PRIMARY cleaner id (first in getCleanerNames'
+    // resolution order). Multi-cleaner teams travel together so one
+    // route per primary is enough — avoids drawing overlapping lines.
+    const byCleaner = new Map()
+    for (const entry of markersRef.current) {
+      const job = entry.job
+      if (!job) continue
+      let cleanerId = null
+      if (Array.isArray(job.team_assignments) && job.team_assignments.length > 0) {
+        cleanerId = job.team_assignments[0]?.team_member_id
+      }
+      if (cleanerId == null && Array.isArray(job.assigned_providers) && job.assigned_providers.length > 0) {
+        cleanerId = job.assigned_providers[0]?.id || job.assigned_providers[0]?.team_member_id
+      }
+      if (cleanerId == null) cleanerId = job.team_member_id || job.assigned_team_member_id
+      if (cleanerId == null) continue
+      const key = String(cleanerId)
+      if (!byCleaner.has(key)) byCleaner.set(key, [])
+      byCleaner.get(key).push(entry)
+    }
+
+    const directionsService = new window.google.maps.DirectionsService()
+    const geocoder = new window.google.maps.Geocoder()
+
+    for (const [cleanerId, entries] of byCleaner) {
+      if (entries.length === 0) continue
+      // Sort by scheduled_time so the daily order is preserved.
+      entries.sort((a, b) => {
+        const ta = parseTimeMinutes(a.job.scheduled_time) ?? 0
+        const tb = parseTimeMinutes(b.job.scheduled_time) ?? 0
+        return ta - tb
+      })
+
+      // Look up the cleaner's home. Skip route if no home on file — we
+      // can't draw home→jobs without a starting point.
+      const member = teamMembers.find(m => m.id === Number(cleanerId) || String(m.id) === cleanerId)
+      if (!member) continue
+      const homeAddress = [member.location, member.city, member.state, member.zip_code].filter(Boolean).join(', ')
+      if (!homeAddress) continue
+
+      // Geocode home (reuse cache from home-marker pass).
+      const homeKey = `home:${homeAddress}`
+      let homePos = geocodeCacheRef.current[homeKey]
+      if (!homePos) {
+        const { pos, ok } = await new Promise((resolve) => {
+          geocoder.geocode({ address: homeAddress }, (results, status) => {
+            if (status === 'OK' && results?.[0]) resolve({ pos: results[0].geometry.location, ok: true })
+            else resolve({ pos: null, ok: false })
+          })
+        })
+        if (!ok) continue
+        homePos = pos
+        geocodeCacheRef.current[homeKey] = homePos
+      }
+
+      // Build waypoints: home → job1 → job2 … Google Maps allows up to
+      // 25 waypoints per request. Cap defensively.
+      const jobPositions = entries.slice(0, 25).map(e => e.position)
+      if (jobPositions.length === 0) continue
+      const req = {
+        origin: homePos,
+        destination: jobPositions[jobPositions.length - 1],
+        waypoints: jobPositions.slice(0, -1).map(p => ({ location: p, stopover: true })),
+        travelMode: window.google.maps.TravelMode.DRIVING,
+        optimizeWaypoints: false,  // preserve the operator's scheduled order
+      }
+      const { result, status } = await new Promise((resolve) => {
+        directionsService.route(req, (result, status) => resolve({ result, status }))
+      })
+      if (status !== 'OK' || !result?.routes?.[0]) continue
+
+      const color = routeColorForCleaner(cleanerId)
+      const renderer = new window.google.maps.DirectionsRenderer({
+        map: mapInstanceRef.current,
+        directions: result,
+        suppressMarkers: true,  // keep our own job + home markers
+        preserveViewport: true, // don't yank the operator's zoom
+        polylineOptions: {
+          strokeColor: color,
+          strokeWeight: 4,
+          strokeOpacity: 0.75,
+        },
+      })
+      routesRef.current.push(renderer)
+    }
+  }
+
   const updateMarkers = () => {
     if (!mapInstanceRef.current || !window.google || !window.google.maps) return
 
@@ -356,6 +471,9 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
     // Clear stale home markers too — they're re-placed below alongside job markers.
     homeMarkersRef.current.forEach(m => { try { m.setMap(null) } catch { /* ignore */ } })
     homeMarkersRef.current = []
+    // Clear prior chained routes so they're not left over from the previous set of jobs.
+    routesRef.current.forEach(r => { try { r.setMap(null) } catch { /* ignore */ } })
+    routesRef.current = []
 
     // If no jobs, just update map type and return
     if (!jobs || jobs.length === 0) {
@@ -586,15 +704,20 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
       geocodeAndAddMarkers(jobsNeedingGeocoding, mapInstanceRef.current).then(() => {
         // ✅ Fix 4: Fit bounds ONCE after all markers are added
         fitBoundsToAllMarkers()
+        // Chain per-cleaner daily routes now that we have every job's position.
+        placeCleanerRoutes()
       }).catch(error => {
         console.error('🗺️ JobsMap: Error updating markers:', error)
         // Still try to fit bounds even if some geocoding failed
         fitBoundsToAllMarkers()
+        placeCleanerRoutes()
       })
     } else {
       console.log(`🗺️ JobsMap: No jobs need geocoding`)
       // ✅ Fix 4: Fit bounds ONCE if no geocoding needed
       fitBoundsToAllMarkers()
+      // All positions available immediately — chain daily routes now.
+      placeCleanerRoutes()
     }
 
     // Warn about jobs without location
@@ -717,7 +840,8 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
       newMarkers.push({
             marker,
             infoWindow,
-        position: finalPosition
+        position: finalPosition,
+        job,
       })
       existingPositions.push(finalPosition) // Track FINAL position (after offset) for duplicate detection
       bounds.extend(finalPosition)
@@ -899,7 +1023,7 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
         infoWindow.open(mapInstanceRef.current, marker)
       })
 
-      return { marker, infoWindow, position: finalPosition }
+      return { marker, infoWindow, position: finalPosition, job }
     }
 
     // Track positions to detect duplicates
