@@ -1646,12 +1646,29 @@ const TeamMemberDetails = () => {
                         prev.includes(zip) ? prev.filter((z) => z !== zip) : [...prev, zip]
                       ))
                     }}
-                    memberAddress={[
-                      teamMember?.location || teamMember?.address || teamMember?.home_address,
-                      teamMember?.city,
-                      teamMember?.state,
-                      teamMember?.zip_code
-                    ].filter(Boolean).join(', ') || null}
+                    memberAddress={(() => {
+                      const parts = [
+                        teamMember?.location || teamMember?.address || teamMember?.home_address,
+                        teamMember?.city,
+                        teamMember?.state,
+                        teamMember?.zip_code,
+                      ]
+                      const addr = parts.filter(Boolean).join(', ') || null
+                      // Devtools-visible log so we can see what's actually
+                      // being passed to the map — sanity check for "pin not
+                      // showing" reports. Includes the raw fields so a null
+                      // result explains why.
+                      // eslint-disable-next-line no-console
+                      console.log('[team-member-details] memberAddress →', addr, {
+                        location: teamMember?.location,
+                        address: teamMember?.address,
+                        home_address: teamMember?.home_address,
+                        city: teamMember?.city,
+                        state: teamMember?.state,
+                        zip_code: teamMember?.zip_code,
+                      })
+                      return addr
+                    })()}
                     memberName={`${teamMember?.first_name || ''} ${teamMember?.last_name || ''}`.trim() || teamMember?.email || 'Team member'}
                   />
                 </div>
