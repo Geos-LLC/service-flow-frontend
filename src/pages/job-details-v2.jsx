@@ -317,7 +317,8 @@ const JobDetailsV2 = () => {
   // originOverrides is keyed by assignee id → {address, label}.
   const [originOverrides, setOriginOverrides] = useState({})
   useEffect(() => {
-    if (!job?.scheduled_date || !job?.user_id || assignees.length === 0) {
+    const tenantId = job?.user_id || user?.id
+    if (!job?.scheduled_date || !tenantId || assignees.length === 0) {
       setOriginOverrides({})
       return
     }
@@ -330,28 +331,39 @@ const JobDetailsV2 = () => {
       return m ? Number(m[1]) * 60 + Number(m[2]) : null
     }
     const thisStartMin = parseHM(job.scheduled_time)
+    console.log('[prev-job] START', { tenantId, dateStr, dateRange, thisJobId: job.id, thisStartMin, assignees: assignees.map(a => a.id) })
     let cancelled = false
     ;(async () => {
       try {
-        const resp = await jobsAPI.getAll(job.user_id, "", "", 1, 500, null, dateRange)
+        const resp = await jobsAPI.getAll(tenantId, "", "", 1, 500, null, dateRange)
         if (cancelled) return
-        const otherJobs = (resp?.jobs || []).filter((j) =>
-          String(j.id) !== String(job.id) &&
-          String(j.scheduled_date || "").slice(0, 10) === dateStr &&
-          j.status !== "cancelled"
-        )
+        const allSameDay = (resp?.jobs || []).filter((j) => String(j.scheduled_date || "").slice(0, 10) === dateStr)
+        console.log('[prev-job] fetched', { total: resp?.jobs?.length ?? 0, sameDay: allSameDay.length })
+        const otherJobs = allSameDay.filter((j) => String(j.id) !== String(job.id) && j.status !== "cancelled")
+        console.log('[prev-job] otherJobs', otherJobs.map(j => ({ id: j.id, time: j.scheduled_time, team_member_id: j.team_member_id, has_ja: Array.isArray(j.team_assignments) ? j.team_assignments.length : null })))
         const next = {}
         for (const a of assignees) {
           const aId = String(a.id)
           // Any other-job on this date that is assigned to `a` and starts
-          // strictly before this job.
+          // strictly before this job. Robust against the list endpoint
+          // returning only `team_member_id` (no `team_assignments` join)
+          // for multi-cleaner jobs.
           const candidates = otherJobs.filter((oj) => {
-            const others = assigneesFor(oj).map((x) => String(x.id))
-            if (!others.includes(aId)) return false
+            const ids = new Set()
+            const push = (x) => { if (x != null) ids.add(String(x)) }
+            push(oj.team_member_id)
+            push(oj.assigned_team_member_id)
+            push(oj.assigned_to)
+            if (Array.isArray(oj.team_assignments)) oj.team_assignments.forEach(x => push(x?.team_member_id || x?.id))
+            if (Array.isArray(oj.assigned_providers)) oj.assigned_providers.forEach(x => push(x?.id || x?.team_member_id || x?.provider_id))
+            if (Array.isArray(oj.job_team_assignments)) oj.job_team_assignments.forEach(x => push(x?.team_member_id || x?.id))
+            if (Array.isArray(oj.team_members)) oj.team_members.forEach(x => push(x?.id || x?.team_member_id))
+            if (!ids.has(aId)) return false
             const startMin = parseHM(oj.scheduled_time)
             if (thisStartMin == null || startMin == null) return false
             return startMin < thisStartMin
           })
+          console.log('[prev-job] candidates for', aId, candidates.map(c => c.id))
           if (candidates.length === 0) continue
           // Pick the latest — that's the "previous cleaning."
           candidates.sort((x, y) => parseHM(y.scheduled_time) - parseHM(x.scheduled_time))
@@ -372,13 +384,14 @@ const JobDetailsV2 = () => {
             label: `from previous job at ${timeLabel}`,
           }
         }
+        console.log('[prev-job] result overrides', next)
         if (!cancelled) setOriginOverrides(next)
       } catch (err) {
         console.warn("[job-details] previous-job lookup failed", err)
       }
     })()
     return () => { cancelled = true }
-  }, [job?.id, job?.scheduled_date, job?.scheduled_time, job?.user_id, assignees])
+  }, [job?.id, job?.scheduled_date, job?.scheduled_time, job?.user_id, user?.id, assignees])
   const cleanerColors = useMemo(
     () => sfAssignTeamColors(assignees.map((a) => a.id)),
     [assignees]
