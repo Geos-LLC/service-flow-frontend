@@ -352,12 +352,19 @@ const JobDetailsV2 = () => {
           )
         )
         if (cancelled) return
-        console.log('[prev-job] per-assignee counts', perAssigneeJobs.map((r) => ({ id: r.id, jobs: r.jobs.length })))
-        console.log('[prev-job] this job — dateStr=', dateStr, 'thisStartMin=', thisStartMin, 'this.scheduled_date=', job.scheduled_date, 'this.scheduled_time=', job.scheduled_time)
+        // Serialize to JSON strings so Chrome doesn't collapse the log with `...`.
+        console.log('[prev-job] JSON:this=' + JSON.stringify({
+          jobId: job.id,
+          dateStr,
+          thisStartMin,
+          this_scheduled_date: job.scheduled_date,
+          this_scheduled_time: job.scheduled_time,
+          per_assignee_counts: perAssigneeJobs.map((r) => ({ id: r.id, count: r.jobs.length })),
+        }))
 
         const next = {}
         for (const { id: aId, jobs: aJobs } of perAssigneeJobs) {
-          console.log('[prev-job] raw jobs for', aId, aJobs.map(j => ({ id: j.id, date: j.scheduled_date, time: j.scheduled_time, status: j.status })))
+          console.log('[prev-job] JSON:raw ' + aId + '=' + JSON.stringify(aJobs.map(j => ({ id: j.id, date: j.scheduled_date, time: j.scheduled_time, status: j.status }))))
           const candidates = aJobs.filter((oj) => {
             if (String(oj.id) === String(job.id)) return false
             if (oj.status === "cancelled") return false
