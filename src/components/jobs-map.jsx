@@ -6,6 +6,7 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markersRef = useRef([])
+  const homeMarkersRef = useRef([])  // separate track so home markers don't count toward job-bounds
   const geocodeCacheRef = useRef({}) // Cache geocoded addresses
   const [useEmbedAPI, setUseEmbedAPI] = useState(false) // Only use Embed API on actual script load failures
   const [mapReady, setMapReady] = useState(false) // Track when map is fully ready for markers
@@ -269,6 +270,73 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
       return { lat: offsetLat, lng: offsetLng }
   }
 
+  // Place a small dark-blue circle marker at each unique assigned
+  // cleaner's home address (from team_members table location fields).
+  // Runs alongside job markers; not counted in bounds so it doesn't
+  // yank the viewport toward off-map cleaners.
+  const placeCleanerHomeMarkers = () => {
+    if (!mapInstanceRef.current || !window.google?.maps) return
+    // Clean up prior homes.
+    homeMarkersRef.current.forEach(m => { try { m.setMap(null) } catch { /* ignore */ } })
+    homeMarkersRef.current = []
+    if (!teamMembers || teamMembers.length === 0 || !jobs || jobs.length === 0) return
+
+    // Dedupe by team_member_id across all jobs.
+    const memberIds = new Set()
+    jobs.forEach(j => {
+      if (Array.isArray(j.team_assignments)) {
+        j.team_assignments.forEach(ta => { if (ta?.team_member_id != null) memberIds.add(ta.team_member_id) })
+      }
+      if (Array.isArray(j.assigned_providers)) {
+        j.assigned_providers.forEach(p => { const id = p?.id || p?.team_member_id; if (id != null) memberIds.add(id) })
+      }
+      const solo = j.team_member_id || j.assigned_team_member_id
+      if (solo != null) memberIds.add(solo)
+    })
+
+    const geocoder = new window.google.maps.Geocoder()
+    memberIds.forEach(id => {
+      const member = teamMembers.find(m => m.id === id || m.id === Number(id) || String(m.id) === String(id))
+      if (!member) return
+      const address = [member.location, member.city, member.state, member.zip_code].filter(Boolean).join(', ')
+      if (!address) return
+      const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || `Team member #${id}`
+      const cacheKey = `home:${address}`
+      const cached = geocodeCacheRef.current[cacheKey]
+      const drop = (position) => {
+        const marker = new window.google.maps.Marker({
+          position,
+          map: mapInstanceRef.current,
+          title: `${fullName} — home`,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: '#1E3A8A',
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2.5,
+          },
+          zIndex: 500,
+        })
+        const info = new window.google.maps.InfoWindow({
+          content: `<div style="font-family: Montserrat, sans-serif; font-size: 12px; padding: 4px;">
+            <strong>${fullName}</strong><br/>
+            <span style="color:#64748B">${address}</span>
+          </div>`,
+        })
+        marker.addListener('click', () => info.open({ anchor: marker, map: mapInstanceRef.current }))
+        homeMarkersRef.current.push(marker)
+      }
+      if (cached) { drop(cached); return }
+      geocoder.geocode({ address }, (results, statusCode) => {
+        if (statusCode !== 'OK' || !results?.[0]) return
+        const pos = results[0].geometry.location
+        geocodeCacheRef.current[cacheKey] = pos
+        drop(pos)
+      })
+    })
+  }
+
   const updateMarkers = () => {
     if (!mapInstanceRef.current || !window.google || !window.google.maps) return
 
@@ -279,6 +347,9 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
       }
     })
     markersRef.current = []
+    // Clear stale home markers too — they're re-placed below alongside job markers.
+    homeMarkersRef.current.forEach(m => { try { m.setMap(null) } catch { /* ignore */ } })
+    homeMarkersRef.current = []
 
     // If no jobs, just update map type and return
     if (!jobs || jobs.length === 0) {
@@ -497,6 +568,11 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
       console.log(`🗺️ JobsMap: Adding ${jobsWithCoordinates.length} markers directly from coordinates`)
       addMarkersDirectly(jobsWithCoordinates, mapInstanceRef.current)
     }
+
+    // Fire home markers in parallel — they don't affect bounds and
+    // resolve asynchronously via Geocoder. Called once per updateMarkers
+    // regardless of coord/geocode split, since dedup is by team_member_id.
+    placeCleanerHomeMarkers()
 
     // Geocode and add markers for jobs that need it
     if (jobsNeedingGeocoding.length > 0) {

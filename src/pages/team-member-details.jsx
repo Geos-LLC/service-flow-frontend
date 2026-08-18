@@ -1646,6 +1646,13 @@ const TeamMemberDetails = () => {
                         prev.includes(zip) ? prev.filter((z) => z !== zip) : [...prev, zip]
                       ))
                     }}
+                    memberAddress={[
+                      teamMember?.location,
+                      teamMember?.city,
+                      teamMember?.state,
+                      teamMember?.zip_code
+                    ].filter(Boolean).join(', ') || null}
+                    memberName={`${teamMember?.first_name || ''} ${teamMember?.last_name || ''}`.trim() || teamMember?.email || 'Team member'}
                   />
                 </div>
               )}
