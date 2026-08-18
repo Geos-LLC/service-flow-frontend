@@ -221,19 +221,39 @@ export default function CreateJobPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [routeMapExpanded]);
 
-  // Cleaners eligible for THIS job's ZIP — members of the matched
-  // territory whose zip_exclusions don't contain the service ZIP.
-  // Used to draw routes on the create-job map so the operator sees
-  // driving time from each candidate cleaner's home BEFORE assigning.
+  // Cleaners eligible for THIS job's ZIP. Match order:
+  //   1. If a territory is explicitly picked/auto-detected, use that.
+  //   2. Else: find any territory whose zip_codes contains the job ZIP
+  //      (works even when the territory chip is "Unassigned" because
+  //      the city string didn't match — the ZIP-code list is authoritative).
+  // Then drop members whose zip_exclusions contains the job ZIP.
   const eligibleAssignees = useMemo(() => {
-    const tid = formData?.territoryId || detectedTerritory?.id || null;
-    if (!tid || !territories || territories.length === 0) return [];
-    const t = territories.find((x) => x.id === tid || String(x.id) === String(tid));
-    if (!t) return [];
-    const memberIds = Array.isArray(t.team_members) ? t.team_members : [];
+    if (!territories || territories.length === 0) return [];
     const zip = formData?.serviceAddress?.zipCode ? String(formData.serviceAddress.zipCode).trim() : null;
-    return memberIds
-      .map((id) => teamMembers.find((m) => m.id === id || String(m.id) === String(id)))
+
+    let matchedTerritories = [];
+    const tid = formData?.territoryId || detectedTerritory?.id || null;
+    if (tid) {
+      const t = territories.find((x) => x.id === tid || String(x.id) === String(tid));
+      if (t) matchedTerritories = [t];
+    } else if (zip) {
+      // ZIP-first fallback — even if no territory was auto-matched by
+      // city, the operator's ZIP list may already claim this ZIP.
+      matchedTerritories = territories.filter((t) => {
+        const zips = Array.isArray(t.zip_codes) ? t.zip_codes.map(String) : [];
+        return zips.includes(zip);
+      });
+    }
+    if (matchedTerritories.length === 0) return [];
+
+    const memberIds = new Set();
+    matchedTerritories.forEach((t) => {
+      const ids = Array.isArray(t.team_members) ? t.team_members : [];
+      ids.forEach((id) => memberIds.add(String(id)));
+    });
+
+    return Array.from(memberIds)
+      .map((id) => teamMembers.find((m) => String(m.id) === String(id)))
       .filter(Boolean)
       .filter((m) => {
         if (!zip) return true;
@@ -245,6 +265,23 @@ export default function CreateJobPage() {
         name: `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || `#${m.id}`,
       }));
   }, [formData?.territoryId, detectedTerritory?.id, territories, teamMembers, formData?.serviceAddress?.zipCode]);
+
+  // Human-readable explanation for why the list might be empty. Used
+  // in the enlarged modal so the operator isn't left staring at a
+  // map with no chip row.
+  const eligibleEmptyReason = useMemo(() => {
+    if (eligibleAssignees.length > 0) return null;
+    if (!territories || territories.length === 0) return 'No territories configured yet.';
+    const zip = formData?.serviceAddress?.zipCode ? String(formData.serviceAddress.zipCode).trim() : null;
+    if (!zip) return 'Enter a service ZIP to see eligible cleaners.';
+    // Was there a territory match at all?
+    const hasTerritoryMatch = territories.some((t) => {
+      const zips = Array.isArray(t.zip_codes) ? t.zip_codes.map(String) : [];
+      return zips.includes(zip);
+    });
+    if (!hasTerritoryMatch) return `No territory claims ZIP ${zip}. Add it to one via Settings → Territories.`;
+    return `A territory claims ZIP ${zip} but has no team members assigned to it (or every member is on the exclusion list for this ZIP).`;
+  }, [eligibleAssignees.length, territories, formData?.serviceAddress?.zipCode]);
 
   const jobFullAddress = useMemo(() => {
     const a = formData?.serviceAddress || {};
@@ -4250,7 +4287,11 @@ setIntakeQuestionAnswers(answers);
                 <h3 className="text-lg font-semibold text-[var(--sf-text-primary)]">Job location + eligible cleaners</h3>
                 <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
                   {jobFullAddress || 'No address entered'}
-                  {eligibleAssignees.length > 0 && ` · ${eligibleAssignees.length} cleaner${eligibleAssignees.length === 1 ? '' : 's'} in this territory`}
+                  {eligibleAssignees.length > 0
+                    ? ` · ${eligibleAssignees.length} cleaner${eligibleAssignees.length === 1 ? '' : 's'} in this territory`
+                    : eligibleEmptyReason
+                      ? ` · ${eligibleEmptyReason}`
+                      : null}
                 </p>
               </div>
               <button
