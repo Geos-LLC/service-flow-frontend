@@ -340,7 +340,19 @@ const JobDetailsV2 = () => {
         const allSameDay = (resp?.jobs || []).filter((j) => String(j.scheduled_date || "").slice(0, 10) === dateStr)
         console.log('[prev-job] fetched', { total: resp?.jobs?.length ?? 0, sameDay: allSameDay.length })
         const otherJobs = allSameDay.filter((j) => String(j.id) !== String(job.id) && j.status !== "cancelled")
-        console.log('[prev-job] otherJobs', otherJobs.map(j => ({ id: j.id, time: j.scheduled_time, team_member_id: j.team_member_id, has_ja: Array.isArray(j.team_assignments) ? j.team_assignments.length : null })))
+        console.log('[prev-job] otherJobs full dump:')
+        otherJobs.forEach(j => {
+          console.log('[prev-job]   job', j.id, {
+            time: j.scheduled_time,
+            team_member_id: j.team_member_id,
+            assigned_team_member_id: j.assigned_team_member_id,
+            assigned_to: j.assigned_to,
+            job_team_assignments: j.job_team_assignments,
+            team_assignments: j.team_assignments,
+            assigned_providers: j.assigned_providers,
+            team_members: j.team_members,
+          })
+        })
         const next = {}
         for (const a of assignees) {
           const aId = String(a.id)
