@@ -1647,7 +1647,7 @@ const TeamMemberDetails = () => {
                       ))
                     }}
                     memberAddress={[
-                      teamMember?.location,
+                      teamMember?.location || teamMember?.address || teamMember?.home_address,
                       teamMember?.city,
                       teamMember?.state,
                       teamMember?.zip_code

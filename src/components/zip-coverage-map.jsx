@@ -62,6 +62,8 @@ const ZipCoverageMap = ({
 
   const [status, setStatus] = useState("loading")
   const [territories, setTerritories] = useState([])
+  // "unset" = no address string passed; "pending" = geocoding; "ok" = marker placed; "failed" = geocode returned no result
+  const [homeState, setHomeState] = useState("unset")
 
   // Fetch all active territories once so we can compute coverage from
   // territoryIds and know what's "out of scope" for this member.
@@ -203,12 +205,18 @@ const ZipCoverageMap = ({
       try { homeMarkerRef.current.setMap(null) } catch { /* ignore */ }
       homeMarkerRef.current = null
     }
-    if (!memberAddress || !window.google?.maps?.Geocoder) return
+    if (!memberAddress) { setHomeState("unset"); return }
+    if (!window.google?.maps?.Geocoder) { setHomeState("failed"); return }
+    setHomeState("pending")
     let cancelled = false
     const geocoder = new window.google.maps.Geocoder()
     geocoder.geocode({ address: memberAddress }, (results, statusCode) => {
       if (cancelled) return
-      if (statusCode !== "OK" || !results?.[0]) return
+      if (statusCode !== "OK" || !results?.[0]) {
+        console.warn("[ZipCoverageMap] geocode failed for", memberAddress, "status:", statusCode)
+        setHomeState("failed")
+        return
+      }
       const position = results[0].geometry.location
       const marker = new window.google.maps.Marker({
         map,
@@ -234,6 +242,7 @@ const ZipCoverageMap = ({
       })
       marker.addListener("click", () => info.open({ anchor: marker, map }))
       homeMarkerRef.current = marker
+      setHomeState("ok")
     })
     return () => { cancelled = true }
   }, [memberAddress, memberName, status])
@@ -301,6 +310,21 @@ const ZipCoverageMap = ({
       </div>
       <div className="px-3 py-2 text-xs text-[var(--sf-text-muted)] bg-[var(--sf-bg-page)] border-t border-[var(--sf-border-light)]">
         Click a green ZIP to exclude this member from it. Click a red one to un-exclude. Gray ZIPs belong to territories this member isn't assigned to.
+        {homeState === "unset" && (
+          <span className="block mt-1 text-amber-600">
+            🏠 No home address on file — add one via Edit to see this cleaner's home marker.
+          </span>
+        )}
+        {homeState === "failed" && (
+          <span className="block mt-1 text-amber-600">
+            🏠 Couldn't geocode this cleaner's home address ({memberAddress}). Check the address on file.
+          </span>
+        )}
+        {homeState === "ok" && (
+          <span className="block mt-1 text-[var(--sf-text-secondary)]">
+            🏠 Dark-blue pin = {memberName || "cleaner"}'s home ({memberAddress}).
+          </span>
+        )}
       </div>
     </div>
   )
