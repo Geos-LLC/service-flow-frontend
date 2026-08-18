@@ -39,6 +39,10 @@ const JobRouteMap = ({
   jobAddress,          // full address string of the service location
   assignees = [],       // [{ id, name }]
   teamMembers = [],     // full list — used to look up home addresses
+  originOverrides = null, // { [assigneeId]: { address, label } } — if set,
+                          // route origin for that cleaner is `address`
+                          // instead of home. Used on Job Details when the
+                          // cleaner has an earlier job the same day.
   height = 320,
 }) => {
   const mapDivRef = useRef(null)
@@ -49,9 +53,12 @@ const JobRouteMap = ({
   const jobPosRef = useRef(null)
 
   const [status, setStatus] = useState("loading")
-  const [routeInfo, setRouteInfo] = useState([])  // [{id, name, color, duration, distance}]
+  const [routeInfo, setRouteInfo] = useState([])  // [{id, name, color, duration, distance, originLabel}]
 
   // Resolve each assignee to a full team member record with an address.
+  // If an origin override is present for that assignee, use it as the
+  // route start instead of their home; the home marker + address string
+  // are replaced with the override so the map matches the chip row.
   const homes = useMemo(() => {
     const out = []
     assignees.forEach((a, i) => {
@@ -59,19 +66,23 @@ const JobRouteMap = ({
         (m) => m.id === a.id || String(m.id) === String(a.id)
       )
       if (!member) return
-      const address = [member.location, member.city, member.state, member.zip_code]
+      const override = originOverrides && originOverrides[a.id]
+      const homeAddr = [member.location, member.city, member.state, member.zip_code]
         .filter(Boolean)
         .join(", ")
+      const address = override?.address || homeAddr
       if (!address) return
       out.push({
         id: a.id,
         name: a.name || `${member.first_name || ""} ${member.last_name || ""}`.trim() || `#${a.id}`,
         address,
         color: ROUTE_COLORS[i % ROUTE_COLORS.length],
+        originLabel: override?.label || "from home",
+        isOverride: !!override,
       })
     })
     return out
-  }, [assignees, teamMembers])
+  }, [assignees, teamMembers, originOverrides])
 
   // Init map + place job pin + all routes.
   useEffect(() => {
@@ -133,14 +144,21 @@ const JobRouteMap = ({
         if (hStatus !== "OK" || !hResults?.[0]) continue
         const homePos = hResults[0].geometry.location
 
-        // Home marker — colored per assignee, matches the route color.
-        // House icon over a colored disc so it reads clearly as "home".
+        // Marker at the route origin. House glyph for home, sparkle
+        // glyph (matching the assignee color) when the origin is
+        // actually a previous job the same day.
+        const iconUrl = home.isOverride
+          ? svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="11" fill="${home.color}" stroke="#FFFFFF" stroke-width="1.5"/>
+              <path d="M12 6 L13.2 10.2 L17.5 11 L14 13.8 L15 18 L12 15.6 L9 18 L10 13.8 L6.5 11 L10.8 10.2 Z" fill="#FFFFFF"/>
+            </svg>`)
+          : homeIconUrl(home.color)
         const marker = new window.google.maps.Marker({
           map,
           position: homePos,
-          title: `${home.name} — home`,
+          title: home.isOverride ? `${home.name} — previous job` : `${home.name} — home`,
           icon: {
-            url: homeIconUrl(home.color),
+            url: iconUrl,
             anchor: new window.google.maps.Point(17, 17),
             scaledSize: new window.google.maps.Size(34, 34),
           },
@@ -181,6 +199,7 @@ const JobRouteMap = ({
             color: home.color,
             duration: leg?.duration?.text || "?",
             distance: leg?.distance?.text || "?",
+            originLabel: home.originLabel,
           })
         } else {
           // Still surface the assignee with a note that no route was found.
@@ -190,6 +209,7 @@ const JobRouteMap = ({
             color: home.color,
             duration: null,
             distance: null,
+            originLabel: home.originLabel,
           })
         }
       }
@@ -212,7 +232,7 @@ const JobRouteMap = ({
       routesRef.current.forEach(r => { try { r.setMap(null) } catch { /* ignore */ } })
       routesRef.current = []
     }
-  }, [jobAddress, homes.map(h => `${h.id}:${h.address}`).join("|")])
+  }, [jobAddress, homes.map(h => `${h.id}:${h.address}:${h.isOverride ? 'ovr' : 'home'}`).join("|")])
 
   return (
     <div className="flex flex-col" style={height === "100%" ? { height: "100%" } : {}}>
@@ -239,6 +259,9 @@ const JobRouteMap = ({
                   <span className="flex items-center gap-1 text-[var(--sf-text-secondary)]">
                     <Car className="w-3 h-3" />
                     {r.duration} · {r.distance}
+                    {r.originLabel && (
+                      <span className="text-[var(--sf-text-muted)] ml-1">({r.originLabel})</span>
+                    )}
                   </span>
                 ) : (
                   <span className="text-[var(--sf-text-muted)]">route unavailable</span>
