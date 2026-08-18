@@ -38,6 +38,16 @@ const COLOR_EXCLUDED_FILL = "#EF4444"   // red-500
 const COLOR_EXCLUDED_STROKE = "#B91C1C" // red-700
 const COLOR_OUT_FILL = "#CBD5E1"        // slate-300
 const COLOR_OUT_STROKE = "#94A3B8"      // slate-400
+const HOME_COLOR = "#1E3A8A"            // dark blue for the home marker disc
+
+// House icon over a colored disc — same silhouette used on JobRouteMap
+// so operators pattern-match "this is a cleaner's home" across screens.
+const homeIconUrl = () => `data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="11" fill="${HOME_COLOR}" stroke="#FFFFFF" stroke-width="1.5"/>
+    <path d="M5 11 12 5 19 11 19 18 A1 1 0 0 1 18 19 L14 19 L14 14 L10 14 L10 19 L6 19 A1 1 0 0 1 5 18 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.4"/>
+  </svg>`
+)}`
 
 const ZipCoverageMap = ({
   userId,
@@ -222,15 +232,12 @@ const ZipCoverageMap = ({
         map,
         position,
         title: memberName ? `${memberName} — home` : "Team member home",
-        // Distinctive dark-blue drop pin so it stands out over the
-        // green/red polygon fills; no label to keep it uncluttered.
+        // House icon over a dark-blue disc — stands out clearly against
+        // the green/red ZIP polygon fills.
         icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: "#1E3A8A",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 3,
+          url: homeIconUrl(),
+          anchor: new window.google.maps.Point(17, 17),
+          scaledSize: new window.google.maps.Size(34, 34),
         },
         zIndex: 1000,
       })
