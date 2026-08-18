@@ -135,8 +135,15 @@ const JobRouteMap = ({
       bounds.extend(jobPos)
 
       const directionsService = new window.google.maps.DirectionsService()
+      // Compute a perpendicular offset per cleaner so overlapping
+      // routes (two cleaners with the same origin/destination) render
+      // as parallel lines instead of stacking. Uses geometry library.
+      // Spacing: 18 meters per lane. Centered around the route midline.
+      const OFFSET_METERS = 18
+      const offsetForIndex = (i, n) => (n <= 1 ? 0 : (i - (n - 1) / 2) * OFFSET_METERS)
 
-      for (const home of homes) {
+      for (let hIdx = 0; hIdx < homes.length; hIdx++) {
+        const home = homes[hIdx]
         const { results: hResults, status: hStatus } = await new Promise((resolve) =>
           geocoder.geocode({ address: home.address }, (results, status) => resolve({ results, status }))
         )
@@ -180,17 +187,30 @@ const JobRouteMap = ({
         )
         if (cancelled) return
         if (routeStatus === "OK" && result?.routes?.[0]) {
-          const renderer = new window.google.maps.DirectionsRenderer({
+          // Draw as a custom Polyline (not DirectionsRenderer) so we
+          // can offset the path perpendicular to travel direction —
+          // otherwise two cleaners with the same origin+destination
+          // render as a single stacked line.
+          const rawPath = result.routes[0].overview_path || []
+          const offset = offsetForIndex(hIdx, homes.length)
+          const g = window.google.maps.geometry?.spherical
+          const offsetPath = (g && offset !== 0 && rawPath.length >= 2)
+            ? rawPath.map((pt, idx) => {
+                const ref = idx + 1 < rawPath.length ? rawPath[idx + 1] : rawPath[idx - 1]
+                let heading = g.computeHeading(pt, ref)
+                if (idx + 1 >= rawPath.length) heading += 180  // last point: use prev, so reverse
+                return g.computeOffset(pt, offset, heading + 90)
+              })
+            : rawPath
+          const polyline = new window.google.maps.Polyline({
             map,
-            directions: result,
-            suppressMarkers: true,  // keep our own custom markers
-            polylineOptions: {
-              strokeColor: home.color,
-              strokeWeight: 5,
-              strokeOpacity: 0.8,
-            },
+            path: offsetPath,
+            strokeColor: home.color,
+            strokeWeight: 5,
+            strokeOpacity: 0.85,
+            zIndex: 400 + hIdx,
           })
-          routesRef.current.push(renderer)
+          routesRef.current.push(polyline)
 
           const leg = result.routes[0].legs[0]
           infoRows.push({
