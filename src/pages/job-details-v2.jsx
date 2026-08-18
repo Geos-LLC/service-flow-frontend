@@ -316,6 +316,10 @@ const JobDetailsV2 = () => {
   // route from their previous stop instead of home when applicable.
   // originOverrides is keyed by assignee id → {address, label}.
   const [originOverrides, setOriginOverrides] = useState({})
+  // On-page debug panel so we can inspect the previous-job lookup
+  // without asking the operator to open DevTools. Remove after the
+  // routing feature is verified working.
+  const [prevJobDebug, setPrevJobDebug] = useState(null)
   useEffect(() => {
     const tenantId = job?.user_id || user?.id
     if (!job?.scheduled_date || !tenantId || assignees.length === 0) {
@@ -352,10 +356,9 @@ const JobDetailsV2 = () => {
           )
         )
         if (cancelled) return
-        // Stash the full diagnostic on window so the user can copy it
-        // exactly — Chrome's console truncates both objects AND long
-        // strings, so directly logging isn't enough.
-        window.__prevJobDebug = {
+        // Render the diagnostic ON THE PAGE so we can just screenshot
+        // it — no console gymnastics required. Remove after verified.
+        const debugPayload = {
           jobId: job.id,
           dateStr,
           thisStartMin,
@@ -372,7 +375,8 @@ const JobDetailsV2 = () => {
             })),
           })),
         }
-        console.log('[prev-job] DEBUG READY — run  copy(JSON.stringify(window.__prevJobDebug))  in the console, then paste to me.')
+        window.__prevJobDebug = debugPayload
+        setPrevJobDebug(debugPayload)
 
         const next = {}
         for (const { id: aId, jobs: aJobs } of perAssigneeJobs) {
@@ -1101,6 +1105,22 @@ const JobDetailsV2 = () => {
                     originOverrides={originOverrides}
                     height={280}
                   />
+                  {prevJobDebug && (
+                    <div style={{
+                      padding: "12px",
+                      background: "#FEF3C7",
+                      borderTop: "1px solid #F59E0B",
+                      fontFamily: "monospace",
+                      fontSize: 11,
+                      whiteSpace: "pre-wrap",
+                      color: "#92400E",
+                      maxHeight: 320,
+                      overflow: "auto",
+                    }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>[prev-job debug — remove after fix verified]</div>
+                      {JSON.stringify(prevJobDebug, null, 2)}
+                    </div>
+                  )}
                 </SfCard>
               )}
 
