@@ -36,6 +36,7 @@ import DateOverrideModal from '../components/date-override-modal'
 import AddTeamMemberModal from '../components/add-team-member-modal'
 import { getImageUrl } from '../utils/imageUtils'
 import { decodeHtmlEntities } from '../utils/htmlUtils'
+import ZipCoverageMap from '../components/zip-coverage-map'
 
 const TeamMemberDetails = () => {
   const { memberId } = useParams()
@@ -51,6 +52,11 @@ const TeamMemberDetails = () => {
   const [editFormData, setEditFormData] = useState({})
   const [territories, setTerritories] = useState([])
   const [displayedTerritories, setDisplayedTerritories] = useState([])
+  // ZIPs this member is excluded from (subset of their territories' ZIPs).
+  // Hard-blocks them from auto-suggest slots; manual assignment still allowed with a warning.
+  const [zipExclusions, setZipExclusions] = useState([])
+  const [zipExclusionsBaseline, setZipExclusionsBaseline] = useState([])
+  const [savingExclusions, setSavingExclusions] = useState(false)
   const [hasLoadedAvailability, setHasLoadedAvailability] = useState(false) // Track if availability has been loaded
   const [hasLoadedPermissions, setHasLoadedPermissions] = useState(false) // Track if permissions have been loaded
   const [workingHours, setWorkingHours] = useState({
@@ -222,7 +228,14 @@ const TeamMemberDetails = () => {
       if (response && response.teamMember) {
         const teamMemberData = response.teamMember
         setTeamMember(teamMemberData)
-        
+
+        // Parse zip_exclusions — jsonb array of 5-digit strings.
+        const rawExcl = teamMemberData.zip_exclusions
+        const parsedExcl = (Array.isArray(rawExcl) ? rawExcl : [])
+          .map((z) => String(z || '').trim())
+          .filter((z) => /^\d{5}$/.test(z))
+        setZipExclusions(parsedExcl)
+        setZipExclusionsBaseline(parsedExcl)
 
         // Parse territories
         if (teamMemberData.territories) {
@@ -1572,6 +1585,70 @@ const TeamMemberDetails = () => {
                 onJobClick={(id) => navigate(`/job/${id}`)}
                 onViewAll={() => navigate(`/jobs?teamMember=${memberId}`)}
               />
+
+              {/* ZIP Coverage Card — shows which ZIPs from the member's
+                  assigned territories they cover vs. are excluded from.
+                  Only render when at least one territory is assigned. */}
+              {territories && territories.length > 0 && (
+                <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-4 sm:p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-[var(--sf-text-primary)]">ZIP Coverage</h3>
+                      <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
+                        Exclude specific ZIPs to opt this member out of auto-routing for jobs in them. Manual assignment still allowed with a warning.
+                      </p>
+                    </div>
+                    {(() => {
+                      const changed = (() => {
+                        const a = zipExclusions
+                        const b = zipExclusionsBaseline
+                        if (a.length !== b.length) return true
+                        const set = new Set(b)
+                        for (const z of a) if (!set.has(z)) return true
+                        return false
+                      })()
+                      return (
+                        <button
+                          type="button"
+                          disabled={!changed || savingExclusions}
+                          onClick={async () => {
+                            if (savingExclusions) return
+                            setSavingExclusions(true)
+                            try {
+                              await teamAPI.update(memberId, { zipExclusions })
+                              setZipExclusionsBaseline([...zipExclusions])
+                              setNotification({ type: 'success', message: 'ZIP exclusions saved.' })
+                            } catch (err) {
+                              console.error('[zip-exclusions] save failed', err)
+                              setNotification({ type: 'error', message: 'Failed to save ZIP exclusions.' })
+                            } finally {
+                              setSavingExclusions(false)
+                              setTimeout(() => setNotification(null), 3500)
+                            }
+                          }}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                            !changed || savingExclusions
+                              ? 'bg-[var(--sf-bg-page)] text-[var(--sf-text-muted)] cursor-not-allowed'
+                              : 'bg-[var(--sf-blue-500)] text-white hover:bg-[var(--sf-blue-600)]'
+                          }`}
+                        >
+                          {savingExclusions ? 'Saving…' : changed ? `Save (${zipExclusions.length})` : 'Saved'}
+                        </button>
+                      )
+                    })()}
+                  </div>
+                  <ZipCoverageMap
+                    userId={user?.id}
+                    territoryIds={territories}
+                    zipExclusions={zipExclusions}
+                    onToggleExclusion={(zip) => {
+                      setZipExclusions((prev) => (
+                        prev.includes(zip) ? prev.filter((z) => z !== zip) : [...prev, zip]
+                      ))
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Availability Card */}
               <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-4 sm:p-6">
