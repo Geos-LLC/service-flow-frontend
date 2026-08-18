@@ -335,49 +335,37 @@ const JobDetailsV2 = () => {
     let cancelled = false
     ;(async () => {
       try {
-        const resp = await jobsAPI.getAll(tenantId, "", "", 1, 500, null, dateRange)
+        // Fetch per assignee using the backend's teamMember filter — it
+        // already knows how to include multi-cleaner assignments via
+        // job_team_assignments. Doing this per-assignee sidesteps any
+        // list-endpoint join shape quirks that swallowed multi-cleaner
+        // ids on the union-response path.
+        const perAssigneeJobs = await Promise.all(
+          assignees.map((a) =>
+            jobsAPI
+              .getAll(tenantId, undefined, undefined, 1, 200, undefined, dateRange, undefined, undefined, a.id)
+              .then((resp) => ({ id: String(a.id), jobs: resp?.jobs || [] }))
+              .catch((err) => {
+                console.warn("[prev-job] fetch failed for", a.id, err)
+                return { id: String(a.id), jobs: [] }
+              })
+          )
+        )
         if (cancelled) return
-        const allSameDay = (resp?.jobs || []).filter((j) => String(j.scheduled_date || "").slice(0, 10) === dateStr)
-        console.log('[prev-job] fetched', { total: resp?.jobs?.length ?? 0, sameDay: allSameDay.length })
-        const otherJobs = allSameDay.filter((j) => String(j.id) !== String(job.id) && j.status !== "cancelled")
-        console.log('[prev-job] otherJobs full dump:')
-        otherJobs.forEach(j => {
-          console.log('[prev-job]   job', j.id, {
-            time: j.scheduled_time,
-            team_member_id: j.team_member_id,
-            assigned_team_member_id: j.assigned_team_member_id,
-            assigned_to: j.assigned_to,
-            job_team_assignments: j.job_team_assignments,
-            team_assignments: j.team_assignments,
-            assigned_providers: j.assigned_providers,
-            team_members: j.team_members,
-          })
-        })
+        console.log('[prev-job] per-assignee counts', perAssigneeJobs.map((r) => ({ id: r.id, jobs: r.jobs.length })))
+
         const next = {}
-        for (const a of assignees) {
-          const aId = String(a.id)
-          // Any other-job on this date that is assigned to `a` and starts
-          // strictly before this job. Robust against the list endpoint
-          // returning only `team_member_id` (no `team_assignments` join)
-          // for multi-cleaner jobs.
-          const candidates = otherJobs.filter((oj) => {
-            const ids = new Set()
-            const push = (x) => { if (x != null) ids.add(String(x)) }
-            push(oj.team_member_id)
-            push(oj.assigned_team_member_id)
-            push(oj.assigned_to)
-            if (Array.isArray(oj.team_assignments)) oj.team_assignments.forEach(x => push(x?.team_member_id || x?.id))
-            if (Array.isArray(oj.assigned_providers)) oj.assigned_providers.forEach(x => push(x?.id || x?.team_member_id || x?.provider_id))
-            if (Array.isArray(oj.job_team_assignments)) oj.job_team_assignments.forEach(x => push(x?.team_member_id || x?.id))
-            if (Array.isArray(oj.team_members)) oj.team_members.forEach(x => push(x?.id || x?.team_member_id))
-            if (!ids.has(aId)) return false
+        for (const { id: aId, jobs: aJobs } of perAssigneeJobs) {
+          const candidates = aJobs.filter((oj) => {
+            if (String(oj.id) === String(job.id)) return false
+            if (oj.status === "cancelled") return false
+            if (String(oj.scheduled_date || "").slice(0, 10) !== dateStr) return false
             const startMin = parseHM(oj.scheduled_time)
             if (thisStartMin == null || startMin == null) return false
             return startMin < thisStartMin
           })
-          console.log('[prev-job] candidates for', aId, candidates.map(c => c.id))
+          console.log('[prev-job] candidates for', aId, candidates.map((c) => ({ id: c.id, time: c.scheduled_time })))
           if (candidates.length === 0) continue
-          // Pick the latest — that's the "previous cleaning."
           candidates.sort((x, y) => parseHM(y.scheduled_time) - parseHM(x.scheduled_time))
           const prev = candidates[0]
           const addr = [
@@ -391,7 +379,7 @@ const JobDetailsV2 = () => {
             ? new Date(`2000-01-01T${String(prev.scheduled_time).slice(0, 5)}:00`)
                 .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
             : "earlier"
-          next[a.id] = {
+          next[aId] = {
             address: addr,
             label: `from previous job at ${timeLabel}`,
           }

@@ -870,6 +870,10 @@ export const recurringBookingsAPI = {
 };
 
 export const jobsAPI = {
+  // NOTE: positional signature — if you need `teamMember` alone, pass
+  // undefined for all preceding args:
+  //   jobsAPI.getAll(userId, undefined, undefined, 1, 500, undefined, dateRange,
+  //                  undefined, undefined, teamMemberId)
   getAll: async (userId, status, search, page = 1, limit = 20, dateFilter, dateRange, sortBy, sortOrder, teamMember, invoiceStatus, customerId, territoryId, recurring, signal, opts = {}) => {
     try {
       const params = new URLSearchParams({ userId });
