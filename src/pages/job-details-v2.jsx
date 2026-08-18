@@ -353,9 +353,11 @@ const JobDetailsV2 = () => {
         )
         if (cancelled) return
         console.log('[prev-job] per-assignee counts', perAssigneeJobs.map((r) => ({ id: r.id, jobs: r.jobs.length })))
+        console.log('[prev-job] this job — dateStr=', dateStr, 'thisStartMin=', thisStartMin, 'this.scheduled_date=', job.scheduled_date, 'this.scheduled_time=', job.scheduled_time)
 
         const next = {}
         for (const { id: aId, jobs: aJobs } of perAssigneeJobs) {
+          console.log('[prev-job] raw jobs for', aId, aJobs.map(j => ({ id: j.id, date: j.scheduled_date, time: j.scheduled_time, status: j.status })))
           const candidates = aJobs.filter((oj) => {
             if (String(oj.id) === String(job.id)) return false
             if (oj.status === "cancelled") return false
