@@ -17,6 +17,24 @@ import { loadGoogleMapsScript } from "../utils/googleMaps"
 const ROUTE_COLORS = ["#7C3AED", "#059669", "#DC2626"]  // purple, emerald, red (fallback)
 const JOB_PIN_COLOR = "#EF4444"
 
+// Data-URI SVG icons for markers. Kept as functions so we can inject the
+// per-cleaner color into the home icon fill without escaping issues.
+const svgUrl = (svg) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+
+// House icon over a colored disc. Used for cleaner home markers so
+// they're visually obvious as "someone lives here", not just a dot.
+const homeIconUrl = (color) => svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="11" fill="${color}" stroke="#FFFFFF" stroke-width="1.5"/>
+  <path d="M5 11 12 5 19 11 19 18 A1 1 0 0 1 18 19 L14 19 L14 14 L10 14 L10 19 L6 19 A1 1 0 0 1 5 18 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.4"/>
+</svg>`)
+
+// Sparkle icon over a red disc for the service (cleaning) location.
+// Distinct silhouette from the home markers so they don't get confused.
+const jobIconUrl = svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="11" fill="${JOB_PIN_COLOR}" stroke="#FFFFFF" stroke-width="1.5"/>
+  <path d="M12 6 L13.2 10.2 L17.5 11 L14 13.8 L15 18 L12 15.6 L9 18 L10 13.8 L6.5 11 L10.8 10.2 Z" fill="#FFFFFF"/>
+</svg>`)
+
 const JobRouteMap = ({
   jobAddress,          // full address string of the service location
   assignees = [],       // [{ id, name }]
@@ -92,12 +110,9 @@ const JobRouteMap = ({
         position: jobPos,
         title: jobAddress,
         icon: {
-          path: window.google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
-          scale: 6,
-          fillColor: JOB_PIN_COLOR,
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2,
+          url: jobIconUrl,
+          anchor: new window.google.maps.Point(20, 20),
+          scaledSize: new window.google.maps.Size(40, 40),
         },
         zIndex: 900,
       })
@@ -119,17 +134,15 @@ const JobRouteMap = ({
         const homePos = hResults[0].geometry.location
 
         // Home marker — colored per assignee, matches the route color.
+        // House icon over a colored disc so it reads clearly as "home".
         const marker = new window.google.maps.Marker({
           map,
           position: homePos,
           title: `${home.name} — home`,
           icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 8,
-            fillColor: home.color,
-            fillOpacity: 1,
-            strokeColor: "#FFFFFF",
-            strokeWeight: 2.5,
+            url: homeIconUrl(home.color),
+            anchor: new window.google.maps.Point(17, 17),
+            scaledSize: new window.google.maps.Size(34, 34),
           },
           zIndex: 700,
         })

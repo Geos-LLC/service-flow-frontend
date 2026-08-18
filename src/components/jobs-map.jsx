@@ -304,17 +304,23 @@ const JobsMap = ({ jobs, teamMembers = [], mapType = 'roadmap' }) => {
       const cacheKey = `home:${address}`
       const cached = geocodeCacheRef.current[cacheKey]
       const drop = (position) => {
+        // House icon over a dark-blue disc — same silhouette used on
+        // JobRouteMap and ZipCoverageMap so operators pattern-match
+        // "cleaner's home" consistently across every map in the app.
+        const iconUrl = `data:image/svg+xml;utf8,${encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="11" fill="#1E3A8A" stroke="#FFFFFF" stroke-width="1.5"/>
+            <path d="M5 11 12 5 19 11 19 18 A1 1 0 0 1 18 19 L14 19 L14 14 L10 14 L10 19 L6 19 A1 1 0 0 1 5 18 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.4"/>
+          </svg>`
+        )}`
         const marker = new window.google.maps.Marker({
           position,
           map: mapInstanceRef.current,
           title: `${fullName} — home`,
           icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 8,
-            fillColor: '#1E3A8A',
-            fillOpacity: 1,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2.5,
+            url: iconUrl,
+            anchor: new window.google.maps.Point(14, 14),
+            scaledSize: new window.google.maps.Size(28, 28),
           },
           zIndex: 500,
         })
