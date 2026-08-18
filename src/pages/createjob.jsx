@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { formatTime as formatTimeShared } from "../utils/formatTime";
 import AvailabilityWarning from "../components/AvailabilityWarning";
 import { GOOGLE_MAPS_API_KEY } from "../config/maps";
@@ -58,7 +59,9 @@ import {
   Building,
   Truck,
   Clipboard,
-  RotateCw
+  RotateCw,
+  Maximize2,
+  X as XIcon
 } from 'lucide-react';
 import CustomerModal from "../components/customer-modal";
 import ServiceModal from "../components/service-modal";
@@ -74,6 +77,7 @@ import CreateServiceModal from "../components/create-service-modal";
 import CalendarPicker from "../components/CalendarPicker";
 import DiscountModal from "../components/discount-modal";
 import RecurringFrequencyModal from "../components/recurring-frequency-modal";
+import JobRouteMap from "../components/job-route-map";
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { jobsAPI, customersAPI, customerPropertiesAPI, servicesAPI, teamAPI, territoriesAPI, leadsAPI, notificationSettingsAPI, availabilityAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -208,6 +212,44 @@ export default function CreateJobPage() {
   const [territories, setTerritories] = useState([]);
   const [territoriesLoading, setTerritoriesLoading] = useState(false);
   const [territoryWarning, setTerritoryWarning] = useState(null);
+  // Enlarged view of the service-address map (with cleaner routes).
+  const [routeMapExpanded, setRouteMapExpanded] = useState(false);
+  useEffect(() => {
+    if (!routeMapExpanded) return;
+    const onKey = (e) => { if (e.key === 'Escape') setRouteMapExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [routeMapExpanded]);
+
+  // Cleaners eligible for THIS job's ZIP — members of the matched
+  // territory whose zip_exclusions don't contain the service ZIP.
+  // Used to draw routes on the create-job map so the operator sees
+  // driving time from each candidate cleaner's home BEFORE assigning.
+  const eligibleAssignees = useMemo(() => {
+    const tid = formData?.territoryId || detectedTerritory?.id || null;
+    if (!tid || !territories || territories.length === 0) return [];
+    const t = territories.find((x) => x.id === tid || String(x.id) === String(tid));
+    if (!t) return [];
+    const memberIds = Array.isArray(t.team_members) ? t.team_members : [];
+    const zip = formData?.serviceAddress?.zipCode ? String(formData.serviceAddress.zipCode).trim() : null;
+    return memberIds
+      .map((id) => teamMembers.find((m) => m.id === id || String(m.id) === String(id)))
+      .filter(Boolean)
+      .filter((m) => {
+        if (!zip) return true;
+        const excl = Array.isArray(m.zip_exclusions) ? m.zip_exclusions.map(String) : [];
+        return !excl.includes(zip);
+      })
+      .map((m) => ({
+        id: m.id,
+        name: `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || `#${m.id}`,
+      }));
+  }, [formData?.territoryId, detectedTerritory?.id, territories, teamMembers, formData?.serviceAddress?.zipCode]);
+
+  const jobFullAddress = useMemo(() => {
+    const a = formData?.serviceAddress || {};
+    return [a.street, a.city, a.state, a.zipCode].filter(Boolean).join(', ');
+  }, [formData?.serviceAddress?.street, formData?.serviceAddress?.city, formData?.serviceAddress?.state, formData?.serviceAddress?.zipCode]);
   // True after the operator has manually picked a territory via the modal.
   // Locks out the ZIP-based auto-fill so we don't overwrite their choice.
   const [territoryManualOverride, setTerritoryManualOverride] = useState(false);
@@ -3973,22 +4015,29 @@ setIntakeQuestionAnswers(answers);
                     </div>
                   )}
 
-                  {/* Service Address with Map */}
+                  {/* Service Address with Map — draws routes from every
+                      eligible cleaner's home to the job, colored per
+                      cleaner. Enlarged view (Maximize button) portaled
+                      to body so it's not clipped by the card. */}
                   {formData.serviceAddress.street && (
                     <>
-                      <div className="h-40 bg-[var(--sf-bg-page)] relative">
-                        <iframe
-                          title="Service Address Map"
-                          width="100%"
-                          height="100%"
-                          style={{ border: 0 }}
-                          loading="lazy"
-                          allowFullScreen
-                          referrerPolicy="no-referrer-when-downgrade"
-                          src={`https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(
-                            `${formData.serviceAddress.street}, ${formData.serviceAddress.city}, ${formData.serviceAddress.state || ''} ${formData.serviceAddress.zipCode || ''}`
-                          )}&zoom=16&maptype=roadmap`}
-                        />
+                      <div className="relative">
+                        <div style={{ height: 200 }}>
+                          <JobRouteMap
+                            jobAddress={jobFullAddress}
+                            assignees={eligibleAssignees}
+                            teamMembers={teamMembers}
+                            height={200}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setRouteMapExpanded(true)}
+                          className="absolute top-2 right-2 z-10 inline-flex p-1.5 bg-white rounded-lg shadow-md hover:bg-[var(--sf-bg-page)] transition-colors"
+                          title="Expand map"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5 text-[var(--sf-text-primary)]" />
+                        </button>
                       </div>
                       <div className="px-5 py-3 border-b border-[var(--sf-border-light)]">
                         <div className="flex items-center justify-between mb-2">
@@ -4177,6 +4226,54 @@ setIntakeQuestionAnswers(answers);
         territories={territories}
         user={user}
       />
+
+      {/* Enlarged service-address map — portaled so backdrop clicks
+          don't bubble into the create-job form. Shows the same routes
+          as the small card but at 85vh so the operator can compare
+          drive times across all eligible cleaners at once. */}
+      {routeMapExpanded && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4"
+          onMouseDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            setRouteMapExpanded(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden flex flex-col"
+            style={{ height: '85vh' }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--sf-border-light)]">
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--sf-text-primary)]">Job location + eligible cleaners</h3>
+                <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
+                  {jobFullAddress || 'No address entered'}
+                  {eligibleAssignees.length > 0 && ` · ${eligibleAssignees.length} cleaner${eligibleAssignees.length === 1 ? '' : 's'} in this territory`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRouteMapExpanded(false)}
+                className="text-[var(--sf-text-muted)] hover:text-[var(--sf-text-secondary)] transition-colors"
+                title="Close (Esc)"
+              >
+                <XIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <JobRouteMap
+                jobAddress={jobFullAddress}
+                assignees={eligibleAssignees}
+                teamMembers={teamMembers}
+                height="100%"
+              />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       
       <RecurringFrequencyModal
         isOpen={showRecurringModal}

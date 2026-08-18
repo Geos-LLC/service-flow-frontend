@@ -202,8 +202,8 @@ const JobRouteMap = ({
   }, [jobAddress, homes.map(h => `${h.id}:${h.address}`).join("|")])
 
   return (
-    <div>
-      <div className="relative" style={{ height }}>
+    <div className="flex flex-col" style={height === "100%" ? { height: "100%" } : {}}>
+      <div className={height === "100%" ? "relative flex-1 min-h-0" : "relative"} style={height === "100%" ? {} : { height }}>
         <div ref={mapDivRef} className="w-full h-full" />
         {status !== "ready" && (
           <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-60 pointer-events-none">
