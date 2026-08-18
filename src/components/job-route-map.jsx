@@ -138,9 +138,14 @@ const JobRouteMap = ({
       // Compute a perpendicular offset per cleaner so overlapping
       // routes (two cleaners with the same origin/destination) render
       // as parallel lines instead of stacking. Uses geometry library.
-      // Spacing: 18 meters per lane. Centered around the route midline.
-      const OFFSET_METERS = 18
+      // Spacing: 40 meters per lane — needs to be visible at metro
+      // zoom (~11-12). Centered around the route midline.
+      const OFFSET_METERS = 40
       const offsetForIndex = (i, n) => (n <= 1 ? 0 : (i - (n - 1) / 2) * OFFSET_METERS)
+      const hasGeometry = !!window.google?.maps?.geometry?.spherical
+      if (!hasGeometry) {
+        console.warn('[JobRouteMap] geometry library not loaded — routes will stack. Reload the page to pick up the loader with libraries=places,geometry.')
+      }
 
       for (let hIdx = 0; hIdx < homes.length; hIdx++) {
         const home = homes[hIdx]
@@ -194,22 +199,29 @@ const JobRouteMap = ({
           const rawPath = result.routes[0].overview_path || []
           const offset = offsetForIndex(hIdx, homes.length)
           const g = window.google.maps.geometry?.spherical
-          const offsetPath = (g && offset !== 0 && rawPath.length >= 2)
-            ? rawPath.map((pt, idx) => {
-                const ref = idx + 1 < rawPath.length ? rawPath[idx + 1] : rawPath[idx - 1]
-                let heading = g.computeHeading(pt, ref)
-                if (idx + 1 >= rawPath.length) heading += 180  // last point: use prev, so reverse
-                return g.computeOffset(pt, offset, heading + 90)
-              })
-            : rawPath
+          let offsetPath = rawPath
+          if (g && offset !== 0 && rawPath.length >= 2) {
+            offsetPath = rawPath.map((pt, idx) => {
+              const ref = idx + 1 < rawPath.length ? rawPath[idx + 1] : rawPath[idx - 1]
+              let heading = g.computeHeading(pt, ref)
+              if (idx + 1 >= rawPath.length) heading += 180  // last point uses prev — reverse
+              return g.computeOffset(pt, offset, heading + 90)
+            })
+          }
+          // Fallback: when geometry library isn't available, vary stroke
+          // width per cleaner so both are visible even when stacked.
+          // Outer cleaner (idx 0) draws thicker + higher zIndex, inner
+          // draws thinner underneath.
+          const strokeWeight = (g && offset !== 0) ? 5 : (hIdx === 0 ? 7 : 4)
           const polyline = new window.google.maps.Polyline({
             map,
             path: offsetPath,
             strokeColor: home.color,
-            strokeWeight: 5,
+            strokeWeight,
             strokeOpacity: 0.85,
             zIndex: 400 + hIdx,
           })
+          console.log(`[JobRouteMap] route ${hIdx} for ${home.name}: offset=${offset}m, geometry=${!!g}, points=${offsetPath.length}, strokeWeight=${strokeWeight}`)
           routesRef.current.push(polyline)
 
           const leg = result.routes[0].legs[0]
