@@ -352,19 +352,30 @@ const JobDetailsV2 = () => {
           )
         )
         if (cancelled) return
-        // Serialize to JSON strings so Chrome doesn't collapse the log with `...`.
-        console.log('[prev-job] JSON:this=' + JSON.stringify({
+        // Stash the full diagnostic on window so the user can copy it
+        // exactly — Chrome's console truncates both objects AND long
+        // strings, so directly logging isn't enough.
+        window.__prevJobDebug = {
           jobId: job.id,
           dateStr,
           thisStartMin,
           this_scheduled_date: job.scheduled_date,
           this_scheduled_time: job.scheduled_time,
-          per_assignee_counts: perAssigneeJobs.map((r) => ({ id: r.id, count: r.jobs.length })),
-        }))
+          per_assignee: perAssigneeJobs.map((r) => ({
+            id: r.id,
+            count: r.jobs.length,
+            jobs: r.jobs.map((j) => ({
+              id: j.id,
+              date: j.scheduled_date,
+              time: j.scheduled_time,
+              status: j.status,
+            })),
+          })),
+        }
+        console.log('[prev-job] DEBUG READY — run  copy(JSON.stringify(window.__prevJobDebug))  in the console, then paste to me.')
 
         const next = {}
         for (const { id: aId, jobs: aJobs } of perAssigneeJobs) {
-          console.log('[prev-job] JSON:raw ' + aId + '=' + JSON.stringify(aJobs.map(j => ({ id: j.id, date: j.scheduled_date, time: j.scheduled_time, status: j.status }))))
           const candidates = aJobs.filter((oj) => {
             if (String(oj.id) === String(job.id)) return false
             if (oj.status === "cancelled") return false
