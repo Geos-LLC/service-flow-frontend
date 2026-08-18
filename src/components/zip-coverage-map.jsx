@@ -44,6 +44,8 @@ const ZipCoverageMap = ({
   territoryIds = [],       // number[] — the member's assigned territories
   zipExclusions = [],       // string[]
   onToggleExclusion,        // (zip: string) => void
+  memberAddress = null,     // free-form address string; geocoded to drop a home marker
+  memberName = "",          // shown in the marker infowindow
   height = 380,
   showOutOfScope = true,    // show sibling territories in gray for context
 }) => {
@@ -52,6 +54,7 @@ const ZipCoverageMap = ({
   const featuresRef = useRef([])
   const allFcRef = useRef(null)
   const didInitialFitRef = useRef(false)
+  const homeMarkerRef = useRef(null)
 
   const zipExclusionsRef = useRef(zipExclusions)
   const coveredByAssignedRef = useRef(new Set())
@@ -187,6 +190,53 @@ const ZipCoverageMap = ({
     map.data.setStyle(styleForFeature)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
+
+  // Geocode the team member's address and drop a home marker.
+  // Rerun whenever the address changes; the marker doesn't move the
+  // viewport (fit-bounds already handled it), so it just anchors the
+  // operator visually while they toggle ZIPs around it.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || status !== "ready") return
+    // Tear down any previous marker before rerendering.
+    if (homeMarkerRef.current) {
+      try { homeMarkerRef.current.setMap(null) } catch { /* ignore */ }
+      homeMarkerRef.current = null
+    }
+    if (!memberAddress || !window.google?.maps?.Geocoder) return
+    let cancelled = false
+    const geocoder = new window.google.maps.Geocoder()
+    geocoder.geocode({ address: memberAddress }, (results, statusCode) => {
+      if (cancelled) return
+      if (statusCode !== "OK" || !results?.[0]) return
+      const position = results[0].geometry.location
+      const marker = new window.google.maps.Marker({
+        map,
+        position,
+        title: memberName ? `${memberName} — home` : "Team member home",
+        // Distinctive dark-blue drop pin so it stands out over the
+        // green/red polygon fills; no label to keep it uncluttered.
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: "#1E3A8A",
+          fillOpacity: 1,
+          strokeColor: "#FFFFFF",
+          strokeWeight: 3,
+        },
+        zIndex: 1000,
+      })
+      const info = new window.google.maps.InfoWindow({
+        content: `<div style="font-family: Montserrat, sans-serif; font-size: 12px;">
+          <strong>${memberName || "Home"}</strong><br/>
+          <span style="color:#64748B">${memberAddress}</span>
+        </div>`,
+      })
+      marker.addListener("click", () => info.open({ anchor: marker, map }))
+      homeMarkerRef.current = marker
+    })
+    return () => { cancelled = true }
+  }, [memberAddress, memberName, status])
 
   function styleForFeature(feature) {
     const bucket = feature.getProperty("bucket")
