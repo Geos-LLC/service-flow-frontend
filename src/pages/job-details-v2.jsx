@@ -42,6 +42,7 @@ import { useAuth } from "../context/AuthContext"
 import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI, customerFilesAPI } from "../services/api"
 import { formatTime as formatTimeShared } from "../utils/formatTime"
 import { getGoogleMapsApiKey } from "../config/maps"
+import JobRouteMap from "../components/job-route-map"
 import MobileHeader from "../components/mobile-header"
 import JobExpensesSection from "../components/job-expenses-section"
 import AssignJobModal from "../components/assign-job-modal"
@@ -990,17 +991,14 @@ const JobDetailsV2 = () => {
                       </SfButton>
                     </a>
                   </div>
-                  <div style={{ height: 240 }}>
-                    <iframe
-                      title="Job location"
-                      width="100%"
-                      height="100%"
-                      style={{ border: 0 }}
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                      src={`https://www.google.com/maps/embed/v1/place?key=${getGoogleMapsApiKey()}&q=${encodeURIComponent(`${serviceAddress}, ${serviceCity}`)}&zoom=14`}
-                    />
-                  </div>
+                  <JobRouteMap
+                    jobAddress={[serviceAddress, serviceCity, job?.service_address_state, job?.service_address_zip]
+                      .filter(Boolean)
+                      .join(", ")}
+                    assignees={assignees}
+                    teamMembers={teamMembers}
+                    height={280}
+                  />
                 </SfCard>
               )}
 
