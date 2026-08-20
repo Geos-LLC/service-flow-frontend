@@ -576,58 +576,106 @@ const TeamAvailabilityCalendar = () => {
 
   const formatTime = (time) => formatTimeShared(time)
 
+  // Compact wall-clock: "9a", "5:30p", "12p" — for dense cells where the
+  // full formatTime ("9:00 AM") wraps every slot to a second line.
+  const formatTimeCompact = (hhmm) => {
+    if (!hhmm || typeof hhmm !== 'string') return ''
+    const m = hhmm.match(/^(\d{1,2}):(\d{2})/)
+    if (!m) return String(hhmm)
+    const h = +m[1], mi = +m[2]
+    const suffix = h >= 12 ? 'p' : 'a'
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+    return mi === 0 ? `${h12}${suffix}` : `${h12}:${String(mi).padStart(2, '0')}${suffix}`
+  }
+
+  const totalMinutes = (slots) =>
+    Array.isArray(slots)
+      ? slots.reduce((s, sl) => s + Math.max(0, timeToMinutes(sl.end) - timeToMinutes(sl.start)), 0)
+      : 0
+
+  const joinSlotsCompact = (slots) =>
+    Array.isArray(slots)
+      ? slots.map(s => `${formatTimeCompact(s.start)}–${formatTimeCompact(s.end)}`).join(', ')
+      : ''
+
   const getAvailabilityDisplay = (memberId, dateStr) => {
     const memberData = availabilityData[memberId]?.[dateStr]
-    if (!memberData) return { status: 'unknown', text: 'No data' }
-    
+    if (!memberData) return { status: 'unknown', text: 'No data', freeMinutes: 0, shiftMinutes: 0 }
+
+    const shiftMinutes = totalMinutes(memberData.hours)
+
     if (!memberData.available) {
-      return { status: 'unavailable', text: 'Unavailable' }
+      return { status: 'unavailable', text: 'OFF', freeMinutes: 0, shiftMinutes: 0 }
     }
-    
+
     // Show different data based on calendar view
     if (calendarView === "base") {
-      // Show base availability (when worker is generally available)
       if (memberData.hours && memberData.hours.length > 0) {
-        const firstSlot = memberData.hours[0]
-        const slotCount = memberData.hours.length
-        return { 
-          status: 'available', 
-          text: slotCount > 1 
-            ? `${formatTime(firstSlot.start)} - ${formatTime(firstSlot.end)} (+${slotCount - 1})`
-            : `${formatTime(firstSlot.start)} - ${formatTime(firstSlot.end)}`
+        return {
+          status: 'available',
+          text: joinSlotsCompact(memberData.hours),
+          freeMinutes: shiftMinutes,
+          shiftMinutes,
         }
       }
-      return { status: 'available', text: 'Available' }
-    } else {
-      // Show remaining availability (after jobs are subtracted)
-      if (memberData.remainingHours && memberData.remainingHours.length > 0) {
-        const firstSlot = memberData.remainingHours[0]
-        const slotCount = memberData.remainingHours.length
-        return { 
-          status: 'available', 
-          text: slotCount > 1 
-            ? `${formatTime(firstSlot.start)} - ${formatTime(firstSlot.end)} (+${slotCount - 1})`
-            : `${formatTime(firstSlot.start)} - ${formatTime(firstSlot.end)}`
-        }
-      }
-      
-      // If base availability exists but no remaining hours, all time is booked
-      if (memberData.assignedJobs && memberData.assignedJobs.length > 0) {
-        return { status: 'booked', text: `${memberData.assignedJobs.length} job(s)` }
-      }
-      
-      // If base availability exists but no hours defined
-      if (memberData.hours && memberData.hours.length > 0) {
-        const firstSlot = memberData.hours[0]
-        return { 
-          status: 'available', 
-          text: `${formatTime(firstSlot.start)} - ${formatTime(firstSlot.end)}` 
-        }
-      }
-      
-      return { status: 'available', text: 'Available' }
+      return { status: 'available', text: 'Available', freeMinutes: 0, shiftMinutes: 0 }
     }
+
+    // "remaining" view — show all free windows joined, not just first + count
+    if (memberData.remainingHours && memberData.remainingHours.length > 0) {
+      return {
+        status: 'available',
+        text: joinSlotsCompact(memberData.remainingHours),
+        freeMinutes: totalMinutes(memberData.remainingHours),
+        shiftMinutes,
+      }
+    }
+
+    // All time booked — surface the job count for context
+    if (memberData.assignedJobs && memberData.assignedJobs.length > 0) {
+      return {
+        status: 'booked',
+        text: `Full — ${memberData.assignedJobs.length} job${memberData.assignedJobs.length === 1 ? '' : 's'}`,
+        freeMinutes: 0,
+        shiftMinutes,
+      }
+    }
+
+    if (memberData.hours && memberData.hours.length > 0) {
+      return {
+        status: 'available',
+        text: joinSlotsCompact(memberData.hours),
+        freeMinutes: shiftMinutes,
+        shiftMinutes,
+      }
+    }
+
+    return { status: 'available', text: 'Available', freeMinutes: 0, shiftMinutes: 0 }
   }
+
+  // Per-member totals across all visible days in the current month.
+  // Used by the legend header to show "N.Nh free / N.Nh shift" per cleaner
+  // without re-scanning cells during render.
+  const monthlyTotalsByMember = useMemo(() => {
+    const totals = {}
+    for (const member of teamMembers) {
+      let free = 0
+      let shift = 0
+      const memberDays = availabilityData[member.id] || {}
+      for (const day of calendarDays) {
+        if (!day.isCurrentMonth) continue
+        const dateStr = day.date.toISOString().split('T')[0]
+        const d = memberDays[dateStr]
+        if (!d) continue
+        shift += totalMinutes(d.hours)
+        free += totalMinutes(d.remainingHours)
+      }
+      totals[member.id] = { freeMinutes: free, shiftMinutes: shift, bookedMinutes: Math.max(0, shift - free) }
+    }
+    return totals
+  }, [teamMembers, availabilityData, calendarDays])
+
+  const fmtHours = (mins) => (Math.round((mins / 60) * 10) / 10).toFixed(1)
 
   if (loading && teamMembers.length === 0) {
     return (
@@ -759,21 +807,45 @@ const TeamAvailabilityCalendar = () => {
         </div>
       </div>
 
-      {/* Team Members Legend */}
+      {/* Team Members Legend — includes monthly free vs booked hours per
+          cleaner. Numbers reflect the current month view; switch months
+          and totals recompute against the new visible range. */}
       {teamMembers.length > 0 && (
         <div className="bg-white border-b border-[var(--sf-border-light)] px-4 py-3 lg:px-6 overflow-x-auto">
-          <div className="flex items-center space-x-4 min-w-max">
-            {teamMembers.map((member) => (
-              <div key={member.id} className="flex items-center space-x-2 flex-shrink-0">
+          <div className="flex items-center space-x-3 min-w-max">
+            {teamMembers.map((member) => {
+              const t = monthlyTotalsByMember[member.id] || { freeMinutes: 0, shiftMinutes: 0, bookedMinutes: 0 }
+              const noShift = t.shiftMinutes === 0
+              return (
                 <div
-                  className="w-4 h-4 rounded-full border border-[var(--sf-border-light)]"
-                  style={{ backgroundColor: getMemberColor(member.id) }}
-                />
-                <span className="text-sm font-medium text-[var(--sf-text-primary)] whitespace-nowrap">
-                  {member.first_name} {member.last_name}
-                </span>
-              </div>
-            ))}
+                  key={member.id}
+                  className="flex items-center space-x-2 flex-shrink-0 border border-[var(--sf-border-light)] rounded-lg px-2 py-1"
+                  title={`${member.first_name} ${member.last_name}: ${fmtHours(t.freeMinutes)}h free of ${fmtHours(t.shiftMinutes)}h shift (${fmtHours(t.bookedMinutes)}h booked) — this month`}
+                >
+                  <div
+                    className="w-4 h-4 rounded-full border border-[var(--sf-border-light)] flex-shrink-0"
+                    style={{ backgroundColor: getMemberColor(member.id) }}
+                  />
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-sm font-medium text-[var(--sf-text-primary)] whitespace-nowrap">
+                      {member.first_name} {member.last_name}
+                    </span>
+                    <span className="text-[11px] text-[var(--sf-text-muted)] whitespace-nowrap">
+                      {noShift ? (
+                        <>no shift set</>
+                      ) : (
+                        <>
+                          <span className="text-green-700 font-medium">{fmtHours(t.freeMinutes)}h free</span>
+                          {' / '}
+                          <span className="text-orange-700 font-medium">{fmtHours(t.bookedMinutes)}h booked</span>
+                          <span className="text-[var(--sf-text-muted)]">{' · '}{fmtHours(t.shiftMinutes)}h shift</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -833,12 +905,12 @@ const TeamAvailabilityCalendar = () => {
                           style={availability.status === 'available' ? { borderLeftColor: memberColor, borderLeftWidth: '3px' } : {}}
                           title={`${member.first_name} ${member.last_name}: ${availability.text}`}
                         >
-                          <div className="flex items-center space-x-1">
+                          <div className="flex items-start space-x-1">
                             <div
-                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              className="w-2 h-2 rounded-full flex-shrink-0 mt-[3px]"
                               style={{ backgroundColor: memberColor }}
                             />
-                            <span className="truncate font-medium">{availability.text}</span>
+                            <span className="font-medium break-words leading-tight">{availability.text}</span>
                           </div>
                         </button>
                       )
