@@ -1873,6 +1873,7 @@ const AvailabilityView = ({
             jobs: jobsCount,
             offDay: false,
             noSignal: true,
+            freeWindows: [],
           }
         }
         if (working.length === 0) {
@@ -1883,6 +1884,7 @@ const AvailabilityView = ({
             jobs: jobsCount,
             offDay: true,
             noSignal: false,
+            freeWindows: [],
           }
         }
         const workingMinutes = sumIntervalMinutes(working)
@@ -1895,6 +1897,11 @@ const AvailabilityView = ({
           jobs: jobsCount,
           offDay: false,
           noSignal: false,
+          // Actual free intervals (minute-of-day pairs) — surfaced in each
+          // cell so operators see WHEN the cleaner is free, not just how
+          // many hours. Same subtraction the KPI count already used, just
+          // preserved instead of collapsed to a total.
+          freeWindows: remaining,
         }
       })
       map.set(id, row)
@@ -2135,6 +2142,16 @@ const AvailabilityView = ({
             m.email ||
             "Cleaner"
           const color = cleanerColor(id)
+          // Weekly totals per cleaner — sum across the 7 cells in this row.
+          // Shown under the name so operators can rank cleaners by real
+          // remaining capacity without eyeballing 7 cells.
+          const totalShiftH = row.reduce((s, c) => s + (c.workingMinutes || 0), 0) / 60
+          const totalWorkedH = row.reduce((s, c) => s + (c.bookedMinutes || 0), 0) / 60
+          const totalFreeH = row.reduce((s, c) => s + (c.availableMinutes || 0), 0) / 60
+          const fmtHRow = (h) => {
+            const r = Math.round(h * 10) / 10
+            return Number.isInteger(r) ? String(r) : r.toFixed(1)
+          }
           return (
             <div
               key={id}
@@ -2164,6 +2181,20 @@ const AvailabilityView = ({
                   <div className="text-[10.5px] text-[var(--sf-ink-3)] mt-px">
                     {(m.role || "Cleaner")}
                   </div>
+                  {totalShiftH > 0 && (
+                    <div
+                      className="text-[10px] mt-0.5 tabular-nums"
+                      title={`This week: ${fmtHRow(totalFreeH)}h free of ${fmtHRow(totalShiftH)}h shift (${fmtHRow(totalWorkedH)}h booked)`}
+                    >
+                      <span style={{ color: "var(--sf-green-dark)", fontWeight: 600 }}>
+                        {fmtHRow(totalFreeH)}h free
+                      </span>
+                      <span style={{ color: "var(--sf-ink-3)" }}> · </span>
+                      <span style={{ color: "var(--sf-amber-dark)", fontWeight: 600 }}>
+                        {fmtHRow(totalWorkedH)}h booked
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               {row.map((cell, di) => {
@@ -2175,6 +2206,18 @@ const AvailabilityView = ({
                   const r = Math.round(h * 10) / 10
                   return Number.isInteger(r) ? String(r) : r.toFixed(1)
                 }
+                // Compact wall-clock: "9a", "5:30p", "12p" — dense cells
+                // can't fit the "9:00 AM" formatter without wrapping every
+                // slot to a second line.
+                const fmtMin = (mm) => {
+                  const h = Math.floor(mm / 60), mi = mm % 60
+                  const suf = h >= 12 ? "p" : "a"
+                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                  return mi === 0 ? `${h12}${suf}` : `${h12}:${String(mi).padStart(2, "0")}${suf}`
+                }
+                const freeWindowsStr = (cell.freeWindows || [])
+                  .map((iv) => `${fmtMin(iv[0])}–${fmtMin(iv[1])}`)
+                  .join(", ")
                 let meta
                 if (cell.noSignal) {
                   // No availability data at all — flag for setup, don't
@@ -2215,6 +2258,10 @@ const AvailabilityView = ({
                     sub: cell.bookedMinutes > 0
                       ? `${fmtH(workedH)}h worked · ${fmtH(freeH)}h free`
                       : `${fmtH(freeH)}h free`,
+                    // Actual free windows — shown as a third line under the
+                    // "Xh worked · Yh free" summary so operators can offer
+                    // slots to leads without opening the shift modal.
+                    windows: freeWindowsStr,
                   }
                 }
                 const Icon = meta.icon
@@ -2261,6 +2308,14 @@ const AvailabilityView = ({
                       <span style={{ fontVariantNumeric: "tabular-nums" }}>{meta.label}</span>
                       {meta.sub && (
                         <span className="text-[10px] opacity-80">{meta.sub}</span>
+                      )}
+                      {meta.windows && (
+                        <span
+                          className="text-[10px] font-semibold"
+                          style={{ opacity: 0.9, lineHeight: 1.15, wordBreak: "break-word" }}
+                        >
+                          {meta.windows}
+                        </span>
                       )}
                     </button>
                   </div>
