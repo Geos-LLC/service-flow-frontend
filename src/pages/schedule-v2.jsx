@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import React, { useState, useEffect, useMemo, useCallback } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
@@ -53,6 +53,15 @@ import {
 
 // ── Helpers (duplicated from dashboard-v2 — kept inline rather than
 // abstracted to avoid touching the dashboard's working file) ──────
+
+// Team-member roles that occupy the availability grid for reference but
+// are NOT bookable — excluded from KPI aggregates, LB availability
+// sync, and any downstream capacity math. Grouped below cleaners in the
+// grid render. Module-scope so React's exhaustive-deps lint doesn't
+// think the closure captures state.
+const NON_BOOKABLE_ROLES = new Set(['account owner', 'owner', 'admin', 'manager', 'scheduler'])
+const isBookableTeamMember = (m) =>
+  m?.is_service_provider !== false && !NON_BOOKABLE_ROLES.has(String(m?.role || '').toLowerCase())
 
 // Merge date + time parts across candidates in LOCAL time. See dashboard-v2.jsx
 // for the full rationale — keep the two copies in sync.
@@ -441,8 +450,14 @@ const ScheduleV2 = () => {
   // soft-deleted members shouldn't appear on the capacity grid. Same
   // predicate the Create Job team picker uses. Also filters by the
   // Availability-tab territory dropdown when one is picked.
+  //
+  // Managers / account owners stay visible for reference (their shift
+  // schedule is often the "office is open" signal operators want to see
+  // at a glance) but are sorted below bookable cleaners and marked as
+  // informative — they don't feed KPI capacity or anything sent to LB /
+  // any downstream availability consumer. See isBookableCleaner below.
   const activeCleaners = useMemo(() => {
-    return (teamMembers || []).filter((m) => {
+    const rows = (teamMembers || []).filter((m) => {
       const status = String(m?.status || '').toLowerCase()
       if (status === 'inactive' || status === 'on_leave') return false
       if (m?.is_active === false) return false
@@ -459,6 +474,13 @@ const ScheduleV2 = () => {
       }
       return true
     })
+    // Bookable cleaners first, managers/schedulers below. Preserve the
+    // original relative order within each group so operator-set sort
+    // (e.g. name / territory) isn't clobbered — we're only bucketing.
+    const bookable = []
+    const informative = []
+    for (const m of rows) (isBookableTeamMember(m) ? bookable : informative).push(m)
+    return [...bookable, ...informative]
   }, [teamMembers, availabilityTerritoryId])
 
   // Date nav
@@ -1817,6 +1839,20 @@ const AvailabilityView = ({
   )
   const dateKeys = useMemo(() => days.map(formatDateKey), [days])
 
+  // Split cleaners into bookable (real service providers) vs informative
+  // (managers, schedulers, account owners). `cleaners` arrives pre-sorted
+  // with bookable first, so the boundary is the index of the first row
+  // that fails the predicate. Kept local so the render can render a
+  // divider between groups and KPIs can aggregate over bookable only.
+  const firstInformativeIdx = useMemo(() => {
+    const idx = cleaners.findIndex((m) => !isBookableTeamMember(m))
+    return idx < 0 ? cleaners.length : idx
+  }, [cleaners])
+  const bookableCleaners = useMemo(
+    () => cleaners.slice(0, firstInformativeIdx),
+    [cleaners, firstInformativeIdx]
+  )
+
   // Derive per-(cleaner, day) capacity from real team_members.availability
   // + scheduled jobs. Old behavior derived a fake availability from jobs
   // alone (a cleaner with no jobs was labeled "Off"); after Aug 2026 we
@@ -1912,12 +1948,16 @@ const AvailabilityView = ({
   // Top KPIs — recomputed against real availability instead of a flat
   // 8h × N × 7 baseline. Capacity now reflects what cleaners actually
   // have on their schedule for the week.
+  //
+  // Aggregates over BOOKABLE cleaners only — managers/schedulers show in
+  // the grid for reference but their shift hours don't count toward
+  // tenant capacity, LB availability, or anything downstream.
   const kpis = useMemo(() => {
     let totalWorkingMinutes = 0
     let totalBookedMinutes = 0
     let totalAvailableMinutes = 0
     let onShift = 0
-    cleaners.forEach((m) => {
+    bookableCleaners.forEach((m) => {
       const row = status.get(String(m.id)) || []
       let cleanerWorking = 0
       row.forEach((c) => {
@@ -1930,12 +1970,12 @@ const AvailabilityView = ({
     })
     return {
       onShift,
-      totalCleaners: cleaners.length,
+      totalCleaners: bookableCleaners.length,
       capacityHours: Math.round(totalWorkingMinutes / 60),
       bookedHours:   Math.round(totalBookedMinutes / 60),
       availableHours: Math.round(totalAvailableMinutes / 60),
     }
-  }, [cleaners, status])
+  }, [bookableCleaners, status])
   const utilization = kpis.capacityHours
     ? Math.round((kpis.bookedHours / kpis.capacityHours) * 100)
     : 0
@@ -2152,11 +2192,52 @@ const AvailabilityView = ({
             const r = Math.round(h * 10) / 10
             return Number.isInteger(r) ? String(r) : r.toFixed(1)
           }
+          // Group divider — inserted between bookable cleaners and the
+          // informative (manager/scheduler) group. `cleaners` arrives
+          // pre-sorted with bookable first, so the boundary appears once
+          // at `firstInformativeIdx` and the two groups need their own
+          // visual affordance so operators don't misread manager rows
+          // as bookable capacity.
+          const showGroupDivider = ti === firstInformativeIdx && firstInformativeIdx > 0
+            && firstInformativeIdx < cleaners.length
+          const isInformative = ti >= firstInformativeIdx && firstInformativeIdx < cleaners.length
           return (
+            <React.Fragment key={id}>
+              {showGroupDivider && (
+                <div
+                  className="flex items-center"
+                  style={{
+                    padding: "8px 14px",
+                    background: "var(--sf-panel-soft)",
+                    borderTop: "1px solid var(--sf-border-soft)",
+                    borderBottom: "1px solid var(--sf-border-soft)",
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    color: "var(--sf-ink-3)",
+                    letterSpacing: ".06em",
+                    textTransform: "uppercase",
+                    gap: 8,
+                  }}
+                >
+                  <span>Managers & schedulers</span>
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 500,
+                      color: "var(--sf-ink-3)",
+                      textTransform: "none",
+                      letterSpacing: 0,
+                    }}
+                  >
+                    · informative only, not counted in team capacity or sent to LB
+                  </span>
+                </div>
+              )}
             <div
-              key={id}
               className="flex"
               style={{
+                opacity: isInformative ? 0.68 : 1,
+                background: isInformative ? "var(--sf-panel-soft)" : "transparent",
                 borderBottom:
                   ti < cleaners.length - 1 ? "1px solid var(--sf-border-soft)" : "none",
               }}
@@ -2190,8 +2271,8 @@ const AvailabilityView = ({
                         {fmtHRow(totalFreeH)}h free
                       </span>
                       <span style={{ color: "var(--sf-ink-3)" }}> · </span>
-                      <span style={{ color: "var(--sf-amber-dark)", fontWeight: 600 }}>
-                        {fmtHRow(totalWorkedH)}h booked
+                      <span style={{ color: "#B91C1C", fontWeight: 600 }}>
+                        {fmtHRow(totalWorkedH)}h worked
                       </span>
                     </div>
                   )}
@@ -2219,6 +2300,15 @@ const AvailabilityView = ({
                   .map((iv) => `${fmtMin(iv[0])}–${fmtMin(iv[1])}`)
                   .join(", ")
                 let meta
+                // Worked-hours segment — always rendered red so operators
+                // can eyeball capacity load from across the grid without
+                // reading the numbers. Free portion stays in the cell's
+                // status color (green/amber).
+                const workedSeg = (
+                  <span style={{ color: "#B91C1C", fontWeight: 700 }}>
+                    {fmtH(workedH)}h worked
+                  </span>
+                )
                 if (cell.noSignal) {
                   // No availability data at all — flag for setup, don't
                   // silently pretend "Off".
@@ -2237,7 +2327,7 @@ const AvailabilityView = ({
                     bg: "var(--sf-panel-soft)",
                     icon: Minus,
                     label: "Off",
-                    sub: cell.jobs > 0 ? `${fmtH(workedH)}h worked` : null,
+                    sub: cell.jobs > 0 ? workedSeg : null,
                   }
                 } else if (cell.availableMinutes === 0) {
                   // Working but fully booked — amber so it stands out from
@@ -2247,7 +2337,11 @@ const AvailabilityView = ({
                     bg: "var(--sf-amber-soft)",
                     icon: Check,
                     label: `${fmtH(shiftH)}h shift`,
-                    sub: `${fmtH(workedH)}h worked · 0h free`,
+                    sub: (
+                      <>
+                        {workedSeg} · 0h free
+                      </>
+                    ),
                   }
                 } else {
                   meta = {
@@ -2256,7 +2350,11 @@ const AvailabilityView = ({
                     icon: Check,
                     label: `${fmtH(shiftH)}h shift`,
                     sub: cell.bookedMinutes > 0
-                      ? `${fmtH(workedH)}h worked · ${fmtH(freeH)}h free`
+                      ? (
+                        <>
+                          {workedSeg} · {fmtH(freeH)}h free
+                        </>
+                      )
                       : `${fmtH(freeH)}h free`,
                     // Actual free windows — shown as a third line under the
                     // "Xh worked · Yh free" summary so operators can offer
@@ -2322,6 +2420,7 @@ const AvailabilityView = ({
                 )
               })}
             </div>
+            </React.Fragment>
           )
         })}
       </SfCard>
