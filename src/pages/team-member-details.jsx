@@ -327,6 +327,49 @@ const TeamMemberDetails = () => {
             }
             
             if (parsedAvailability && typeof parsedAvailability === 'object') {
+              // Two-shape adapter: the Zenbooker sync writes the CANONICAL
+              // top-level day-keyed shape ({monday: {start, end}, tuesday:
+              // {...}, ..., customAvailability: [...]}) while the manual
+              // edit UI on this page reads/writes the legacy NESTED shape
+              // ({workingHours: {monday: {available, timeSlots: [...]}}, ...}).
+              // If we only see the canonical shape, synthesize a workingHours
+              // envelope so every downstream render check (which gates on
+              // `memberAvailabilityRaw?.workingHours`) still fires and the
+              // days actually render. Without this, ZB-synced cleaners
+              // showed "Availability not set" even though the schedule was
+              // correctly in the DB — the UI just didn't know how to read
+              // the newer shape.
+              if (!parsedAvailability.workingHours) {
+                const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                const hasCanonicalDayKeys = days.some(d =>
+                  parsedAvailability[d] && typeof parsedAvailability[d] === 'object'
+                )
+                if (hasCanonicalDayKeys) {
+                  const synthesized = {}
+                  days.forEach((day, i) => {
+                    const d = parsedAvailability[day]
+                    if (!d || d.available === false) {
+                      synthesized[day] = { available: false, timeSlots: [], hours: '' }
+                      return
+                    }
+                    let slots = []
+                    if (d.start && d.end) {
+                      slots = [{ id: Date.now() + i, start: d.start, end: d.end, enabled: true }]
+                    } else if (Array.isArray(d.hours) && d.hours.length > 0) {
+                      slots = d.hours.map((h, j) => ({
+                        id: Date.now() + i * 10 + j,
+                        start: h.start, end: h.end, enabled: true,
+                      }))
+                    }
+                    synthesized[day] = {
+                      available: slots.length > 0,
+                      timeSlots: slots,
+                      hours: slots.length === 1 ? `${slots[0].start} - ${slots[0].end}` : '',
+                    }
+                  })
+                  parsedAvailability = { ...parsedAvailability, workingHours: synthesized }
+                }
+              }
               setMemberAvailabilityRaw(parsedAvailability)
               if (parsedAvailability.workingHours) {
                 // Normalize: ensure days with legacy "hours" string get a timeSlots array so they display and save correctly
