@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import Sidebar from "../components/sidebar"
 import { Plus, Search, Filter, Users, TrendingUp, Calendar, DollarSign, Clock, Eye, Edit, Trash2, UserPlus, BarChart3, AlertCircle, MapPin, Loader2, Power, PowerOff, Zap, Settings, ChevronLeft, ChevronRight, HelpCircle, EyeOff, Mail, RefreshCw } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
-import { teamAPI, jobsAPI } from "../services/api"
+import { teamAPI, jobsAPI, territoriesAPI } from "../services/api"
 import { isAccountOwner } from "../utils/roleUtils"
 import api from "../services/api"
 import { normalizeAPIResponse } from "../utils/dataHandler"
@@ -76,6 +76,12 @@ const ServiceFlowTeam = () => {
   const [resendLoading, setResendLoading] = useState(false)
   const [memberToResend, setMemberToResend] = useState(null)
   const [territoriesMember, setTerritoriesMember] = useState(null) // member whose territories are being edited
+  // Tenant-wide territories list — powers the Territories column's name
+  // lookup so we can render "Tampa · Jacksonville" chips per row instead
+  // of raw ID numbers, and lets us decide whether to show the "unassigned"
+  // warning (only when the tenant has ≥2 territories — single-territory
+  // tenants don't need explicit assignment).
+  const [allTerritories, setAllTerritories] = useState([])
   const [notification, setNotification] = useState(null)
   const [deleteError, setDeleteError] = useState("")
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false)
@@ -112,11 +118,23 @@ const ServiceFlowTeam = () => {
   useEffect(() => {
     if (!authLoading && user?.id) {
       fetchTeamMembers()
+      // Load tenant territories once — used by the Territories column's
+      // name lookup and the ≥2-territory unassigned-warning gate.
+      ;(async () => {
+        try {
+          const res = await territoriesAPI.getAll(user.id, { status: 'active' })
+          setAllTerritories(res?.territories || [])
+        } catch (e) {
+          // Soft-fail — the column falls back to raw IDs and skips the
+          // warning gate; the button-driven modal still works.
+          setAllTerritories([])
+        }
+      })()
     } else if (!authLoading && !user?.id) {
       // Redirect to signin if no user after auth has loaded
       navigate('/signin')
     }
-  }, [authLoading, user?.id])
+  }, [authLoading, user?.id, navigate])
 
   // Debounced search
   useEffect(() => {
@@ -987,6 +1005,9 @@ const ServiceFlowTeam = () => {
                                     <HelpCircle className="w-3.5 h-3.5 ml-1.5 text-[var(--sf-text-muted)]" />
                                   </div>
                                 </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-[var(--sf-text-muted)] uppercase tracking-wider">
+                                  Territories
+                                </th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-[var(--sf-text-muted)] uppercase tracking-wider">
                                   Actions
                                 </th>
@@ -1054,6 +1075,60 @@ const ServiceFlowTeam = () => {
                                     <div className="text-sm text-[var(--sf-text-primary)]">
                                       {member.is_service_provider ? 'Yes' : 'No'}
                                     </div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    {(() => {
+                                      // team_members.territories is jsonb — arrives as array in
+                                      // some responses, JSON string in others. Normalize once.
+                                      let ids = member.territories
+                                      if (typeof ids === 'string') {
+                                        try { ids = JSON.parse(ids) } catch { ids = [] }
+                                      }
+                                      if (!Array.isArray(ids)) ids = []
+                                      ids = ids.map(Number).filter(Number.isFinite)
+                                      const resolved = ids.map(id => allTerritories.find(t => t.id === id) || { id, name: `#${id}` })
+                                      // Warn only when the tenant has multiple territories AND this
+                                      // member has zero — single-territory tenants get implicit
+                                      // assignment for every member, so the empty state isn't a problem.
+                                      const isUnassignedWarn = allTerritories.length > 1 && resolved.length === 0
+                                      // Managers/schedulers/owners aren't bookable anyway, so absence
+                                      // of a territory is expected — no red flag.
+                                      const nonBookableRole = ['account owner','owner','admin','manager','scheduler']
+                                        .includes(String(member.role || '').toLowerCase())
+                                      if (resolved.length === 0) {
+                                        if (isUnassignedWarn && !nonBookableRole) {
+                                          return (
+                                            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                                              <AlertCircle className="w-3.5 h-3.5" />
+                                              Unassigned
+                                            </span>
+                                          )
+                                        }
+                                        return <span className="text-xs text-[var(--sf-text-muted)]">—</span>
+                                      }
+                                      return (
+                                        <div className="flex flex-wrap gap-1 max-w-[240px]">
+                                          {resolved.slice(0, 3).map(t => (
+                                            <span
+                                              key={t.id}
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--sf-bg-page)] border border-[var(--sf-border-light)] text-xs text-[var(--sf-text-primary)]"
+                                              title={t.name}
+                                            >
+                                              <MapPin className="w-3 h-3 text-[var(--sf-text-muted)]" />
+                                              {t.name}
+                                            </span>
+                                          ))}
+                                          {resolved.length > 3 && (
+                                            <span
+                                              className="text-xs text-[var(--sf-text-muted)] self-center"
+                                              title={resolved.slice(3).map(t => t.name).join(', ')}
+                                            >
+                                              +{resolved.length - 3}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )
+                                    })()}
                                   </td>
                                   <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                     <div className="flex items-center justify-end space-x-3">
