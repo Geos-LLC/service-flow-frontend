@@ -27,7 +27,8 @@ import {
   MessageSquare,
   DollarSign,
   User,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle
 } from 'lucide-react'
 import { teamAPI, territoriesAPI, staffLocationsAPI, jobsAPI } from '../services/api'
 import { normalizeAPIResponse } from '../utils/dataHandler'
@@ -1585,6 +1586,76 @@ const TeamMemberDetails = () => {
                 onJobClick={(id) => navigate(`/job/${id}`)}
                 onViewAll={() => navigate(`/jobs?teamMember=${memberId}`)}
               />
+
+              {/* Territories Card — surfaces per-cleaner territory
+                  assignment on the team member page. Previously the modal
+                  existed but was orphaned (no button opened it); ZIP
+                  Coverage below reads from `territories`, so if a member
+                  has none, the ZIP map is empty and there was no path in
+                  the UI to fix it.
+
+                  Multi-territory warning: single-territory tenants don't
+                  need explicit assignment (every member is implicitly in
+                  the one territory), so we only warn when the tenant has
+                  ≥2 territories and this member has 0. Downstream
+                  consumers (auto-routing, LB /orchestration/team-free-
+                  windows scope) require the assignment to include the
+                  member in per-location queries. */}
+              <div className="bg-white rounded-lg border border-[var(--sf-border-light)] p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-[var(--sf-text-primary)]">Territories</h3>
+                    <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
+                      Locations this team member is assigned to. Drives auto-routing and per-location availability sent to LeadBridge.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleAddTerritory}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-[var(--sf-blue-500)] rounded-md hover:opacity-90"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Territory
+                  </button>
+                </div>
+
+                {availableTerritories.length > 1 && territories.length === 0 && (
+                  <div className="mb-4 flex items-start gap-2 px-3 py-2.5 rounded-md border border-amber-300 bg-amber-50">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-900">
+                      <div className="font-semibold">Not assigned to any territory</div>
+                      <div className="mt-0.5">
+                        This tenant has {availableTerritories.length} territories. Auto-routing won't include this cleaner for jobs in any of them until you assign at least one.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {displayedTerritories.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {displayedTerritories.map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full border border-[var(--sf-border-light)] bg-[var(--sf-bg-page)] text-sm text-[var(--sf-text-primary)]"
+                      >
+                        <MapPin className="w-3.5 h-3.5 text-[var(--sf-text-muted)]" />
+                        <span>{t.name}{t.location ? ` — ${t.location}` : ''}</span>
+                        <button
+                          onClick={() => handleRemoveTerritory(t.id)}
+                          className="ml-0.5 p-0.5 rounded-full text-[var(--sf-text-muted)] hover:text-red-600 hover:bg-red-50"
+                          title="Remove territory"
+                          aria-label={`Remove ${t.name}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-[var(--sf-text-muted)] italic">
+                    No territories assigned{availableTerritories.length <= 1 ? ' — this tenant has a single territory, so no explicit assignment is needed.' : '.'}
+                  </div>
+                )}
+              </div>
 
               {/* ZIP Coverage Card — shows which ZIPs from the member's
                   assigned territories they cover vs. are excluded from.
