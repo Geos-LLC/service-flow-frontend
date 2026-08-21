@@ -97,6 +97,14 @@ export default function ProofPixIntegrationSettings() {
   const [showPairedBanner, setShowPairedBanner] = useState(
     new URLSearchParams(location.search).get('paired') === '1'
   );
+  // Per-workspace ProofPix visibility toggle. Backend default is
+  // show_recurring_jobs=false (recurring cleanings hidden from team
+  // members + admin's own mobile device). Local state is optimistic —
+  // we PATCH on toggle, revert on 4xx/5xx.
+  const [showRecurringJobs, setShowRecurringJobs] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [savingRecurringToggle, setSavingRecurringToggle] = useState(false);
+  const [settingsError, setSettingsError] = useState(null);
 
   const loadConnections = useCallback(async ({ silent = false } = {}) => {
     const sfJwt = localStorage.getItem('authToken');
@@ -193,6 +201,72 @@ export default function ProofPixIntegrationSettings() {
     const id = setTimeout(() => setShowPairedBanner(false), PAIRED_BANNER_DISMISS_MS);
     return () => clearTimeout(id);
   }, [showPairedBanner]);
+
+  // Load the ProofPix per-workspace settings (currently just the
+  // show_recurring_jobs toggle). Silent — the settings card renders
+  // its own error state and never blocks the primary devices UI.
+  useEffect(() => {
+    const sfJwt = localStorage.getItem('authToken');
+    if (!sfJwt) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/integrations/proofpix/settings`, {
+          headers: { Authorization: `Bearer ${sfJwt}` },
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (typeof body?.show_recurring_jobs === 'boolean') {
+          setShowRecurringJobs(body.show_recurring_jobs);
+        }
+        setSettingsLoaded(true);
+      } catch {
+        // Non-critical — toggle card falls back to backend default (off).
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
+  const handleToggleRecurringJobs = useCallback(async (nextValue) => {
+    const sfJwt = localStorage.getItem('authToken');
+    if (!sfJwt) {
+      bounceToSigninHere();
+      return;
+    }
+    const prevValue = showRecurringJobs;
+    setShowRecurringJobs(nextValue);   // optimistic
+    setSavingRecurringToggle(true);
+    setSettingsError(null);
+    try {
+      const res = await fetch(`${API_BASE}/integrations/proofpix/settings`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${sfJwt}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ show_recurring_jobs: nextValue }),
+      });
+      if (res.status === 401) {
+        localStorage.removeItem('authToken');
+        bounceToSigninHere();
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message || `Save failed (HTTP ${res.status}).`);
+      }
+      const body = await res.json().catch(() => null);
+      if (typeof body?.show_recurring_jobs === 'boolean') {
+        setShowRecurringJobs(body.show_recurring_jobs);
+      }
+    } catch (err) {
+      setShowRecurringJobs(prevValue); // revert
+      setSettingsError(err.message || 'Failed to update setting.');
+    } finally {
+      setSavingRecurringToggle(false);
+    }
+  }, [showRecurringJobs]);
 
   // Strip ?paired=1 from the URL immediately after mount so a refresh
   // (or bookmark reopen) doesn't re-trigger the banner. Without this
@@ -308,6 +382,13 @@ export default function ProofPixIntegrationSettings() {
             onConnectAnother={handleConnect}
             onDisconnect={handleDisconnect}
             disconnectingIds={disconnectingIds}
+          />
+          <JobVisibilityCard
+            showRecurringJobs={showRecurringJobs}
+            settingsLoaded={settingsLoaded}
+            saving={savingRecurringToggle}
+            error={settingsError}
+            onToggle={handleToggleRecurringJobs}
           />
           <LaptopTipCard />
         </>
@@ -675,6 +756,64 @@ function LaptopTipCard() {
         The Connect button shows a QR code — open ProofPix on your phone and scan it. The desktop
         tab will refresh automatically once the pair completes.
       </p>
+    </div>
+  );
+}
+
+// Toggle for the workspace's ProofPix job-visibility setting. Applies
+// to every ProofPix device (team members AND the admin's own mobile
+// view) so the admin sees exactly what the team sees. Default is OFF —
+// recurring cleanings stay off phones until the admin explicitly opts
+// in from here.
+function JobVisibilityCard({ showRecurringJobs, settingsLoaded, saving, error, onToggle }) {
+  const disabled = saving || !settingsLoaded;
+  return (
+    <div style={cardStyle}>
+      <h2 style={{ fontSize: '15px', margin: '0 0 4px', color: '#0f172a', fontWeight: 600 }}>
+        Job visibility for team
+      </h2>
+      <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px', lineHeight: 1.5 }}>
+        Choose which jobs appear in ProofPix on team member phones. Applies to your own device too,
+        so you see exactly what the team sees.
+      </p>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '14px',
+          padding: '12px 14px',
+          border: '1px solid #e2e8f0',
+          borderRadius: '10px',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.7 : 1,
+        }}
+      >
+        <input
+          type="checkbox"
+          role="switch"
+          checked={showRecurringJobs}
+          disabled={disabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          style={{ marginTop: '3px', width: '16px', height: '16px', cursor: disabled ? 'default' : 'pointer' }}
+        />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: '14px', color: '#0f172a', fontWeight: 500 }}>
+            Show recurring cleanings
+          </span>
+          <span style={{ display: 'block', fontSize: '13px', color: '#64748b', marginTop: '2px', lineHeight: 1.5 }}>
+            Off (default) — only one-time and first-cleaning jobs appear in ProofPix.
+            On — recurring jobs also appear.
+          </span>
+        </span>
+        {saving && (
+          <span style={{ fontSize: '12px', color: '#64748b', flexShrink: 0 }}>Saving…</span>
+        )}
+      </label>
+      {error && (
+        <p style={{ fontSize: '12px', color: '#b91c1c', margin: '10px 0 0' }} role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
