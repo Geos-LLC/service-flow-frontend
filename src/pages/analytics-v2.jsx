@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   TrendingUp, Download, RefreshCw, Star, DollarSign, Users, Briefcase,
-  Target, AlertCircle, ArrowUp, ArrowDown, Workflow,
+  Target, AlertCircle, ArrowUp, ArrowDown, Workflow, Plus, Trash2, Receipt, Megaphone,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import {
-  jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI,
+  jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI, businessExpensesAPI,
 } from "../services/api"
 import { normalizeAPIResponse } from "../utils/dataHandler"
 import { isAccountOwner } from "../utils/roleUtils"
@@ -316,7 +316,7 @@ async function fetchEverything(userId, period) {
 
   const safe = async (p, fb) => { try { return await p } catch { return fb } }
 
-  const [jobsResp, invoicesResp, customersResp, teamResp, salaryData, conversionData, recurringData, lostData] = await Promise.all([
+  const [jobsResp, invoicesResp, customersResp, teamResp, salaryData, conversionData, recurringData, lostData, adsSpendData, expensesSummaryData, businessExpensesResp] = await Promise.all([
     safe(jobsAPI.getAll(userId, "", "", 1, 10000, null, dateRangeString), { jobs: [] }),
     safe(invoicesAPI.getAll(userId, { page: 1, limit: 1000 }), { invoices: [] }),
     safe(customersAPI.getAll(userId, { page: 1, limit: 1000 }), { customers: [] }),
@@ -325,6 +325,9 @@ async function fetchEverything(userId, period) {
     safe(analyticsAPI.getConversionMetrics(startStr, endStr, "week"), { summary: {}, bySource: {}, byStage: {}, timeSeries: [] }),
     safe(analyticsAPI.getRecurringConversionMetrics(startStr, endStr, "week"), { summary: {}, byFrequency: {}, timeSeries: [], customerBreakdown: [] }),
     safe(analyticsAPI.getLostCustomersMetrics(startStr, endStr, "week", 90), { summary: {}, timeSeries: [], lostCustomersList: [] }),
+    safe(analyticsAPI.getAdsSpend(startStr, endStr), { summary: {}, bySource: [], monthly: [] }),
+    safe(analyticsAPI.getExpensesSummary(startStr, endStr), { summary: {}, jobExpensesByType: {}, businessByCategory: {}, businessExpanded: [] }),
+    safe(businessExpensesAPI.getAll(), { expenses: [] }),
   ])
 
   const jobs = normalizeAPIResponse(jobsResp, "jobs") || []
@@ -338,7 +341,12 @@ async function fetchEverything(userId, period) {
     : customersResp.customers || customersResp.data || []
   const teamMembers = teamResp.teamMembers || []
 
-  return { start, end, period, jobs, invoices, allInvoices, customers, teamMembers, salaryData, conversionData, recurringData, lostData }
+  return {
+    start, end, period, jobs, invoices, allInvoices, customers, teamMembers,
+    salaryData, conversionData, recurringData, lostData,
+    adsSpendData, expensesSummaryData,
+    businessExpenses: businessExpensesResp.expenses || [],
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -671,6 +679,9 @@ function computeMetrics(d) {
     conversion: { summary: cs, funnel: convFunnel, bySource: conv.bySource || {}, timeSeries: conv.timeSeries || [] },
     salary: d.salaryData || { timeSeries: [], memberBreakdown: [], summary: {} },
     lost: d.lostData || { summary: {}, timeSeries: [], lostCustomersList: [] },
+    adsSpend: d.adsSpendData || { summary: {}, bySource: [], monthly: [] },
+    expensesSummary: d.expensesSummaryData || { summary: {}, jobExpensesByType: {}, businessByCategory: {}, businessExpanded: [] },
+    businessExpenses: d.businessExpenses || [],
   }
 }
 
@@ -1878,6 +1889,386 @@ const ConversionTab = ({ m }) => {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// EXPENSES TAB
+// ══════════════════════════════════════════════════════════════════════
+
+const CATEGORY_LABELS = {
+  rent: "Rent", insurance: "Insurance", software: "Software / SaaS",
+  vehicle: "Vehicle", fuel: "Fuel", marketing: "Marketing (non-LB)",
+  supplies: "Supplies", utilities: "Utilities", phone: "Phone",
+  other: "Other",
+}
+const CADENCE_LABELS = {
+  one_off: "One-off", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly",
+}
+const CATEGORY_COLORS = [T.blue, T.purple, T.green, T.amber, T.teal, T.red, T.blueDark, T.purpleSoft, T.tealSoft, T.ink3]
+
+const inputStyle = {
+  width: "100%", padding: "8px 10px", fontSize: 13,
+  border: `1px solid ${T.borderS}`, borderRadius: 6,
+  background: T.panel, color: T.ink, outline: "none",
+}
+const labelStyle = {
+  fontSize: 10.5, color: T.ink3, fontWeight: 700,
+  letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 4, display: "block",
+}
+
+const AddExpenseRow = ({ onSubmit, submitting }) => {
+  const today = new Date().toISOString().split("T")[0]
+  const [form, setForm] = useState({
+    name: "", amount: "", category: "rent", cadence: "monthly", start_date: today, note: "",
+  })
+  const set = (k) => (e) => setForm((s) => ({ ...s, [k]: e.target.value }))
+  const canSubmit = form.name.trim() && parseFloat(form.amount) >= 0 && form.start_date
+
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1.4fr 100px 130px 120px 130px 1fr 90px",
+      gap: 10, padding: "12px 18px", background: T.panelAlt, borderTop: `1px solid ${T.borderS}`, alignItems: "end",
+    }}>
+      <div>
+        <label style={labelStyle}>Name</label>
+        <input style={inputStyle} placeholder="Office rent, GSuite…" value={form.name} onChange={set("name")} />
+      </div>
+      <div>
+        <label style={labelStyle}>Amount</label>
+        <input style={inputStyle} type="number" step="0.01" min="0" placeholder="0.00" value={form.amount} onChange={set("amount")} />
+      </div>
+      <div>
+        <label style={labelStyle}>Category</label>
+        <select style={inputStyle} value={form.category} onChange={set("category")}>
+          {Object.entries(CATEGORY_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={labelStyle}>Cadence</label>
+        <select style={inputStyle} value={form.cadence} onChange={set("cadence")}>
+          {Object.entries(CADENCE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={labelStyle}>Start</label>
+        <input style={inputStyle} type="date" value={form.start_date} onChange={set("start_date")} />
+      </div>
+      <div>
+        <label style={labelStyle}>Note</label>
+        <input style={inputStyle} placeholder="Optional" value={form.note} onChange={set("note")} />
+      </div>
+      <SfButton
+        variant="primary" size="md" icon={Plus}
+        onClick={() => canSubmit && onSubmit({ ...form, amount: parseFloat(form.amount) })}
+        disabled={!canSubmit || submitting}
+      >
+        Add
+      </SfButton>
+    </div>
+  )
+}
+
+const ExpensesTab = ({ m, data, onExpensesChanged }) => {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+
+  if (!m) return null
+
+  const payrollTotal = Number(m.salary?.summary?.totalPayroll || 0)
+  const adsTotal = Number(m.adsSpend?.summary?.totalSpend || 0)
+  const jobExpensesTotal = Number(m.expensesSummary?.summary?.jobExpensesTotal || 0)
+  const businessTotal = Number(m.expensesSummary?.summary?.businessExpensesTotal || 0)
+  const combinedTotal = payrollTotal + adsTotal + jobExpensesTotal + businessTotal
+  const grossProfit = m.totalRevenue - combinedTotal
+  const grossMarginPct = m.totalRevenue > 0 ? (grossProfit / m.totalRevenue) * 100 : 0
+
+  const donutData = [
+    { l: "Payroll",          v: payrollTotal,      c: T.blue },
+    { l: "Ads (LeadBridge)", v: adsTotal,          c: T.amber },
+    { l: "Job reimbursements", v: jobExpensesTotal, c: T.teal },
+    { l: "Overhead",         v: businessTotal,     c: T.purple },
+  ].filter((x) => x.v > 0)
+
+  const bySource = m.adsSpend?.bySource || []
+  const monthlyAds = m.adsSpend?.monthly || []
+
+  const recurringList = data?.businessExpenses || []
+  const businessByCategoryEntries = Object.entries(m.expensesSummary?.businessByCategory || {})
+    .map(([k, v]) => ({ k, l: CATEGORY_LABELS[k] || k, v: Number(v) }))
+    .sort((a, b) => b.v - a.v)
+
+  const handleAdd = async (payload) => {
+    setError("")
+    setSubmitting(true)
+    try {
+      await businessExpensesAPI.create(payload)
+      await onExpensesChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to add expense")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this expense?")) return
+    setError("")
+    try {
+      await businessExpensesAPI.delete(id)
+      await onExpensesChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to delete expense")
+    }
+  }
+
+  return (
+    <div style={{ padding: "14px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
+        <SfKPI label="Total costs"      value={moneyShort(combinedTotal)}   sub="all sources this period" accent={T.red} />
+        <SfKPI label="Payroll"          value={moneyShort(payrollTotal)}    sub={m.totalRevenue > 0 ? `${((payrollTotal / m.totalRevenue) * 100).toFixed(0)}% of revenue` : "—"} accent={T.blue} />
+        <SfKPI label="Ads · LeadBridge" value={moneyShort(adsTotal)}        sub={`${m.adsSpend?.summary?.opportunityCount || 0} leads`} accent={T.amber} />
+        <SfKPI label="Job reimburse"    value={moneyShort(jobExpensesTotal)} sub={`${m.expensesSummary?.summary?.jobExpensesCount || 0} approved`} accent={T.teal} />
+        <SfKPI label="Overhead"         value={moneyShort(businessTotal)}   sub={`${(recurringList || []).filter((r) => r.is_active).length} active`} accent={T.purple} />
+        <SfKPI
+          label="Gross margin"
+          value={m.totalRevenue > 0 ? `${grossMarginPct.toFixed(1)}%` : "—"}
+          sub={`${moneyShort(grossProfit)} profit`}
+          accent={grossProfit >= 0 ? T.green : T.red}
+        />
+      </div>
+
+      {error && (
+        <div style={{ padding: "8px 12px", background: T.redSoft, border: `1px solid ${T.red}33`, borderRadius: 6, color: T.redDark, fontSize: 12.5 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Split donut + LB source breakdown */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <SfCard>
+          <SfCardHeader title="Cost breakdown" subtitle="Where the money goes" />
+          {donutData.length ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+              <DonutChart
+                data={donutData.map((d) => ({ v: Math.round(d.v), c: d.c }))}
+                size={140}
+                label={moneyShort(combinedTotal)}
+              />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 9 }}>
+                {donutData.map((d) => {
+                  const p = combinedTotal > 0 ? Math.round((d.v / combinedTotal) * 100) : 0
+                  return (
+                    <div key={d.l} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: d.c, flexShrink: 0 }} />
+                      <span style={{ flex: 1, color: T.ink2, fontWeight: 600 }}>{d.l}</span>
+                      <span style={{ color: T.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(d.v)}</span>
+                      <span style={{ color: T.ink3, fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 34, textAlign: "right" }}>{p}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : <EmptyChart title="No costs recorded" subtitle="Add payroll runs, LB leads, or overhead below" />}
+        </SfCard>
+
+        <SfCard>
+          <SfCardHeader
+            title="Ad spend by source"
+            subtitle="From LeadBridge · this period"
+            right={<Megaphone size={14} color={T.amberDark} />}
+          />
+          {bySource.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              {bySource.map((r, i) => {
+                const maxSpend = Math.max(1, ...bySource.map((x) => x.spend))
+                const cpl = r.count > 0 ? r.spend / r.count : 0
+                return (
+                  <div key={r.source}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ flex: 1, color: T.ink, fontWeight: 600 }}>{r.source}</span>
+                      <span style={{ color: T.ink3, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+                        {r.count} lead{r.count === 1 ? "" : "s"} · ${cpl.toFixed(0)}/lead
+                      </span>
+                      <span style={{ color: T.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 60, textAlign: "right" }}>
+                        {money(r.spend)}
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: T.panelSoft, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${(r.spend / maxSpend) * 100}%`, height: "100%", background: [T.amberDark, T.blue, T.purple, T.teal, T.green, T.red][i % 6], borderRadius: 3 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : <EmptyChart icon={Megaphone} title="No LeadBridge ad spend" subtitle="Sync a lead with opportunity_cost to populate" />}
+        </SfCard>
+      </div>
+
+      {/* Monthly ad-spend trend */}
+      <SfCard>
+        <SfCardHeader title="Ad spend · 12 months" subtitle="opportunities.created_at" />
+        <div style={{ paddingTop: 8 }}>
+          {monthlyAds.some((r) => r.spend > 0) ? (
+            <BarChart
+              data={monthlyAds.map((r) => Math.round(r.spend))}
+              labels={monthlyAds.map((r) => r.label)}
+              color={T.amberDark}
+              height={180}
+              valueFmt={(v) => moneyShort(v)}
+            />
+          ) : <EmptyChart title="No ad spend history" height={180} />}
+        </div>
+      </SfCard>
+
+      {/* Overhead by category */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <SfCard>
+          <SfCardHeader title="Overhead by category" subtitle="Expanded across this period" />
+          {businessByCategoryEntries.length ? (
+            <HBarList
+              data={businessByCategoryEntries.map((r, i) => ({ l: r.l, v: r.v, c: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }))}
+              fmt={(v) => money(v)}
+            />
+          ) : <EmptyChart icon={Receipt} title="No overhead yet" subtitle="Add expenses below" />}
+        </SfCard>
+
+        <SfCard>
+          <SfCardHeader title="Cost of revenue" subtitle="Payroll + ads + reimbursements as % of revenue" />
+          {m.totalRevenue > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
+              {[
+                { l: "Payroll",            v: payrollTotal,      c: T.blue },
+                { l: "Ads · LeadBridge",   v: adsTotal,          c: T.amberDark },
+                { l: "Job reimbursements", v: jobExpensesTotal,  c: T.teal },
+                { l: "Overhead",           v: businessTotal,     c: T.purple },
+              ].map((r) => {
+                const pct = (r.v / m.totalRevenue) * 100
+                return (
+                  <div key={r.l}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ flex: 1, color: T.ink, fontWeight: 600 }}>{r.l}</span>
+                      <span style={{ color: T.ink2, fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}>
+                        {money(r.v)}
+                      </span>
+                      <span style={{ color: T.ink3, fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 44, textAlign: "right" }}>
+                        {pct.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: T.panelSoft, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: r.c, borderRadius: 3 }} />
+                    </div>
+                  </div>
+                )
+              })}
+              <div style={{ marginTop: 4, padding: "10px 12px", background: grossProfit >= 0 ? T.greenSoft : T.redSoft, border: `1px solid ${(grossProfit >= 0 ? T.green : T.red)}33`, borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: T.ink2, fontWeight: 600 }}>Gross profit</span>
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: grossProfit >= 0 ? T.greenDark : T.redDark, fontVariantNumeric: "tabular-nums" }}>
+                  {money(grossProfit)}
+                </span>
+                <span style={{ fontSize: 12, color: T.ink3, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                  {grossMarginPct.toFixed(1)}% margin
+                </span>
+              </div>
+            </div>
+          ) : <EmptyChart title="No revenue in this period" />}
+        </SfCard>
+      </div>
+
+      {/* Recurring / one-off expenses editor */}
+      <SfCard padding={false}>
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.borderS}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <Receipt size={14} color={T.ink2} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>Business expenses</div>
+            <div style={{ fontSize: 11, color: T.ink3, marginTop: 1 }}>
+              Overhead you pay outside jobs — rent, SaaS, insurance, marketing, …
+            </div>
+          </div>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 11, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+            {recurringList.length} total · {money(businessTotal)} this period
+          </span>
+        </div>
+
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 120px 130px 110px 110px 90px 90px 50px",
+          gap: 10, padding: "10px 18px", background: T.panelAlt, borderBottom: `1px solid ${T.borderS}`,
+          fontSize: 10.5, color: T.ink3, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase",
+        }}>
+          <div>Name</div>
+          <div>Category</div>
+          <div>Cadence</div>
+          <div style={{ textAlign: "right" }}>Amount</div>
+          <div style={{ textAlign: "right" }}>Start</div>
+          <div style={{ textAlign: "right" }}>Occurr.</div>
+          <div style={{ textAlign: "right" }}>Range $</div>
+          <div />
+        </div>
+
+        {recurringList.length ? recurringList.map((exp, i) => {
+          const expanded = (m.expensesSummary?.businessExpanded || []).find((x) => x.id === exp.id)
+          return (
+            <div key={exp.id} style={{
+              display: "grid",
+              gridTemplateColumns: "2fr 120px 130px 110px 110px 90px 90px 50px",
+              gap: 10, padding: "11px 18px", alignItems: "center",
+              borderBottom: `1px solid ${T.borderS}`,
+              opacity: exp.is_active === false ? 0.55 : 1,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {exp.name}
+                </div>
+                {exp.note && (
+                  <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {exp.note}
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: T.ink2 }}>{CATEGORY_LABELS[exp.category] || exp.category}</div>
+              <div style={{ fontSize: 12, color: T.ink2 }}>{CADENCE_LABELS[exp.cadence] || exp.cadence}</div>
+              <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+                {money(exp.amount)}
+              </div>
+              <div style={{ textAlign: "right", fontSize: 11.5, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {exp.start_date}
+              </div>
+              <div style={{ textAlign: "right", fontSize: 12, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {expanded?.occurrences ?? 0}
+              </div>
+              <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: expanded?.rangeAmount > 0 ? T.ink : T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {expanded?.rangeAmount > 0 ? money(expanded.rangeAmount) : "—"}
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <button
+                  onClick={() => handleDelete(exp.id)}
+                  title="Delete"
+                  style={{
+                    background: "transparent", border: "none", cursor: "pointer",
+                    color: T.ink3, padding: 4, borderRadius: 4,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = T.redDark }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = T.ink3 }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          )
+        }) : (
+          <div style={{ padding: "24px 18px", textAlign: "center", color: T.ink3, fontSize: 12.5 }}>
+            No business expenses yet. Add your first one below.
+          </div>
+        )}
+
+        <AddExpenseRow onSubmit={handleAdd} submitting={submitting} />
+      </SfCard>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // MAIN SHELL
 // ══════════════════════════════════════════════════════════════════════
 
@@ -1894,6 +2285,19 @@ const AnalyticsV2 = () => {
   useEffect(() => {
     if (user && !isAccountOwner(user)) navigate("/dashboard", { replace: true })
   }, [user, navigate])
+
+  const refetch = async () => {
+    if (!user?.id) return
+    setRefreshing(true)
+    try {
+      const next = await fetchEverything(user.id, period)
+      setData(next)
+    } catch (e) {
+      setError("Failed to load analytics. Please retry.")
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     if (!user?.id || !isAccountOwner(user)) return
@@ -1925,6 +2329,7 @@ const AnalyticsV2 = () => {
     customers:  "Cohort retention · LTV · churn · acquisition",
     salary:     "Payroll cost · % of revenue · per-worker breakdown",
     conversion: "Lead → customer funnel · win rate · time-to-close",
+    expenses:   "Payroll · LeadBridge ads · reimbursements · overhead",
   }
 
   return (
@@ -1950,6 +2355,7 @@ const AnalyticsV2 = () => {
             <SfTab active={tab === "customers"}  onClick={() => setTab("customers")}>Customers</SfTab>
             <SfTab active={tab === "salary"}     onClick={() => setTab("salary")}>Salary</SfTab>
             <SfTab active={tab === "conversion"} onClick={() => setTab("conversion")}>Conversion</SfTab>
+            <SfTab active={tab === "expenses"}   onClick={() => setTab("expenses")}>Expenses</SfTab>
           </>
         }
       />
@@ -1981,6 +2387,7 @@ const AnalyticsV2 = () => {
           {tab === "customers"  && <CustomersTab  m={metrics} data={data} />}
           {tab === "salary"     && <SalaryTab     m={metrics} data={data} />}
           {tab === "conversion" && <ConversionTab m={metrics} data={data} />}
+          {tab === "expenses"   && <ExpensesTab   m={metrics} data={data} onExpensesChanged={refetch} />}
         </>
       )}
     </div>

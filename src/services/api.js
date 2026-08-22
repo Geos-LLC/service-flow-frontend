@@ -1997,13 +1997,49 @@ export const analyticsAPI = {
       if (endDate) params.append('endDate', endDate);
       if (groupBy) params.append('groupBy', groupBy);
       if (inactiveDays) params.append('inactiveDays', inactiveDays);
-      
+
       const response = await api.get(`/analytics/lost-customers?${params}`);
       return response.data;
     } catch (error) {
       throw error;
     }
-  }
+  },
+
+  getAdsSpend: async (startDate, endDate) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const response = await api.get(`/analytics/ads-spend?${params}`);
+    return response.data;
+  },
+
+  getExpensesSummary: async (startDate, endDate) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const response = await api.get(`/analytics/expenses-summary?${params}`);
+    return response.data;
+  },
+};
+
+// Business Expenses API — non-job overhead (rent, insurance, SaaS, marketing, …)
+export const businessExpensesAPI = {
+  getAll: async () => {
+    const response = await api.get('/business-expenses');
+    return response.data;
+  },
+  create: async (payload) => {
+    const response = await api.post('/business-expenses', payload);
+    return response.data;
+  },
+  update: async (id, payload) => {
+    const response = await api.patch(`/business-expenses/${id}`, payload);
+    return response.data;
+  },
+  delete: async (id) => {
+    const response = await api.delete(`/business-expenses/${id}`);
+    return response.data;
+  },
 };
 
 // Payment API functions
