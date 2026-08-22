@@ -2022,6 +2022,51 @@ export const analyticsAPI = {
   },
 };
 
+// Marketing Spend API — advertising economics per channel per period.
+// Distinct from businessExpensesAPI (tenant overhead). Powers the
+// "Marketing spend by channel" table on the Expenses tab.
+//
+// Money model: server-side is CENTS (integers). This client helper
+// accepts cents for writes and returns the raw server row (which
+// includes both `amount_cents` and `amount_dollars`).
+export const marketingSpendAPI = {
+  getAll: async ({ startDate, endDate, source } = {}) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (source) params.append('source', source);
+    const response = await api.get(`/marketing-spend?${params}`);
+    return response.data;
+  },
+  // Upsert a manual entry. Body: { source, period ('YYYY-MM' or 'YYYY-MM-DD'), amount_cents, external_account_id?, note? }
+  upsertManual: async (payload) => {
+    const response = await api.post('/marketing-spend', payload);
+    return response.data;
+  },
+  // Update amount (flips is_manual_override=true). Body: { amount_cents, note? }
+  patch: async (id, payload) => {
+    const response = await api.patch(`/marketing-spend/${id}`, payload);
+    return response.data;
+  },
+  // Reset override: amount_cents := reported_amount_cents. Deletes row if pure-manual.
+  resetOverride: async (id) => {
+    const response = await api.delete(`/marketing-spend/${id}/override`);
+    return response.data;
+  },
+  // Hard delete.
+  delete: async (id) => {
+    const response = await api.delete(`/marketing-spend/${id}`);
+    return response.data;
+  },
+  // Trigger TT monthly materialization for a range.
+  materializeThumbtack: async ({ startDate, endDate, splitByAccount = false }) => {
+    const response = await api.post('/marketing-spend/materialize/thumbtack', {
+      startDate, endDate, splitByAccount,
+    });
+    return response.data;
+  },
+};
+
 // Business Expenses API — non-job overhead (rent, insurance, SaaS, marketing, …)
 export const businessExpensesAPI = {
   getAll: async () => {

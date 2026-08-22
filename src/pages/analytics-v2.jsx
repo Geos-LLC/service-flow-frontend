@@ -5,10 +5,11 @@ import { useNavigate } from "react-router-dom"
 import {
   TrendingUp, Download, RefreshCw, Star, DollarSign, Users, Briefcase,
   Target, AlertCircle, ArrowUp, ArrowDown, Workflow, Plus, Trash2, Receipt, Megaphone,
+  Pencil, RotateCcw, X, Zap,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import {
-  jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI, businessExpensesAPI,
+  jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI, businessExpensesAPI, marketingSpendAPI,
 } from "../services/api"
 import { normalizeAPIResponse } from "../utils/dataHandler"
 import { isAccountOwner } from "../utils/roleUtils"
@@ -316,7 +317,7 @@ async function fetchEverything(userId, period) {
 
   const safe = async (p, fb) => { try { return await p } catch { return fb } }
 
-  const [jobsResp, invoicesResp, customersResp, teamResp, salaryData, conversionData, recurringData, lostData, adsSpendData, expensesSummaryData, businessExpensesResp] = await Promise.all([
+  const [jobsResp, invoicesResp, customersResp, teamResp, salaryData, conversionData, recurringData, lostData, adsSpendData, expensesSummaryData, businessExpensesResp, marketingSpendResp] = await Promise.all([
     safe(jobsAPI.getAll(userId, "", "", 1, 10000, null, dateRangeString), { jobs: [] }),
     safe(invoicesAPI.getAll(userId, { page: 1, limit: 1000 }), { invoices: [] }),
     safe(customersAPI.getAll(userId, { page: 1, limit: 1000 }), { customers: [] }),
@@ -328,6 +329,7 @@ async function fetchEverything(userId, period) {
     safe(analyticsAPI.getAdsSpend(startStr, endStr), { summary: {}, bySource: [], monthly: [] }),
     safe(analyticsAPI.getExpensesSummary(startStr, endStr), { summary: {}, jobExpensesByType: {}, businessByCategory: {}, businessExpanded: [] }),
     safe(businessExpensesAPI.getAll(), { expenses: [] }),
+    safe(marketingSpendAPI.getAll({ startDate: startStr, endDate: endStr }), { spend: [] }),
   ])
 
   const jobs = normalizeAPIResponse(jobsResp, "jobs") || []
@@ -346,6 +348,8 @@ async function fetchEverything(userId, period) {
     salaryData, conversionData, recurringData, lostData,
     adsSpendData, expensesSummaryData,
     businessExpenses: businessExpensesResp.expenses || [],
+    marketingSpend: marketingSpendResp.spend || [],
+    dateRange: { startStr, endStr },
   }
 }
 
@@ -1889,6 +1893,402 @@ const ConversionTab = ({ m }) => {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// MARKETING SPEND BY CHANNEL
+// ══════════════════════════════════════════════════════════════════════
+
+const CHANNEL_META = {
+  thumbtack:  { label: "Thumbtack",  color: T.amber,  syncModel: "auto",    note: "Derived from actual per-lead cost" },
+  yelp:       { label: "Yelp",       color: T.red,    syncModel: "manual",  note: "Manual monthly entry — Yelp has no cost API" },
+  google_ads: { label: "Google Ads", color: T.blue,   syncModel: "future",  note: "Integration pending" },
+  meta_ads:   { label: "Meta Ads",   color: T.purple, syncModel: "future",  note: "Integration pending" },
+  google_lsa: { label: "Google LSA", color: T.teal,   syncModel: "future",  note: "Integration pending" },
+  other:      { label: "Other",      color: T.ink3,   syncModel: "manual",  note: "" },
+}
+
+const CHANNEL_ORDER = ["thumbtack", "yelp", "google_ads", "meta_ads", "google_lsa", "other"]
+
+const centsToDollars = (c) => (c == null ? null : c / 100)
+const dollarsToCents = (d) => (d == null || d === "" ? null : Math.round(parseFloat(d) * 100))
+const monthKeyOfPeriodStart = (ps) => ps ? ps.slice(0, 7) : null   // 'YYYY-MM'
+
+// ── Modal for edit / manual entry / reset override
+const MarketingSpendEditor = ({ open, channel, existing, defaultMonth, onSave, onReset, onClose, saving }) => {
+  const meta = CHANNEL_META[channel] || CHANNEL_META.other
+  const startMonth = existing ? monthKeyOfPeriodStart(existing.period_start) : defaultMonth
+  const [period, setPeriod] = useState(startMonth || new Date().toISOString().slice(0, 7))
+  const [amountDollars, setAmountDollars] = useState(
+    existing?.amount_dollars != null ? String(existing.amount_dollars) : ""
+  )
+  const [note, setNote] = useState(existing?.metadata?.manual_note || "")
+
+  useEffect(() => {
+    if (!open) return
+    setPeriod(existing ? monthKeyOfPeriodStart(existing.period_start) : (defaultMonth || new Date().toISOString().slice(0, 7)))
+    setAmountDollars(existing?.amount_dollars != null ? String(existing.amount_dollars) : "")
+    setNote(existing?.metadata?.manual_note || "")
+  }, [open, existing, defaultMonth])
+
+  if (!open) return null
+
+  const canSubmit = period && amountDollars !== "" && parseFloat(amountDollars) >= 0
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(15,23,42,.55)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: T.panel, border: `1px solid ${T.border}`, borderRadius: 12,
+          padding: 22, minWidth: 460, maxWidth: 520, boxShadow: "0 12px 32px rgba(15,23,42,.18)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: meta.color, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>
+              {existing ? "Edit " : "Add "}{meta.label} spend
+            </div>
+            <div style={{ fontSize: 11.5, color: T.ink3, marginTop: 1 }}>{meta.note}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: T.ink3, padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {existing && existing.is_manual_override && existing.reported_amount_dollars != null && (
+          <div style={{ marginBottom: 12, padding: "8px 10px", background: T.amberSoft, border: `1px solid ${T.amber}33`, borderRadius: 7, fontSize: 12, color: T.amberDark, display: "flex", alignItems: "center", gap: 8 }}>
+            <Zap size={12} />
+            <span style={{ flex: 1 }}>
+              Reported by {existing.source_type}: <b>${existing.reported_amount_dollars.toFixed(2)}</b> · Using manual: <b>${(existing.amount_dollars || 0).toFixed(2)}</b>
+            </span>
+            <button
+              onClick={onReset}
+              style={{ background: "transparent", border: `1px solid ${T.amberDark}55`, borderRadius: 5, padding: "3px 8px", fontSize: 11, color: T.amberDark, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <RotateCcw size={11} /> Reset
+            </button>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={labelStyle}>Period</label>
+            <input
+              type="month"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              disabled={!!existing}   // period is the key; changing it needs a new row
+              style={{ ...inputStyle, opacity: existing ? .6 : 1 }}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Amount (USD)</label>
+            <input
+              type="number" step="0.01" min="0" placeholder="0.00"
+              value={amountDollars}
+              onChange={(e) => setAmountDollars(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelStyle}>Note (optional)</label>
+          <input
+            type="text" placeholder="e.g. 'includes premium pack'"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <SfButton variant="ghost" size="md" onClick={onClose}>Cancel</SfButton>
+          <SfButton
+            variant="primary" size="md"
+            onClick={() => onSave({ period, amount_cents: dollarsToCents(amountDollars), note })}
+            disabled={!canSubmit || saving}
+          >
+            {saving ? "Saving…" : (existing ? "Save changes" : "Add spend")}
+          </SfButton>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Marketing spend by channel (main table on Expenses tab)
+const MarketingSpendTable = ({ marketingSpend, adsSpendBySource, dateRange, onChanged }) => {
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorChannel, setEditorChannel] = useState(null)
+  const [editorExisting, setEditorExisting] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [error, setError] = useState("")
+
+  // Reporting period label: "Aug 2026" if the range fits one month; else the range dates.
+  const rangeLabel = (() => {
+    if (!dateRange?.startStr || !dateRange?.endStr) return ""
+    const a = new Date(dateRange.startStr), b = new Date(dateRange.endStr)
+    if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) {
+      return a.toLocaleString("en-US", { month: "short", year: "numeric" })
+    }
+    return `${dateRange.startStr} → ${dateRange.endStr}`
+  })()
+
+  const defaultMonth = dateRange?.endStr ? dateRange.endStr.slice(0, 7) : new Date().toISOString().slice(0, 7)
+
+  // Roll up marketing_spend rows by source across the current period.
+  // If a source has 0 rows, we still render a row (empty state per channel).
+  const bySourceRollup = {}
+  for (const r of marketingSpend || []) {
+    const src = r.source
+    if (!bySourceRollup[src]) {
+      bySourceRollup[src] = {
+        source: src,
+        totalCents: 0,
+        reportedCents: null,
+        anyManualOverride: false,
+        rows: [],
+        sourceTypes: new Set(),
+      }
+    }
+    const b = bySourceRollup[src]
+    b.totalCents += r.amount_cents || 0
+    if (r.reported_amount_cents != null) {
+      b.reportedCents = (b.reportedCents || 0) + r.reported_amount_cents
+    }
+    if (r.is_manual_override) b.anyManualOverride = true
+    b.sourceTypes.add(r.source_type)
+    b.rows.push(r)
+  }
+
+  // Lead counts + CPL come from adsSpendBySource (backend already computed).
+  const leadsBySource = {}
+  for (const r of adsSpendBySource || []) {
+    // The backend groups by opportunities.source which may differ in casing
+    // from marketing_spend.source. Normalize.
+    const key = String(r.source).toLowerCase()
+    leadsBySource[key] = { count: r.count || 0 }
+  }
+
+  const handleOpenEditor = (channel, existing) => {
+    setEditorChannel(channel)
+    setEditorExisting(existing || null)
+    setEditorOpen(true)
+    setError("")
+  }
+
+  const handleSave = async ({ period, amount_cents, note }) => {
+    if (amount_cents == null) return
+    setSaving(true); setError("")
+    try {
+      if (editorExisting) {
+        await marketingSpendAPI.patch(editorExisting.id, { amount_cents, note })
+      } else {
+        await marketingSpendAPI.upsertManual({
+          source: editorChannel, period, amount_cents, note,
+        })
+      }
+      setEditorOpen(false)
+      await onChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to save")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReset = async () => {
+    if (!editorExisting) return
+    setSaving(true); setError("")
+    try {
+      await marketingSpendAPI.resetOverride(editorExisting.id)
+      setEditorOpen(false)
+      await onChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to reset override")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSyncThumbtack = async () => {
+    if (!dateRange?.startStr || !dateRange?.endStr) return
+    setSyncing(true); setError("")
+    try {
+      const startOfMonth = `${dateRange.startStr.slice(0, 7)}-01`
+      // Snap end to last day of its month.
+      const [ey, em] = dateRange.endStr.slice(0, 7).split("-").map(Number)
+      const lastDay = new Date(Date.UTC(ey, em, 0)).getUTCDate()
+      const endOfMonth = `${dateRange.endStr.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`
+      await marketingSpendAPI.materializeThumbtack({ startDate: startOfMonth, endDate: endOfMonth })
+      await onChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Sync failed")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <>
+      <SfCard padding={false}>
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.borderS}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <Megaphone size={14} color={T.ink2} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>Marketing spend by channel</div>
+            <div style={{ fontSize: 11, color: T.ink3, marginTop: 1 }}>
+              {rangeLabel} · CPL is spend ÷ leads acquired in the same period
+            </div>
+          </div>
+          <div style={{ flex: 1 }} />
+          <SfButton variant="ghost" size="sm" icon={syncing ? RefreshCw : Zap} onClick={handleSyncThumbtack} disabled={syncing}>
+            {syncing ? "Syncing…" : "Sync Thumbtack"}
+          </SfButton>
+        </div>
+
+        {error && (
+          <div style={{ padding: "8px 18px", background: T.redSoft, borderBottom: `1px solid ${T.borderS}`, color: T.redDark, fontSize: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{
+          display: "grid", gridTemplateColumns: "1.4fr 130px 130px 100px 110px 130px 90px", gap: 10,
+          padding: "10px 18px", background: T.panelAlt, borderBottom: `1px solid ${T.borderS}`,
+          fontSize: 10.5, color: T.ink3, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase",
+        }}>
+          <div>Channel</div>
+          <div style={{ textAlign: "right" }}>Spend</div>
+          <div>Source</div>
+          <div style={{ textAlign: "right" }}>Leads</div>
+          <div style={{ textAlign: "right" }}>CPL</div>
+          <div>Reported</div>
+          <div style={{ textAlign: "right" }}>Actions</div>
+        </div>
+
+        {CHANNEL_ORDER.map((source, i) => {
+          const meta = CHANNEL_META[source]
+          const roll = bySourceRollup[source]
+          const spendCents = roll?.totalCents
+          const leadCount = leadsBySource[source]?.count || 0
+          const cplCents = spendCents != null && leadCount > 0 ? Math.round(spendCents / leadCount) : null
+          const existing = roll?.rows?.[0]     // single-month view — one row per source
+          const hasData = roll != null
+          const notConnected = meta.syncModel === "future" && !hasData
+
+          return (
+            <div key={source} style={{
+              display: "grid", gridTemplateColumns: "1.4fr 130px 130px 100px 110px 130px 90px", gap: 10,
+              padding: "11px 18px", alignItems: "center",
+              borderBottom: i < CHANNEL_ORDER.length - 1 ? `1px solid ${T.borderS}` : "none",
+              opacity: notConnected ? .6 : 1,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: meta.color, flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{meta.label}</div>
+                  <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {meta.note}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right", fontSize: 13.5, fontWeight: 700, color: spendCents != null ? T.ink : T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {spendCents != null ? money(spendCents / 100) : "—"}
+              </div>
+
+              <div>
+                <SourceBadge source={source} roll={roll} notConnected={notConnected} />
+              </div>
+
+              <div style={{ textAlign: "right", fontSize: 12.5, color: T.ink2, fontVariantNumeric: "tabular-nums" }}>
+                {leadCount > 0 ? leadCount : "—"}
+              </div>
+
+              <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: cplCents != null ? T.ink : T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {cplCents != null ? `$${(cplCents / 100).toFixed(2)}` : "—"}
+              </div>
+
+              <div style={{ fontSize: 11, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {roll?.reportedCents != null ? (
+                  <span title="Amount most-recently reported by upstream">
+                    ${(roll.reportedCents / 100).toFixed(2)}
+                  </span>
+                ) : "—"}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                {!notConnected && (
+                  <button
+                    onClick={() => handleOpenEditor(source, existing)}
+                    title={existing ? "Edit" : "Add spend"}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", color: T.ink3, padding: 4, borderRadius: 4 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = T.blueDark }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = T.ink3 }}
+                  >
+                    {existing ? <Pencil size={13} /> : <Plus size={13} />}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </SfCard>
+
+      <MarketingSpendEditor
+        open={editorOpen}
+        channel={editorChannel}
+        existing={editorExisting}
+        defaultMonth={defaultMonth}
+        onSave={handleSave}
+        onReset={handleReset}
+        onClose={() => setEditorOpen(false)}
+        saving={saving}
+      />
+    </>
+  )
+}
+
+const SourceBadge = ({ source, roll, notConnected }) => {
+  const meta = CHANNEL_META[source] || CHANNEL_META.other
+  if (notConnected) {
+    return <span style={{ fontSize: 10.5, color: T.ink3, fontWeight: 600, padding: "3px 8px", background: T.panelAlt, borderRadius: 12, border: `1px solid ${T.borderS}` }}>Not connected</span>
+  }
+  if (!roll) {
+    return <span style={{ fontSize: 10.5, color: T.ink3, fontWeight: 600, padding: "3px 8px", background: T.panelAlt, borderRadius: 12, border: `1px solid ${T.borderS}` }}>No data</span>
+  }
+  if (roll.anyManualOverride) {
+    return (
+      <span title="A manual override is active; reported value still tracked" style={{ fontSize: 10.5, color: T.amberDark, fontWeight: 700, padding: "3px 8px", background: T.amberSoft, borderRadius: 12, border: `1px solid ${T.amber}44`, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <Pencil size={9} /> Manual
+      </span>
+    )
+  }
+  if (roll.sourceTypes.has("derived_from_opportunities")) {
+    return (
+      <span title="Derived from per-lead cost on opportunities" style={{ fontSize: 10.5, color: T.greenDark, fontWeight: 700, padding: "3px 8px", background: T.greenSoft, borderRadius: 12, border: `1px solid ${T.green}44`, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <Zap size={9} /> Synced
+      </span>
+    )
+  }
+  if (roll.sourceTypes.has("manual")) {
+    return (
+      <span style={{ fontSize: 10.5, color: T.blueDark, fontWeight: 700, padding: "3px 8px", background: T.blueSoft, borderRadius: 12, border: `1px solid ${T.blue}44` }}>
+        Manual
+      </span>
+    )
+  }
+  return <span style={{ fontSize: 10.5, color: T.ink2, fontWeight: 700, padding: "3px 8px", background: T.panelAlt, borderRadius: 12, border: `1px solid ${T.borderS}` }}>Synced</span>
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // EXPENSES TAB
 // ══════════════════════════════════════════════════════════════════════
 
@@ -2072,36 +2472,43 @@ const ExpensesTab = ({ m, data, onExpensesChanged }) => {
 
         <SfCard>
           <SfCardHeader
-            title="Ad spend by source"
-            subtitle="From LeadBridge · this period"
+            title="Ad-attributed leads"
+            subtitle="Opportunities acquired via paid channels"
             right={<Megaphone size={14} color={T.amberDark} />}
           />
           {bySource.length ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
               {bySource.map((r, i) => {
-                const maxSpend = Math.max(1, ...bySource.map((x) => x.spend))
-                const cpl = r.count > 0 ? r.spend / r.count : 0
+                const maxCount = Math.max(1, ...bySource.map((x) => x.count))
                 return (
                   <div key={r.source}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 4 }}>
                       <span style={{ flex: 1, color: T.ink, fontWeight: 600 }}>{r.source}</span>
                       <span style={{ color: T.ink3, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
-                        {r.count} lead{r.count === 1 ? "" : "s"} · ${cpl.toFixed(0)}/lead
+                        {r.count} lead{r.count === 1 ? "" : "s"}{r.cpl != null ? ` · $${r.cpl.toFixed(0)}/lead` : ""}
                       </span>
                       <span style={{ color: T.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 60, textAlign: "right" }}>
-                        {money(r.spend)}
+                        {r.spend != null ? money(r.spend) : "—"}
                       </span>
                     </div>
                     <div style={{ height: 6, background: T.panelSoft, borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ width: `${(r.spend / maxSpend) * 100}%`, height: "100%", background: [T.amberDark, T.blue, T.purple, T.teal, T.green, T.red][i % 6], borderRadius: 3 }} />
+                      <div style={{ width: `${(r.count / maxCount) * 100}%`, height: "100%", background: [T.amberDark, T.blue, T.purple, T.teal, T.green, T.red][i % 6], borderRadius: 3 }} />
                     </div>
                   </div>
                 )
               })}
             </div>
-          ) : <EmptyChart icon={Megaphone} title="No LeadBridge ad spend" subtitle="Sync a lead with opportunity_cost to populate" />}
+          ) : <EmptyChart icon={Megaphone} title="No lead sources with attribution" subtitle="Opportunities need a `source` value to appear" />}
         </SfCard>
       </div>
+
+      {/* Marketing spend by channel — canonical editor + spend surface */}
+      <MarketingSpendTable
+        marketingSpend={data?.marketingSpend || []}
+        adsSpendBySource={m.adsSpend?.bySource || []}
+        dateRange={data?.dateRange}
+        onChanged={onExpensesChanged}
+      />
 
       {/* Monthly ad-spend trend */}
       <SfCard>
