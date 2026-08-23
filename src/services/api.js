@@ -2065,6 +2065,14 @@ export const marketingSpendAPI = {
     });
     return response.data;
   },
+  // Backfill opportunities.opportunity_cost from LB, then materialize.
+  // Pass apply=false for dry-run counters.
+  backfillThumbtack: async ({ startDate, endDate, apply = false, materialize = true } = {}) => {
+    const response = await api.post('/marketing-spend/backfill/thumbtack', {
+      startDate, endDate, apply, materialize,
+    });
+    return response.data;
+  },
 };
 
 // Business Expenses API — non-job overhead (rent, insurance, SaaS, marketing, …)

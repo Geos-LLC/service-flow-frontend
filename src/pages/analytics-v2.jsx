@@ -2118,19 +2118,52 @@ const MarketingSpendTable = ({ marketingSpend, adsSpendBySource, dateRange, onCh
     }
   }
 
+  // Backfill flow: dry-run → confirm → apply + materialize.
+  // "Sync from LeadBridge" = pull actual TT per-lead cost from LB and, if
+  // there's real work to do, prompt to apply. When apply=true the same
+  // endpoint also runs the monthly materializer so the table updates.
   const handleSyncThumbtack = async () => {
-    if (!dateRange?.startStr || !dateRange?.endStr) return
     setSyncing(true); setError("")
     try {
-      const startOfMonth = `${dateRange.startStr.slice(0, 7)}-01`
-      // Snap end to last day of its month.
-      const [ey, em] = dateRange.endStr.slice(0, 7).split("-").map(Number)
-      const lastDay = new Date(Date.UTC(ey, em, 0)).getUTCDate()
-      const endOfMonth = `${dateRange.endStr.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`
-      await marketingSpendAPI.materializeThumbtack({ startDate: startOfMonth, endDate: endOfMonth })
+      // 1. Dry-run — no writes, just counters. Uses tenant range on the server
+      //    (unbounded — we want everything historically) so the operator can
+      //    make a whole-history decision, not a period one.
+      const dryRun = await marketingSpendAPI.backfillThumbtack({ apply: false })
+      const bf = dryRun.backfill || {}
+      if (bf.error) throw new Error(bf.message || bf.error)
+
+      const patchable = bf.proposals || 0
+      if (patchable === 0) {
+        const noun = bf.eligible === 0 ? "linked Thumbtack opportunities" : "Thumbtack costs to backfill"
+        setError(
+          `No ${noun}. Counters: eligible=${bf.eligible} already_populated=${bf.already_populated} lb_cost_unavailable=${bf.lb_cost_unavailable} unmatched=${bf.unmatched}`
+        )
+        return
+      }
+
+      // 2. Confirm — one click confirms the whole-history write.
+      const summary = `LeadBridge backfill will update ${patchable} opportunities:\n\n` +
+        `• Eligible (linked): ${bf.eligible}\n` +
+        `• Will be updated: ${patchable}\n` +
+        `• Already had cost: ${bf.already_populated}\n` +
+        `• LB has no cost: ${bf.lb_cost_unavailable}\n` +
+        `• Unmatched in LB: ${bf.unmatched}\n\n` +
+        `Existing costs will NOT be overwritten. Apply?`
+      if (!window.confirm(summary)) return
+
+      // 3. Apply + materialize monthly rows.
+      const applied = await marketingSpendAPI.backfillThumbtack({ apply: true, materialize: true })
+      const ab = applied.backfill || {}
+      const am = applied.materialize || {}
       await onChanged?.()
+      window.alert(
+        `Backfill complete.\n\n` +
+        `Updated ${ab.updated} opportunities. Failed: ${ab.failed}.\n` +
+        (am ? `Marketing spend rows: ${am.rowsCreated} created, ${am.rowsUpdated} updated.\n` : "") +
+        `Manual overrides preserved.`
+      )
     } catch (e) {
-      setError(e?.response?.data?.error || "Sync failed")
+      setError(e?.response?.data?.error || e?.message || "Backfill failed")
     } finally {
       setSyncing(false)
     }
@@ -2149,7 +2182,7 @@ const MarketingSpendTable = ({ marketingSpend, adsSpendBySource, dateRange, onCh
           </div>
           <div style={{ flex: 1 }} />
           <SfButton variant="ghost" size="sm" icon={syncing ? RefreshCw : Zap} onClick={handleSyncThumbtack} disabled={syncing}>
-            {syncing ? "Syncing…" : "Sync Thumbtack"}
+            {syncing ? "Syncing…" : "Sync from LeadBridge"}
           </SfButton>
         </div>
 
