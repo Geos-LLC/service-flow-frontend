@@ -2133,33 +2133,49 @@ const MarketingSpendTable = ({ marketingSpend, adsSpendBySource, dateRange, onCh
       if (bf.error) throw new Error(bf.message || bf.error)
 
       const patchable = bf.proposals || 0
-      if (patchable === 0) {
-        const noun = bf.eligible === 0 ? "linked Thumbtack opportunities" : "Thumbtack costs to backfill"
+      const hasExistingCost = (bf.already_populated || 0) > 0
+
+      // No linked opportunities at all → nothing we can do.
+      if (bf.eligible === 0) {
+        setError("No LeadBridge-linked Thumbtack opportunities in SF yet.")
+        return
+      }
+
+      // Nothing to backfill AND no existing cost → literally no TT cost data
+      // to materialize. Tell the user what LB returned.
+      if (patchable === 0 && !hasExistingCost) {
         setError(
-          `No ${noun}. Counters: eligible=${bf.eligible} already_populated=${bf.already_populated} lb_cost_unavailable=${bf.lb_cost_unavailable} unmatched=${bf.unmatched}`
+          `No Thumbtack cost data available. Counters: eligible=${bf.eligible} lb_cost_unavailable=${bf.lb_cost_unavailable} unmatched=${bf.unmatched}. LB hasn't hydrated per-lead cost for these leads.`
         )
         return
       }
 
-      // 2. Confirm — one click confirms the whole-history write.
-      const summary = `LeadBridge backfill will update ${patchable} opportunities:\n\n` +
-        `• Eligible (linked): ${bf.eligible}\n` +
-        `• Will be updated: ${patchable}\n` +
-        `• Already had cost: ${bf.already_populated}\n` +
-        `• LB has no cost: ${bf.lb_cost_unavailable}\n` +
-        `• Unmatched in LB: ${bf.unmatched}\n\n` +
-        `Existing costs will NOT be overwritten. Apply?`
+      // 2. Build the confirmation message. Two paths:
+      //    (a) patchable > 0 → normal backfill + materialize
+      //    (b) patchable == 0 but existing cost → materialize-only
+      let summary
+      if (patchable > 0) {
+        summary = `LeadBridge backfill will update ${patchable} opportunities and materialize monthly spend:\n\n` +
+          `• Eligible (linked): ${bf.eligible}\n` +
+          `• Will be updated: ${patchable}\n` +
+          `• Already had cost: ${bf.already_populated}\n` +
+          `• LB has no cost: ${bf.lb_cost_unavailable}\n` +
+          `• Unmatched in LB: ${bf.unmatched}\n\n` +
+          `Existing costs will NOT be overwritten. Apply?`
+      } else {
+        summary = `Nothing new to backfill, but ${bf.already_populated} opportunities already have Thumbtack cost. Materialize them into monthly Marketing spend rows now?`
+      }
       if (!window.confirm(summary)) return
 
-      // 3. Apply + materialize monthly rows.
+      // 3. Apply + materialize monthly rows (endpoint runs materializer when apply=true).
       const applied = await marketingSpendAPI.backfillThumbtack({ apply: true, materialize: true })
       const ab = applied.backfill || {}
       const am = applied.materialize || {}
       await onChanged?.()
       window.alert(
-        `Backfill complete.\n\n` +
-        `Updated ${ab.updated} opportunities. Failed: ${ab.failed}.\n` +
-        (am ? `Marketing spend rows: ${am.rowsCreated} created, ${am.rowsUpdated} updated.\n` : "") +
+        `Sync complete.\n\n` +
+        (patchable > 0 ? `Updated ${ab.updated} opportunities. Failed: ${ab.failed}.\n` : "") +
+        (am ? `Marketing spend rows: ${am.rowsCreated} created, ${am.rowsUpdated} updated. Skipped ${am.rowsSkippedNoCoverage || 0} months with no cost data.\n` : "") +
         `Manual overrides preserved.`
       )
     } catch (e) {
