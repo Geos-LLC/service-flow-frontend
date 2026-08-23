@@ -8,6 +8,7 @@ import {
   Pencil, RotateCcw, X, Zap,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
+import { useLocationScope } from "../context/LocationContext"
 import {
   jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI, businessExpensesAPI, marketingSpendAPI,
 } from "../services/api"
@@ -311,7 +312,7 @@ const EmptyChart = ({ icon: Icon = AlertCircle, title, subtitle, height = 180 })
 // DATA FETCHING
 // ══════════════════════════════════════════════════════════════════════
 
-async function fetchEverything(userId, period) {
+async function fetchEverything(userId, period, locationId) {
   const { start, end, startStr, endStr } = rangeFor(period)
   const dateRangeString = `${startStr} to ${endStr}`
 
@@ -326,10 +327,10 @@ async function fetchEverything(userId, period) {
     safe(analyticsAPI.getConversionMetrics(startStr, endStr, "week"), { summary: {}, bySource: {}, byStage: {}, timeSeries: [] }),
     safe(analyticsAPI.getRecurringConversionMetrics(startStr, endStr, "week"), { summary: {}, byFrequency: {}, timeSeries: [], customerBreakdown: [] }),
     safe(analyticsAPI.getLostCustomersMetrics(startStr, endStr, "week", 90), { summary: {}, timeSeries: [], lostCustomersList: [] }),
-    safe(analyticsAPI.getAdsSpend(startStr, endStr), { summary: {}, bySource: [], monthly: [] }),
+    safe(analyticsAPI.getAdsSpend(startStr, endStr, locationId), { summary: {}, bySource: [], monthly: [] }),
     safe(analyticsAPI.getExpensesSummary(startStr, endStr), { summary: {}, jobExpensesByType: {}, businessByCategory: {}, businessExpanded: [] }),
     safe(businessExpensesAPI.getAll(), { expenses: [] }),
-    safe(marketingSpendAPI.getAll({ startDate: startStr, endDate: endStr }), { spend: [] }),
+    safe(marketingSpendAPI.getAll({ startDate: startStr, endDate: endStr, locationId }), { spend: [] }),
   ])
 
   const jobs = normalizeAPIResponse(jobsResp, "jobs") || []
@@ -2730,6 +2731,7 @@ const ExpensesTab = ({ m, data, onExpensesChanged }) => {
 
 const AnalyticsV2 = () => {
   const { user } = useAuth()
+  const { locationId, selectedLocation } = useLocationScope()
   const navigate = useNavigate()
   const [tab, setTab] = useState("overview")
   const [period, setPeriod] = useState("30d")
@@ -2746,7 +2748,7 @@ const AnalyticsV2 = () => {
     if (!user?.id) return
     setRefreshing(true)
     try {
-      const next = await fetchEverything(user.id, period)
+      const next = await fetchEverything(user.id, period, locationId)
       setData(next)
     } catch (e) {
       setError("Failed to load analytics. Please retry.")
@@ -2762,7 +2764,7 @@ const AnalyticsV2 = () => {
       if (data) setRefreshing(true); else setLoading(true)
       setError("")
       try {
-        const next = await fetchEverything(user.id, period)
+        const next = await fetchEverything(user.id, period, locationId)
         if (!cancelled) setData(next)
       } catch (e) {
         if (!cancelled) setError("Failed to load analytics. Please retry.")
@@ -2773,7 +2775,7 @@ const AnalyticsV2 = () => {
     run()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, period])
+  }, [user?.id, period, locationId])
 
   const metrics = useMemo(() => computeMetrics(data), [data])
 
@@ -2793,7 +2795,7 @@ const AnalyticsV2 = () => {
       <MobileHeader />
 
       <SfPageHeader
-        eyebrow="Insights"
+        eyebrow={selectedLocation ? `Insights · ${selectedLocation.name}` : "Insights"}
         title="Analytics"
         subtitle={subtitles[tab]}
         actions={

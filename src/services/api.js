@@ -2005,10 +2005,11 @@ export const analyticsAPI = {
     }
   },
 
-  getAdsSpend: async (startDate, endDate) => {
+  getAdsSpend: async (startDate, endDate, locationId = null) => {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (locationId && locationId !== 'all') params.append('locationId', locationId);
     const response = await api.get(`/analytics/ads-spend?${params}`);
     return response.data;
   },
@@ -2030,11 +2031,12 @@ export const analyticsAPI = {
 // accepts cents for writes and returns the raw server row (which
 // includes both `amount_cents` and `amount_dollars`).
 export const marketingSpendAPI = {
-  getAll: async ({ startDate, endDate, source } = {}) => {
+  getAll: async ({ startDate, endDate, source, locationId } = {}) => {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
     if (source) params.append('source', source);
+    if (locationId && locationId !== 'all') params.append('locationId', locationId);
     const response = await api.get(`/marketing-spend?${params}`);
     return response.data;
   },
