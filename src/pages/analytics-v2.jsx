@@ -2230,7 +2230,9 @@ const MarketingSpendTable = ({ marketingSpend, adsSpendBySource, dateRange, onCh
           const leadCount = leadsBySource[source]?.count || 0
           const cplCents = spendCents != null && leadCount > 0 ? Math.round(spendCents / leadCount) : null
           const existing = roll?.rows?.[0]     // single-month view — one row per source
-          const hasData = roll != null
+          // "Has data" now means: we have a spend row OR we have leads. Prevents
+          // channels-with-leads-but-no-spend from being labeled "not connected".
+          const hasData = roll != null || leadCount > 0
           const notConnected = meta.syncModel === "future" && !hasData
 
           return (
