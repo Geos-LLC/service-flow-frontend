@@ -2457,7 +2457,7 @@ const FilesTab = ({ customerId }) => {
             title={files.length === 0 ? "No files yet" : "No files match"}
             subtitle={
               files.length === 0
-                ? "Drop photos or documents above, or click Upload."
+                ? "Drop photos or documents above, or click Upload. ProofPix photos appear here only when they were attached to a job that has this customer linked — job-only photos (no customer) stay on that job's Photos tab."
                 : "Try a different filter or clear the search."
             }
           />
@@ -2529,6 +2529,11 @@ const DropZone = ({ onFiles, disabled }) => {
 
 const FileCard = ({ file, onDelete }) => {
   const isImage = isImageMime(file.mime_type)
+  const isProofpix = file.source === "proofpix"
+  const meta = (isProofpix && file.proofpix_metadata && typeof file.proofpix_metadata === "object")
+    ? file.proofpix_metadata
+    : null
+  const capturedBy = typeof meta?.captured_by === "string" ? meta.captured_by.trim() : ""
   const date = file.uploaded_at
     ? new Date(file.uploaded_at).toLocaleDateString("en-US", {
         month: "short",
@@ -2583,7 +2588,7 @@ const FileCard = ({ file, onDelete }) => {
                 borderRadius: 4,
               }}
             >
-              Photo
+              {isProofpix ? "ProofPix" : "Photo"}
             </span>
             {file.job_id && (
               <span
@@ -2664,7 +2669,13 @@ const FileCard = ({ file, onDelete }) => {
           >
             {file.filename || "Untitled"}
           </div>
-          <div className="text-[10.5px] text-[var(--sf-ink-3)] mt-0.5 flex items-center gap-1.5">
+          <div className="text-[10.5px] text-[var(--sf-ink-3)] mt-0.5 flex items-center gap-1.5 truncate">
+            {capturedBy && (
+              <>
+                <span className="truncate" title={capturedBy}>{capturedBy}</span>
+                <span className="text-[var(--sf-ink-4)]">·</span>
+              </>
+            )}
             <span style={{ fontVariantNumeric: "tabular-nums" }}>
               {formatFileSize(file.size_bytes)}
             </span>

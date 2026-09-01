@@ -318,7 +318,7 @@ export default function ProofPixIntegrationSettings() {
       <h1 style={{ fontSize: '24px', margin: '0 0 8px', color: '#0f172a' }}>ProofPix</h1>
       <p style={{ fontSize: '14px', color: '#475569', margin: '0 0 24px', lineHeight: 1.6 }}>
         Attach before/after photos captured in ProofPix directly to Service Flow jobs. Photos show
-        up automatically in the customer's Files tab.
+        up on the job's Photos tab, and on the customer's Files tab when the job has a linked customer.
       </p>
 
       {/* Only render the fresh-pair signal when a device is actually
