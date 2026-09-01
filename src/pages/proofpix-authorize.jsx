@@ -144,18 +144,6 @@ function getSafeReturnToSf(search) {
   return raw;
 }
 
-// Parse ?for_team_member_id=<positive-int> from the URL. Anything
-// malformed, negative, or absent → null (admin-scope pair). Backend
-// re-validates ownership + active status anyway, so this is just a
-// shape check to avoid POSTing garbage.
-function getForTeamMemberId(search) {
-  const raw = new URLSearchParams(search || '').get('for_team_member_id');
-  if (!raw) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return null;
-  return n;
-}
-
 class PairMintError extends Error {
   constructor(code, message) {
     super(message);
@@ -169,21 +157,13 @@ class PairMintError extends Error {
 // with a stable `code` so both call sites can share the same
 // error-handling switch (401 → nuke local JWT + signin bounce,
 // 404 → workspace-owner remediation copy, everything else → error card).
-//
-// forTeamMemberId scopes the resulting device to a specific SF team
-// member so /jobs from that device only sees their assignments. Null
-// (or omitted) = admin scope, no filter downstream.
-async function mintPairingToken(sfJwt, returnTo, forTeamMemberId = null) {
-  const requestBody = forTeamMemberId != null
-    ? JSON.stringify({ for_team_member_id: forTeamMemberId })
-    : undefined;
+async function mintPairingToken(sfJwt, returnTo) {
   const res = await fetch(`${API_BASE}/integrations/proofpix/connect/token/issue`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${sfJwt}`,
       'Content-Type': 'application/json',
     },
-    body: requestBody,
   });
 
   if (!res.ok) {
@@ -248,12 +228,8 @@ async function mintPairingToken(sfJwt, returnTo, forTeamMemberId = null) {
   };
 }
 
-function bounceToSignin(_returnTo) {
-  // Preserve the FULL query string so return_to, return_to_sf, and
-  // for_team_member_id all survive the /signin round-trip. Previously
-  // this rebuilt the URL from just returnTo, dropping the other two
-  // params and quietly changing pair scope after login.
-  const continueUrl = `/integrations/proofpix/authorize${window.location.search}`;
+function bounceToSignin(returnTo) {
+  const continueUrl = `/integrations/proofpix/authorize?return_to=${encodeURIComponent(returnTo)}`;
   window.location.replace(`/signin?continue=${encodeURIComponent(continueUrl)}`);
 }
 
@@ -271,7 +247,6 @@ export default function ProofPixAuthorize() {
 
   const returnToRef = useRef(null);
   const returnToSfRef = useRef(DEFAULT_RETURN_TO_SF);
-  const forTeamMemberIdRef = useRef(null);
   const sfJwtRef = useRef(null);
   const launchTimerRef = useRef(null);
   const visListenerRef = useRef(null);
@@ -397,11 +372,7 @@ export default function ProofPixAuthorize() {
     if (regenerating || !returnToRef.current || !sfJwtRef.current) return;
     setRegenerating(true);
     try {
-      const result = await mintPairingToken(
-        sfJwtRef.current,
-        returnToRef.current,
-        forTeamMemberIdRef.current
-      );
+      const result = await mintPairingToken(sfJwtRef.current, returnToRef.current);
       setDeepLinkUrl(result.deepLinkUrl);
       setScanUrl(result.scanUrl);
       setExpiresAt(result.expiresAt);
@@ -448,7 +419,6 @@ export default function ProofPixAuthorize() {
       }
       returnToRef.current = returnTo;
       returnToSfRef.current = getSafeReturnToSf(window.location.search) || DEFAULT_RETURN_TO_SF;
-      forTeamMemberIdRef.current = getForTeamMemberId(window.location.search);
 
       const sfJwt = localStorage.getItem('authToken');
       if (!sfJwt || isJwtExpired(sfJwt)) {
@@ -460,7 +430,7 @@ export default function ProofPixAuthorize() {
       if (!cancelled) setStatus('minting');
       let mintResult;
       try {
-        mintResult = await mintPairingToken(sfJwt, returnTo, forTeamMemberIdRef.current);
+        mintResult = await mintPairingToken(sfJwt, returnTo);
       } catch (err) {
         if (cancelled) return;
         if (err.code === 'UNAUTHENTICATED') {

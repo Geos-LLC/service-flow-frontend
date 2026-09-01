@@ -1997,13 +1997,104 @@ export const analyticsAPI = {
       if (endDate) params.append('endDate', endDate);
       if (groupBy) params.append('groupBy', groupBy);
       if (inactiveDays) params.append('inactiveDays', inactiveDays);
-      
+
       const response = await api.get(`/analytics/lost-customers?${params}`);
       return response.data;
     } catch (error) {
       throw error;
     }
-  }
+  },
+
+  getAdsSpend: async (startDate, endDate, locationId = null) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (locationId && locationId !== 'all') params.append('locationId', locationId);
+    const response = await api.get(`/analytics/ads-spend?${params}`);
+    return response.data;
+  },
+
+  getExpensesSummary: async (startDate, endDate) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const response = await api.get(`/analytics/expenses-summary?${params}`);
+    return response.data;
+  },
+};
+
+// Marketing Spend API — advertising economics per channel per period.
+// Distinct from businessExpensesAPI (tenant overhead). Powers the
+// "Marketing spend by channel" table on the Expenses tab.
+//
+// Money model: server-side is CENTS (integers). This client helper
+// accepts cents for writes and returns the raw server row (which
+// includes both `amount_cents` and `amount_dollars`).
+export const marketingSpendAPI = {
+  getAll: async ({ startDate, endDate, source, locationId } = {}) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (source) params.append('source', source);
+    if (locationId && locationId !== 'all') params.append('locationId', locationId);
+    const response = await api.get(`/marketing-spend?${params}`);
+    return response.data;
+  },
+  // Upsert a manual entry. Body: { source, period ('YYYY-MM' or 'YYYY-MM-DD'), amount_cents, external_account_id?, note? }
+  upsertManual: async (payload) => {
+    const response = await api.post('/marketing-spend', payload);
+    return response.data;
+  },
+  // Update amount (flips is_manual_override=true). Body: { amount_cents, note? }
+  patch: async (id, payload) => {
+    const response = await api.patch(`/marketing-spend/${id}`, payload);
+    return response.data;
+  },
+  // Reset override: amount_cents := reported_amount_cents. Deletes row if pure-manual.
+  resetOverride: async (id) => {
+    const response = await api.delete(`/marketing-spend/${id}/override`);
+    return response.data;
+  },
+  // Hard delete.
+  delete: async (id) => {
+    const response = await api.delete(`/marketing-spend/${id}`);
+    return response.data;
+  },
+  // Trigger TT monthly materialization for a range.
+  materializeThumbtack: async ({ startDate, endDate, splitByAccount = false }) => {
+    const response = await api.post('/marketing-spend/materialize/thumbtack', {
+      startDate, endDate, splitByAccount,
+    });
+    return response.data;
+  },
+  // Backfill opportunities.opportunity_cost from LB, then materialize.
+  // Pass apply=false for dry-run counters.
+  backfillThumbtack: async ({ startDate, endDate, apply = false, materialize = true } = {}) => {
+    const response = await api.post('/marketing-spend/backfill/thumbtack', {
+      startDate, endDate, apply, materialize,
+    });
+    return response.data;
+  },
+};
+
+// Business Expenses API — non-job overhead (rent, insurance, SaaS, marketing, …)
+export const businessExpensesAPI = {
+  getAll: async () => {
+    const response = await api.get('/business-expenses');
+    return response.data;
+  },
+  create: async (payload) => {
+    const response = await api.post('/business-expenses', payload);
+    return response.data;
+  },
+  update: async (id, payload) => {
+    const response = await api.patch(`/business-expenses/${id}`, payload);
+    return response.data;
+  },
+  delete: async (id) => {
+    const response = await api.delete(`/business-expenses/${id}`);
+    return response.data;
+  },
 };
 
 // Payment API functions
@@ -3014,7 +3105,8 @@ export const customerFilesAPI = {
     return r.data;
   },
   // Same table, but filtered to a single job. Backs the Photos section
-  // on the job-detail page. Response includes ProofPix metadata columns.
+  // on the job-detail page. Response includes ProofPix metadata columns
+  // (source, proofpix_metadata with mode/room/captured_by).
   listByJob: async (jobId) => {
     const r = await api.get(`/jobs/${jobId}/files`);
     return r.data;

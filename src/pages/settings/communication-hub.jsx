@@ -8,7 +8,8 @@ import LeadBridgeSemanticDiagnostics from "../../components/LeadBridgeSemanticDi
 import {
   ChevronLeft, Phone, PhoneCall, Star, ThumbsUp, Mail,
   MessageSquare, MessageCircle, Info, Check, X, ExternalLink,
-  Radio, Settings, Zap, Shield, Clock, Loader2, RefreshCw, Users
+  Radio, Settings, Zap, Shield, Clock, Loader2, RefreshCw, Users,
+  Eye, EyeOff
 } from "lucide-react"
 
 // ═══════════════════════════════════════════════════════════════
@@ -131,6 +132,7 @@ const CommunicationHub = () => {
   const [showLbConnectModal, setShowLbConnectModal] = useState(false)
   const [lbEmail, setLbEmail] = useState('')
   const [lbPassword, setLbPassword] = useState('')
+  const [lbPasswordVisible, setLbPasswordVisible] = useState(false)
   const [lbConnecting, setLbConnecting] = useState(false)
   const [lbConnectError, setLbConnectError] = useState('')
 
@@ -849,9 +851,19 @@ const CommunicationHub = () => {
             {lbConnectError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">{lbConnectError}</div>}
             <input type="email" value={lbEmail} onChange={e => setLbEmail(e.target.value)} placeholder="LeadBridge email"
               className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-1 focus:ring-[var(--sf-blue-500)]" />
-            <input type="password" value={lbPassword} onChange={e => setLbPassword(e.target.value)} placeholder="Password"
-              onKeyDown={e => e.key === 'Enter' && handleLbConnect()}
-              className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-1 focus:ring-[var(--sf-blue-500)]" />
+            <div className="relative mb-4">
+              <input type={lbPasswordVisible ? "text" : "password"} value={lbPassword} onChange={e => setLbPassword(e.target.value)} placeholder="Password"
+                onKeyDown={e => e.key === 'Enter' && handleLbConnect()}
+                className="w-full border border-[var(--sf-border-light)] rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--sf-blue-500)]" />
+              <button
+                type="button"
+                onClick={() => setLbPasswordVisible(v => !v)}
+                aria-label={lbPasswordVisible ? "Hide password" : "Show password"}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sf-text-muted)] hover:text-[var(--sf-text-primary)] focus:outline-none"
+              >
+                {lbPasswordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowLbConnectModal(false)} className="px-4 py-2 text-sm text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)]">Cancel</button>
               <button onClick={handleLbConnect} disabled={lbConnecting}

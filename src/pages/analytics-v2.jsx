@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   TrendingUp, Download, RefreshCw, Star, DollarSign, Users, Briefcase,
-  Target, AlertCircle, ArrowUp, ArrowDown, Workflow,
+  Target, AlertCircle, ArrowUp, ArrowDown, Workflow, Plus, Trash2, Receipt, Megaphone,
+  Pencil, RotateCcw, X, Zap,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
+import { useLocationScope } from "../context/LocationContext"
 import {
-  jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI,
+  jobsAPI, customersAPI, teamAPI, invoicesAPI, payrollAPI, analyticsAPI, businessExpensesAPI, marketingSpendAPI,
 } from "../services/api"
 import { normalizeAPIResponse } from "../utils/dataHandler"
 import { isAccountOwner } from "../utils/roleUtils"
@@ -310,13 +312,13 @@ const EmptyChart = ({ icon: Icon = AlertCircle, title, subtitle, height = 180 })
 // DATA FETCHING
 // ══════════════════════════════════════════════════════════════════════
 
-async function fetchEverything(userId, period) {
+async function fetchEverything(userId, period, locationId) {
   const { start, end, startStr, endStr } = rangeFor(period)
   const dateRangeString = `${startStr} to ${endStr}`
 
   const safe = async (p, fb) => { try { return await p } catch { return fb } }
 
-  const [jobsResp, invoicesResp, customersResp, teamResp, salaryData, conversionData, recurringData, lostData] = await Promise.all([
+  const [jobsResp, invoicesResp, customersResp, teamResp, salaryData, conversionData, recurringData, lostData, adsSpendData, expensesSummaryData, businessExpensesResp, marketingSpendResp] = await Promise.all([
     safe(jobsAPI.getAll(userId, "", "", 1, 10000, null, dateRangeString), { jobs: [] }),
     safe(invoicesAPI.getAll(userId, { page: 1, limit: 1000 }), { invoices: [] }),
     safe(customersAPI.getAll(userId, { page: 1, limit: 1000 }), { customers: [] }),
@@ -325,6 +327,10 @@ async function fetchEverything(userId, period) {
     safe(analyticsAPI.getConversionMetrics(startStr, endStr, "week"), { summary: {}, bySource: {}, byStage: {}, timeSeries: [] }),
     safe(analyticsAPI.getRecurringConversionMetrics(startStr, endStr, "week"), { summary: {}, byFrequency: {}, timeSeries: [], customerBreakdown: [] }),
     safe(analyticsAPI.getLostCustomersMetrics(startStr, endStr, "week", 90), { summary: {}, timeSeries: [], lostCustomersList: [] }),
+    safe(analyticsAPI.getAdsSpend(startStr, endStr, locationId), { summary: {}, bySource: [], monthly: [] }),
+    safe(analyticsAPI.getExpensesSummary(startStr, endStr), { summary: {}, jobExpensesByType: {}, businessByCategory: {}, businessExpanded: [] }),
+    safe(businessExpensesAPI.getAll(), { expenses: [] }),
+    safe(marketingSpendAPI.getAll({ startDate: startStr, endDate: endStr, locationId }), { spend: [] }),
   ])
 
   const jobs = normalizeAPIResponse(jobsResp, "jobs") || []
@@ -338,7 +344,14 @@ async function fetchEverything(userId, period) {
     : customersResp.customers || customersResp.data || []
   const teamMembers = teamResp.teamMembers || []
 
-  return { start, end, period, jobs, invoices, allInvoices, customers, teamMembers, salaryData, conversionData, recurringData, lostData }
+  return {
+    start, end, period, jobs, invoices, allInvoices, customers, teamMembers,
+    salaryData, conversionData, recurringData, lostData,
+    adsSpendData, expensesSummaryData,
+    businessExpenses: businessExpensesResp.expenses || [],
+    marketingSpend: marketingSpendResp.spend || [],
+    dateRange: { startStr, endStr },
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -671,6 +684,9 @@ function computeMetrics(d) {
     conversion: { summary: cs, funnel: convFunnel, bySource: conv.bySource || {}, timeSeries: conv.timeSeries || [] },
     salary: d.salaryData || { timeSeries: [], memberBreakdown: [], summary: {} },
     lost: d.lostData || { summary: {}, timeSeries: [], lostCustomersList: [] },
+    adsSpend: d.adsSpendData || { summary: {}, bySource: [], monthly: [] },
+    expensesSummary: d.expensesSummaryData || { summary: {}, jobExpensesByType: {}, businessByCategory: {}, businessExpanded: [] },
+    businessExpenses: d.businessExpenses || [],
   }
 }
 
@@ -1878,11 +1894,846 @@ const ConversionTab = ({ m }) => {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// MARKETING SPEND BY CHANNEL
+// ══════════════════════════════════════════════════════════════════════
+
+const CHANNEL_META = {
+  thumbtack:  { label: "Thumbtack",  color: T.amber,  syncModel: "auto",    note: "Derived from actual per-lead cost" },
+  yelp:       { label: "Yelp",       color: T.red,    syncModel: "manual",  note: "Manual monthly entry — Yelp has no cost API" },
+  google_ads: { label: "Google Ads", color: T.blue,   syncModel: "future",  note: "Integration pending" },
+  meta_ads:   { label: "Meta Ads",   color: T.purple, syncModel: "future",  note: "Integration pending" },
+  google_lsa: { label: "Google LSA", color: T.teal,   syncModel: "future",  note: "Integration pending" },
+  other:      { label: "Other",      color: T.ink3,   syncModel: "manual",  note: "" },
+}
+
+const CHANNEL_ORDER = ["thumbtack", "yelp", "google_ads", "meta_ads", "google_lsa", "other"]
+
+const centsToDollars = (c) => (c == null ? null : c / 100)
+const dollarsToCents = (d) => (d == null || d === "" ? null : Math.round(parseFloat(d) * 100))
+const monthKeyOfPeriodStart = (ps) => ps ? ps.slice(0, 7) : null   // 'YYYY-MM'
+
+// ── Modal for edit / manual entry / reset override
+const MarketingSpendEditor = ({ open, channel, existing, defaultMonth, onSave, onReset, onClose, saving }) => {
+  const meta = CHANNEL_META[channel] || CHANNEL_META.other
+  const startMonth = existing ? monthKeyOfPeriodStart(existing.period_start) : defaultMonth
+  const [period, setPeriod] = useState(startMonth || new Date().toISOString().slice(0, 7))
+  const [amountDollars, setAmountDollars] = useState(
+    existing?.amount_dollars != null ? String(existing.amount_dollars) : ""
+  )
+  const [note, setNote] = useState(existing?.metadata?.manual_note || "")
+
+  useEffect(() => {
+    if (!open) return
+    setPeriod(existing ? monthKeyOfPeriodStart(existing.period_start) : (defaultMonth || new Date().toISOString().slice(0, 7)))
+    setAmountDollars(existing?.amount_dollars != null ? String(existing.amount_dollars) : "")
+    setNote(existing?.metadata?.manual_note || "")
+  }, [open, existing, defaultMonth])
+
+  if (!open) return null
+
+  const canSubmit = period && amountDollars !== "" && parseFloat(amountDollars) >= 0
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(15,23,42,.55)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: T.panel, border: `1px solid ${T.border}`, borderRadius: 12,
+          padding: 22, minWidth: 460, maxWidth: 520, boxShadow: "0 12px 32px rgba(15,23,42,.18)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: meta.color, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>
+              {existing ? "Edit " : "Add "}{meta.label} spend
+            </div>
+            <div style={{ fontSize: 11.5, color: T.ink3, marginTop: 1 }}>{meta.note}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: T.ink3, padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {existing && existing.is_manual_override && existing.reported_amount_dollars != null && (
+          <div style={{ marginBottom: 12, padding: "8px 10px", background: T.amberSoft, border: `1px solid ${T.amber}33`, borderRadius: 7, fontSize: 12, color: T.amberDark, display: "flex", alignItems: "center", gap: 8 }}>
+            <Zap size={12} />
+            <span style={{ flex: 1 }}>
+              Reported by {existing.source_type}: <b>${existing.reported_amount_dollars.toFixed(2)}</b> · Using manual: <b>${(existing.amount_dollars || 0).toFixed(2)}</b>
+            </span>
+            <button
+              onClick={onReset}
+              style={{ background: "transparent", border: `1px solid ${T.amberDark}55`, borderRadius: 5, padding: "3px 8px", fontSize: 11, color: T.amberDark, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <RotateCcw size={11} /> Reset
+            </button>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={labelStyle}>Period</label>
+            <input
+              type="month"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              disabled={!!existing}   // period is the key; changing it needs a new row
+              style={{ ...inputStyle, opacity: existing ? .6 : 1 }}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Amount (USD)</label>
+            <input
+              type="number" step="0.01" min="0" placeholder="0.00"
+              value={amountDollars}
+              onChange={(e) => setAmountDollars(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelStyle}>Note (optional)</label>
+          <input
+            type="text" placeholder="e.g. 'includes premium pack'"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <SfButton variant="ghost" size="md" onClick={onClose}>Cancel</SfButton>
+          <SfButton
+            variant="primary" size="md"
+            onClick={() => onSave({ period, amount_cents: dollarsToCents(amountDollars), note })}
+            disabled={!canSubmit || saving}
+          >
+            {saving ? "Saving…" : (existing ? "Save changes" : "Add spend")}
+          </SfButton>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Marketing spend by channel (main table on Expenses tab)
+const MarketingSpendTable = ({ marketingSpend, adsSpendBySource, dateRange, onChanged }) => {
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorChannel, setEditorChannel] = useState(null)
+  const [editorExisting, setEditorExisting] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [error, setError] = useState("")
+
+  // Reporting period label: "Aug 2026" if the range fits one month; else the range dates.
+  const rangeLabel = (() => {
+    if (!dateRange?.startStr || !dateRange?.endStr) return ""
+    const a = new Date(dateRange.startStr), b = new Date(dateRange.endStr)
+    if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) {
+      return a.toLocaleString("en-US", { month: "short", year: "numeric" })
+    }
+    return `${dateRange.startStr} → ${dateRange.endStr}`
+  })()
+
+  const defaultMonth = dateRange?.endStr ? dateRange.endStr.slice(0, 7) : new Date().toISOString().slice(0, 7)
+
+  // Roll up marketing_spend rows by source across the current period.
+  // If a source has 0 rows, we still render a row (empty state per channel).
+  const bySourceRollup = {}
+  for (const r of marketingSpend || []) {
+    const src = r.source
+    if (!bySourceRollup[src]) {
+      bySourceRollup[src] = {
+        source: src,
+        totalCents: 0,
+        reportedCents: null,
+        anyManualOverride: false,
+        rows: [],
+        sourceTypes: new Set(),
+      }
+    }
+    const b = bySourceRollup[src]
+    b.totalCents += r.amount_cents || 0
+    if (r.reported_amount_cents != null) {
+      b.reportedCents = (b.reportedCents || 0) + r.reported_amount_cents
+    }
+    if (r.is_manual_override) b.anyManualOverride = true
+    b.sourceTypes.add(r.source_type)
+    b.rows.push(r)
+  }
+
+  // Lead counts + CPL come from adsSpendBySource (backend already computed).
+  const leadsBySource = {}
+  for (const r of adsSpendBySource || []) {
+    // The backend groups by opportunities.source which may differ in casing
+    // from marketing_spend.source. Normalize.
+    const key = String(r.source).toLowerCase()
+    leadsBySource[key] = { count: r.count || 0 }
+  }
+
+  const handleOpenEditor = (channel, existing) => {
+    setEditorChannel(channel)
+    setEditorExisting(existing || null)
+    setEditorOpen(true)
+    setError("")
+  }
+
+  const handleSave = async ({ period, amount_cents, note }) => {
+    if (amount_cents == null) return
+    setSaving(true); setError("")
+    try {
+      if (editorExisting) {
+        await marketingSpendAPI.patch(editorExisting.id, { amount_cents, note })
+      } else {
+        await marketingSpendAPI.upsertManual({
+          source: editorChannel, period, amount_cents, note,
+        })
+      }
+      setEditorOpen(false)
+      await onChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to save")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReset = async () => {
+    if (!editorExisting) return
+    setSaving(true); setError("")
+    try {
+      await marketingSpendAPI.resetOverride(editorExisting.id)
+      setEditorOpen(false)
+      await onChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to reset override")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Backfill flow: dry-run → confirm → apply + materialize.
+  // "Sync from LeadBridge" = pull actual TT per-lead cost from LB and, if
+  // there's real work to do, prompt to apply. When apply=true the same
+  // endpoint also runs the monthly materializer so the table updates.
+  const handleSyncThumbtack = async () => {
+    setSyncing(true); setError("")
+    try {
+      // 1. Dry-run — no writes, just counters. Uses tenant range on the server
+      //    (unbounded — we want everything historically) so the operator can
+      //    make a whole-history decision, not a period one.
+      const dryRun = await marketingSpendAPI.backfillThumbtack({ apply: false })
+      const bf = dryRun.backfill || {}
+      if (bf.error) throw new Error(bf.message || bf.error)
+
+      const patchable = bf.proposals || 0
+      const hasExistingCost = (bf.already_populated || 0) > 0
+
+      // No linked opportunities at all → nothing we can do.
+      if (bf.eligible === 0) {
+        setError("No LeadBridge-linked Thumbtack opportunities in SF yet.")
+        return
+      }
+
+      // Nothing to backfill AND no existing cost → literally no TT cost data
+      // to materialize. Tell the user what LB returned.
+      if (patchable === 0 && !hasExistingCost) {
+        setError(
+          `No Thumbtack cost data available. Counters: eligible=${bf.eligible} lb_cost_unavailable=${bf.lb_cost_unavailable} unmatched=${bf.unmatched}. LB hasn't hydrated per-lead cost for these leads.`
+        )
+        return
+      }
+
+      // 2. Build the confirmation message. Two paths:
+      //    (a) patchable > 0 → normal backfill + materialize
+      //    (b) patchable == 0 but existing cost → materialize-only
+      let summary
+      if (patchable > 0) {
+        summary = `LeadBridge backfill will update ${patchable} opportunities and materialize monthly spend:\n\n` +
+          `• Eligible (linked): ${bf.eligible}\n` +
+          `• Will be updated: ${patchable}\n` +
+          `• Already had cost: ${bf.already_populated}\n` +
+          `• LB has no cost: ${bf.lb_cost_unavailable}\n` +
+          `• Unmatched in LB: ${bf.unmatched}\n\n` +
+          `Existing costs will NOT be overwritten. Apply?`
+      } else {
+        summary = `Nothing new to backfill, but ${bf.already_populated} opportunities already have Thumbtack cost. Materialize them into monthly Marketing spend rows now?`
+      }
+      if (!window.confirm(summary)) return
+
+      // 3. Apply + materialize monthly rows (endpoint runs materializer when apply=true).
+      const applied = await marketingSpendAPI.backfillThumbtack({ apply: true, materialize: true })
+      const ab = applied.backfill || {}
+      const am = applied.materialize || {}
+      await onChanged?.()
+      window.alert(
+        `Sync complete.\n\n` +
+        (patchable > 0 ? `Updated ${ab.updated} opportunities. Failed: ${ab.failed}.\n` : "") +
+        (am ? `Marketing spend rows: ${am.rowsCreated} created, ${am.rowsUpdated} updated. Skipped ${am.rowsSkippedNoCoverage || 0} months with no cost data.\n` : "") +
+        `Manual overrides preserved.`
+      )
+    } catch (e) {
+      setError(e?.response?.data?.error || e?.message || "Backfill failed")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <>
+      <SfCard padding={false}>
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.borderS}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <Megaphone size={14} color={T.ink2} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>Marketing spend by channel</div>
+            <div style={{ fontSize: 11, color: T.ink3, marginTop: 1 }}>
+              {rangeLabel} · CPL is spend ÷ leads acquired in the same period
+            </div>
+          </div>
+          <div style={{ flex: 1 }} />
+          <SfButton variant="ghost" size="sm" icon={syncing ? RefreshCw : Zap} onClick={handleSyncThumbtack} disabled={syncing}>
+            {syncing ? "Syncing…" : "Sync from LeadBridge"}
+          </SfButton>
+        </div>
+
+        {error && (
+          <div style={{ padding: "8px 18px", background: T.redSoft, borderBottom: `1px solid ${T.borderS}`, color: T.redDark, fontSize: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{
+          display: "grid", gridTemplateColumns: "1.4fr 130px 130px 100px 110px 130px 90px", gap: 10,
+          padding: "10px 18px", background: T.panelAlt, borderBottom: `1px solid ${T.borderS}`,
+          fontSize: 10.5, color: T.ink3, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase",
+        }}>
+          <div>Channel</div>
+          <div style={{ textAlign: "right" }}>Spend</div>
+          <div>Source</div>
+          <div style={{ textAlign: "right" }}>Leads</div>
+          <div style={{ textAlign: "right" }}>CPL</div>
+          <div>Reported</div>
+          <div style={{ textAlign: "right" }}>Actions</div>
+        </div>
+
+        {CHANNEL_ORDER.map((source, i) => {
+          const meta = CHANNEL_META[source]
+          const roll = bySourceRollup[source]
+          const spendCents = roll?.totalCents
+          const leadCount = leadsBySource[source]?.count || 0
+          const cplCents = spendCents != null && leadCount > 0 ? Math.round(spendCents / leadCount) : null
+          const existing = roll?.rows?.[0]     // single-month view — one row per source
+          // "Has data" now means: we have a spend row OR we have leads. Prevents
+          // channels-with-leads-but-no-spend from being labeled "not connected".
+          const hasData = roll != null || leadCount > 0
+          const notConnected = meta.syncModel === "future" && !hasData
+
+          return (
+            <div key={source} style={{
+              display: "grid", gridTemplateColumns: "1.4fr 130px 130px 100px 110px 130px 90px", gap: 10,
+              padding: "11px 18px", alignItems: "center",
+              borderBottom: i < CHANNEL_ORDER.length - 1 ? `1px solid ${T.borderS}` : "none",
+              opacity: notConnected ? .6 : 1,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: meta.color, flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{meta.label}</div>
+                  <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {meta.note}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right", fontSize: 13.5, fontWeight: 700, color: spendCents != null ? T.ink : T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {spendCents != null ? money(spendCents / 100) : "—"}
+              </div>
+
+              <div>
+                <SourceBadge source={source} roll={roll} notConnected={notConnected} />
+              </div>
+
+              <div style={{ textAlign: "right", fontSize: 12.5, color: T.ink2, fontVariantNumeric: "tabular-nums" }}>
+                {leadCount > 0 ? leadCount : "—"}
+              </div>
+
+              <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: cplCents != null ? T.ink : T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {cplCents != null ? `$${(cplCents / 100).toFixed(2)}` : "—"}
+              </div>
+
+              <div style={{ fontSize: 11, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {roll?.reportedCents != null ? (
+                  <span title="Amount most-recently reported by upstream">
+                    ${(roll.reportedCents / 100).toFixed(2)}
+                  </span>
+                ) : "—"}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                {!notConnected && (
+                  <button
+                    onClick={() => handleOpenEditor(source, existing)}
+                    title={existing ? "Edit" : "Add spend"}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", color: T.ink3, padding: 4, borderRadius: 4 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = T.blueDark }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = T.ink3 }}
+                  >
+                    {existing ? <Pencil size={13} /> : <Plus size={13} />}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </SfCard>
+
+      <MarketingSpendEditor
+        open={editorOpen}
+        channel={editorChannel}
+        existing={editorExisting}
+        defaultMonth={defaultMonth}
+        onSave={handleSave}
+        onReset={handleReset}
+        onClose={() => setEditorOpen(false)}
+        saving={saving}
+      />
+    </>
+  )
+}
+
+const SourceBadge = ({ source, roll, notConnected }) => {
+  const meta = CHANNEL_META[source] || CHANNEL_META.other
+  if (notConnected) {
+    return <span style={{ fontSize: 10.5, color: T.ink3, fontWeight: 600, padding: "3px 8px", background: T.panelAlt, borderRadius: 12, border: `1px solid ${T.borderS}` }}>Not connected</span>
+  }
+  if (!roll) {
+    return <span style={{ fontSize: 10.5, color: T.ink3, fontWeight: 600, padding: "3px 8px", background: T.panelAlt, borderRadius: 12, border: `1px solid ${T.borderS}` }}>No data</span>
+  }
+  if (roll.anyManualOverride) {
+    return (
+      <span title="A manual override is active; reported value still tracked" style={{ fontSize: 10.5, color: T.amberDark, fontWeight: 700, padding: "3px 8px", background: T.amberSoft, borderRadius: 12, border: `1px solid ${T.amber}44`, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <Pencil size={9} /> Manual
+      </span>
+    )
+  }
+  if (roll.sourceTypes.has("derived_from_opportunities")) {
+    return (
+      <span title="Derived from per-lead cost on opportunities" style={{ fontSize: 10.5, color: T.greenDark, fontWeight: 700, padding: "3px 8px", background: T.greenSoft, borderRadius: 12, border: `1px solid ${T.green}44`, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <Zap size={9} /> Synced
+      </span>
+    )
+  }
+  if (roll.sourceTypes.has("manual")) {
+    return (
+      <span style={{ fontSize: 10.5, color: T.blueDark, fontWeight: 700, padding: "3px 8px", background: T.blueSoft, borderRadius: 12, border: `1px solid ${T.blue}44` }}>
+        Manual
+      </span>
+    )
+  }
+  return <span style={{ fontSize: 10.5, color: T.ink2, fontWeight: 700, padding: "3px 8px", background: T.panelAlt, borderRadius: 12, border: `1px solid ${T.borderS}` }}>Synced</span>
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// EXPENSES TAB
+// ══════════════════════════════════════════════════════════════════════
+
+const CATEGORY_LABELS = {
+  rent: "Rent", insurance: "Insurance", software: "Software / SaaS",
+  vehicle: "Vehicle", fuel: "Fuel", marketing: "Marketing (non-LB)",
+  supplies: "Supplies", utilities: "Utilities", phone: "Phone",
+  other: "Other",
+}
+const CADENCE_LABELS = {
+  one_off: "One-off", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly",
+}
+const CATEGORY_COLORS = [T.blue, T.purple, T.green, T.amber, T.teal, T.red, T.blueDark, T.purpleSoft, T.tealSoft, T.ink3]
+
+const inputStyle = {
+  width: "100%", padding: "8px 10px", fontSize: 13,
+  border: `1px solid ${T.borderS}`, borderRadius: 6,
+  background: T.panel, color: T.ink, outline: "none",
+}
+const labelStyle = {
+  fontSize: 10.5, color: T.ink3, fontWeight: 700,
+  letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 4, display: "block",
+}
+
+const AddExpenseRow = ({ onSubmit, submitting }) => {
+  const today = new Date().toISOString().split("T")[0]
+  const [form, setForm] = useState({
+    name: "", amount: "", category: "rent", cadence: "monthly", start_date: today, note: "",
+  })
+  const set = (k) => (e) => setForm((s) => ({ ...s, [k]: e.target.value }))
+  const canSubmit = form.name.trim() && parseFloat(form.amount) >= 0 && form.start_date
+
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1.4fr 100px 130px 120px 130px 1fr 90px",
+      gap: 10, padding: "12px 18px", background: T.panelAlt, borderTop: `1px solid ${T.borderS}`, alignItems: "end",
+    }}>
+      <div>
+        <label style={labelStyle}>Name</label>
+        <input style={inputStyle} placeholder="Office rent, GSuite…" value={form.name} onChange={set("name")} />
+      </div>
+      <div>
+        <label style={labelStyle}>Amount</label>
+        <input style={inputStyle} type="number" step="0.01" min="0" placeholder="0.00" value={form.amount} onChange={set("amount")} />
+      </div>
+      <div>
+        <label style={labelStyle}>Category</label>
+        <select style={inputStyle} value={form.category} onChange={set("category")}>
+          {Object.entries(CATEGORY_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={labelStyle}>Cadence</label>
+        <select style={inputStyle} value={form.cadence} onChange={set("cadence")}>
+          {Object.entries(CADENCE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={labelStyle}>Start</label>
+        <input style={inputStyle} type="date" value={form.start_date} onChange={set("start_date")} />
+      </div>
+      <div>
+        <label style={labelStyle}>Note</label>
+        <input style={inputStyle} placeholder="Optional" value={form.note} onChange={set("note")} />
+      </div>
+      <SfButton
+        variant="primary" size="md" icon={Plus}
+        onClick={() => canSubmit && onSubmit({ ...form, amount: parseFloat(form.amount) })}
+        disabled={!canSubmit || submitting}
+      >
+        Add
+      </SfButton>
+    </div>
+  )
+}
+
+const ExpensesTab = ({ m, data, onExpensesChanged }) => {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+
+  if (!m) return null
+
+  const payrollTotal = Number(m.salary?.summary?.totalPayroll || 0)
+  const adsTotal = Number(m.adsSpend?.summary?.totalSpend || 0)
+  const jobExpensesTotal = Number(m.expensesSummary?.summary?.jobExpensesTotal || 0)
+  const businessTotal = Number(m.expensesSummary?.summary?.businessExpensesTotal || 0)
+  const combinedTotal = payrollTotal + adsTotal + jobExpensesTotal + businessTotal
+  const grossProfit = m.totalRevenue - combinedTotal
+  const grossMarginPct = m.totalRevenue > 0 ? (grossProfit / m.totalRevenue) * 100 : 0
+
+  const donutData = [
+    { l: "Payroll",          v: payrollTotal,      c: T.blue },
+    { l: "Ads (LeadBridge)", v: adsTotal,          c: T.amber },
+    { l: "Job reimbursements", v: jobExpensesTotal, c: T.teal },
+    { l: "Overhead",         v: businessTotal,     c: T.purple },
+  ].filter((x) => x.v > 0)
+
+  const bySource = m.adsSpend?.bySource || []
+  const monthlyAds = m.adsSpend?.monthly || []
+
+  const recurringList = data?.businessExpenses || []
+  const businessByCategoryEntries = Object.entries(m.expensesSummary?.businessByCategory || {})
+    .map(([k, v]) => ({ k, l: CATEGORY_LABELS[k] || k, v: Number(v) }))
+    .sort((a, b) => b.v - a.v)
+
+  const handleAdd = async (payload) => {
+    setError("")
+    setSubmitting(true)
+    try {
+      await businessExpensesAPI.create(payload)
+      await onExpensesChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to add expense")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this expense?")) return
+    setError("")
+    try {
+      await businessExpensesAPI.delete(id)
+      await onExpensesChanged?.()
+    } catch (e) {
+      setError(e?.response?.data?.error || "Failed to delete expense")
+    }
+  }
+
+  return (
+    <div style={{ padding: "14px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
+        <SfKPI label="Total costs"      value={moneyShort(combinedTotal)}   sub="all sources this period" accent={T.red} />
+        <SfKPI label="Payroll"          value={moneyShort(payrollTotal)}    sub={m.totalRevenue > 0 ? `${((payrollTotal / m.totalRevenue) * 100).toFixed(0)}% of revenue` : "—"} accent={T.blue} />
+        <SfKPI label="Ads · LeadBridge" value={moneyShort(adsTotal)}        sub={`${m.adsSpend?.summary?.opportunityCount || 0} leads`} accent={T.amber} />
+        <SfKPI label="Job reimburse"    value={moneyShort(jobExpensesTotal)} sub={`${m.expensesSummary?.summary?.jobExpensesCount || 0} approved`} accent={T.teal} />
+        <SfKPI label="Overhead"         value={moneyShort(businessTotal)}   sub={`${(recurringList || []).filter((r) => r.is_active).length} active`} accent={T.purple} />
+        <SfKPI
+          label="Gross margin"
+          value={m.totalRevenue > 0 ? `${grossMarginPct.toFixed(1)}%` : "—"}
+          sub={`${moneyShort(grossProfit)} profit`}
+          accent={grossProfit >= 0 ? T.green : T.red}
+        />
+      </div>
+
+      {error && (
+        <div style={{ padding: "8px 12px", background: T.redSoft, border: `1px solid ${T.red}33`, borderRadius: 6, color: T.redDark, fontSize: 12.5 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Split donut + LB source breakdown */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <SfCard>
+          <SfCardHeader title="Cost breakdown" subtitle="Where the money goes" />
+          {donutData.length ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+              <DonutChart
+                data={donutData.map((d) => ({ v: Math.round(d.v), c: d.c }))}
+                size={140}
+                label={moneyShort(combinedTotal)}
+              />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 9 }}>
+                {donutData.map((d) => {
+                  const p = combinedTotal > 0 ? Math.round((d.v / combinedTotal) * 100) : 0
+                  return (
+                    <div key={d.l} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: d.c, flexShrink: 0 }} />
+                      <span style={{ flex: 1, color: T.ink2, fontWeight: 600 }}>{d.l}</span>
+                      <span style={{ color: T.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(d.v)}</span>
+                      <span style={{ color: T.ink3, fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 34, textAlign: "right" }}>{p}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : <EmptyChart title="No costs recorded" subtitle="Add payroll runs, LB leads, or overhead below" />}
+        </SfCard>
+
+        <SfCard>
+          <SfCardHeader
+            title="Ad-attributed leads"
+            subtitle="Opportunities acquired via paid channels"
+            right={<Megaphone size={14} color={T.amberDark} />}
+          />
+          {bySource.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              {bySource.map((r, i) => {
+                const maxCount = Math.max(1, ...bySource.map((x) => x.count))
+                return (
+                  <div key={r.source}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ flex: 1, color: T.ink, fontWeight: 600 }}>{r.source}</span>
+                      <span style={{ color: T.ink3, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+                        {r.count} lead{r.count === 1 ? "" : "s"}{r.cpl != null ? ` · $${r.cpl.toFixed(0)}/lead` : ""}
+                      </span>
+                      <span style={{ color: T.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 60, textAlign: "right" }}>
+                        {r.spend != null ? money(r.spend) : "—"}
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: T.panelSoft, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${(r.count / maxCount) * 100}%`, height: "100%", background: [T.amberDark, T.blue, T.purple, T.teal, T.green, T.red][i % 6], borderRadius: 3 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : <EmptyChart icon={Megaphone} title="No lead sources with attribution" subtitle="Opportunities need a `source` value to appear" />}
+        </SfCard>
+      </div>
+
+      {/* Marketing spend by channel — canonical editor + spend surface */}
+      <MarketingSpendTable
+        marketingSpend={data?.marketingSpend || []}
+        adsSpendBySource={m.adsSpend?.bySource || []}
+        dateRange={data?.dateRange}
+        onChanged={onExpensesChanged}
+      />
+
+      {/* Monthly ad-spend trend */}
+      <SfCard>
+        <SfCardHeader title="Ad spend · 12 months" subtitle="opportunities.created_at" />
+        <div style={{ paddingTop: 8 }}>
+          {monthlyAds.some((r) => r.spend > 0) ? (
+            <BarChart
+              data={monthlyAds.map((r) => Math.round(r.spend))}
+              labels={monthlyAds.map((r) => r.label)}
+              color={T.amberDark}
+              height={180}
+              valueFmt={(v) => moneyShort(v)}
+            />
+          ) : <EmptyChart title="No ad spend history" height={180} />}
+        </div>
+      </SfCard>
+
+      {/* Overhead by category */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <SfCard>
+          <SfCardHeader title="Overhead by category" subtitle="Expanded across this period" />
+          {businessByCategoryEntries.length ? (
+            <HBarList
+              data={businessByCategoryEntries.map((r, i) => ({ l: r.l, v: r.v, c: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }))}
+              fmt={(v) => money(v)}
+            />
+          ) : <EmptyChart icon={Receipt} title="No overhead yet" subtitle="Add expenses below" />}
+        </SfCard>
+
+        <SfCard>
+          <SfCardHeader title="Cost of revenue" subtitle="Payroll + ads + reimbursements as % of revenue" />
+          {m.totalRevenue > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
+              {[
+                { l: "Payroll",            v: payrollTotal,      c: T.blue },
+                { l: "Ads · LeadBridge",   v: adsTotal,          c: T.amberDark },
+                { l: "Job reimbursements", v: jobExpensesTotal,  c: T.teal },
+                { l: "Overhead",           v: businessTotal,     c: T.purple },
+              ].map((r) => {
+                const pct = (r.v / m.totalRevenue) * 100
+                return (
+                  <div key={r.l}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ flex: 1, color: T.ink, fontWeight: 600 }}>{r.l}</span>
+                      <span style={{ color: T.ink2, fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}>
+                        {money(r.v)}
+                      </span>
+                      <span style={{ color: T.ink3, fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 44, textAlign: "right" }}>
+                        {pct.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: T.panelSoft, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: r.c, borderRadius: 3 }} />
+                    </div>
+                  </div>
+                )
+              })}
+              <div style={{ marginTop: 4, padding: "10px 12px", background: grossProfit >= 0 ? T.greenSoft : T.redSoft, border: `1px solid ${(grossProfit >= 0 ? T.green : T.red)}33`, borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: T.ink2, fontWeight: 600 }}>Gross profit</span>
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: grossProfit >= 0 ? T.greenDark : T.redDark, fontVariantNumeric: "tabular-nums" }}>
+                  {money(grossProfit)}
+                </span>
+                <span style={{ fontSize: 12, color: T.ink3, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                  {grossMarginPct.toFixed(1)}% margin
+                </span>
+              </div>
+            </div>
+          ) : <EmptyChart title="No revenue in this period" />}
+        </SfCard>
+      </div>
+
+      {/* Recurring / one-off expenses editor */}
+      <SfCard padding={false}>
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.borderS}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <Receipt size={14} color={T.ink2} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>Business expenses</div>
+            <div style={{ fontSize: 11, color: T.ink3, marginTop: 1 }}>
+              Overhead you pay outside jobs — rent, SaaS, insurance, marketing, …
+            </div>
+          </div>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 11, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+            {recurringList.length} total · {money(businessTotal)} this period
+          </span>
+        </div>
+
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 120px 130px 110px 110px 90px 90px 50px",
+          gap: 10, padding: "10px 18px", background: T.panelAlt, borderBottom: `1px solid ${T.borderS}`,
+          fontSize: 10.5, color: T.ink3, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase",
+        }}>
+          <div>Name</div>
+          <div>Category</div>
+          <div>Cadence</div>
+          <div style={{ textAlign: "right" }}>Amount</div>
+          <div style={{ textAlign: "right" }}>Start</div>
+          <div style={{ textAlign: "right" }}>Occurr.</div>
+          <div style={{ textAlign: "right" }}>Range $</div>
+          <div />
+        </div>
+
+        {recurringList.length ? recurringList.map((exp, i) => {
+          const expanded = (m.expensesSummary?.businessExpanded || []).find((x) => x.id === exp.id)
+          return (
+            <div key={exp.id} style={{
+              display: "grid",
+              gridTemplateColumns: "2fr 120px 130px 110px 110px 90px 90px 50px",
+              gap: 10, padding: "11px 18px", alignItems: "center",
+              borderBottom: `1px solid ${T.borderS}`,
+              opacity: exp.is_active === false ? 0.55 : 1,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {exp.name}
+                </div>
+                {exp.note && (
+                  <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {exp.note}
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: T.ink2 }}>{CATEGORY_LABELS[exp.category] || exp.category}</div>
+              <div style={{ fontSize: 12, color: T.ink2 }}>{CADENCE_LABELS[exp.cadence] || exp.cadence}</div>
+              <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+                {money(exp.amount)}
+              </div>
+              <div style={{ textAlign: "right", fontSize: 11.5, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {exp.start_date}
+              </div>
+              <div style={{ textAlign: "right", fontSize: 12, color: T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {expanded?.occurrences ?? 0}
+              </div>
+              <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: expanded?.rangeAmount > 0 ? T.ink : T.ink3, fontVariantNumeric: "tabular-nums" }}>
+                {expanded?.rangeAmount > 0 ? money(expanded.rangeAmount) : "—"}
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <button
+                  onClick={() => handleDelete(exp.id)}
+                  title="Delete"
+                  style={{
+                    background: "transparent", border: "none", cursor: "pointer",
+                    color: T.ink3, padding: 4, borderRadius: 4,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = T.redDark }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = T.ink3 }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          )
+        }) : (
+          <div style={{ padding: "24px 18px", textAlign: "center", color: T.ink3, fontSize: 12.5 }}>
+            No business expenses yet. Add your first one below.
+          </div>
+        )}
+
+        <AddExpenseRow onSubmit={handleAdd} submitting={submitting} />
+      </SfCard>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // MAIN SHELL
 // ══════════════════════════════════════════════════════════════════════
 
 const AnalyticsV2 = () => {
   const { user } = useAuth()
+  const { locationId, selectedLocation } = useLocationScope()
   const navigate = useNavigate()
   const [tab, setTab] = useState("overview")
   const [period, setPeriod] = useState("30d")
@@ -1895,6 +2746,19 @@ const AnalyticsV2 = () => {
     if (user && !isAccountOwner(user)) navigate("/dashboard", { replace: true })
   }, [user, navigate])
 
+  const refetch = async () => {
+    if (!user?.id) return
+    setRefreshing(true)
+    try {
+      const next = await fetchEverything(user.id, period, locationId)
+      setData(next)
+    } catch (e) {
+      setError("Failed to load analytics. Please retry.")
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   useEffect(() => {
     if (!user?.id || !isAccountOwner(user)) return
     let cancelled = false
@@ -1902,7 +2766,7 @@ const AnalyticsV2 = () => {
       if (data) setRefreshing(true); else setLoading(true)
       setError("")
       try {
-        const next = await fetchEverything(user.id, period)
+        const next = await fetchEverything(user.id, period, locationId)
         if (!cancelled) setData(next)
       } catch (e) {
         if (!cancelled) setError("Failed to load analytics. Please retry.")
@@ -1913,7 +2777,7 @@ const AnalyticsV2 = () => {
     run()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, period])
+  }, [user?.id, period, locationId])
 
   const metrics = useMemo(() => computeMetrics(data), [data])
 
@@ -1925,6 +2789,7 @@ const AnalyticsV2 = () => {
     customers:  "Cohort retention · LTV · churn · acquisition",
     salary:     "Payroll cost · % of revenue · per-worker breakdown",
     conversion: "Lead → customer funnel · win rate · time-to-close",
+    expenses:   "Payroll · LeadBridge ads · reimbursements · overhead",
   }
 
   return (
@@ -1932,7 +2797,7 @@ const AnalyticsV2 = () => {
       <MobileHeader />
 
       <SfPageHeader
-        eyebrow="Insights"
+        eyebrow={selectedLocation ? `Insights · ${selectedLocation.name}` : "Insights"}
         title="Analytics"
         subtitle={subtitles[tab]}
         actions={
@@ -1950,6 +2815,7 @@ const AnalyticsV2 = () => {
             <SfTab active={tab === "customers"}  onClick={() => setTab("customers")}>Customers</SfTab>
             <SfTab active={tab === "salary"}     onClick={() => setTab("salary")}>Salary</SfTab>
             <SfTab active={tab === "conversion"} onClick={() => setTab("conversion")}>Conversion</SfTab>
+            <SfTab active={tab === "expenses"}   onClick={() => setTab("expenses")}>Expenses</SfTab>
           </>
         }
       />
@@ -1981,6 +2847,7 @@ const AnalyticsV2 = () => {
           {tab === "customers"  && <CustomersTab  m={metrics} data={data} />}
           {tab === "salary"     && <SalaryTab     m={metrics} data={data} />}
           {tab === "conversion" && <ConversionTab m={metrics} data={data} />}
+          {tab === "expenses"   && <ExpensesTab   m={metrics} data={data} onExpensesChanged={refetch} />}
         </>
       )}
     </div>
