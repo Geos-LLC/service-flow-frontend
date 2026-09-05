@@ -47,7 +47,8 @@
     "eject": "react-scripts eject",
     "icons:generate": "node scripts/generate-icons.js",
     "postinstall": "node scripts/fetch-zcta.js",
-    "prebuild": "node scripts/fetch-zcta.js"
+    "prebuild": "node scripts/fetch-zcta.js",
+    "vercel-build": "node scripts/build-with-version.js && npx --yes @fixprompt/cli deploy-start --source service-flow-frontend-prod --key \"$REACT_APP_FIXPROMPT_KEY\" --status success"
   },
   "eslintConfig": {
     "extends": [
