@@ -59,13 +59,11 @@ export default function ProofPixIntegrationSettings() {
   const [showPairedBanner, setShowPairedBanner] = useState(
     new URLSearchParams(location.search).get('paired') === '1'
   );
-  // Per-workspace ProofPix visibility toggles. Backend defaults are
-  // both false (no filter). Local state is optimistic — we PATCH on
-  // toggle, revert on 4xx/5xx.
-  const [showRecurringJobs, setShowRecurringJobs] = useState(false);
+  // Per-workspace ProofPix visibility toggle. Backend default is false
+  // (no filter). Local state is optimistic — we PATCH on toggle, revert
+  // on 4xx/5xx.
   const [newCustomersOnly, setNewCustomersOnly] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [savingRecurringToggle, setSavingRecurringToggle] = useState(false);
   const [savingNewCustomersToggle, setSavingNewCustomersToggle] = useState(false);
   const [settingsError, setSettingsError] = useState(null);
 
@@ -137,9 +135,9 @@ export default function ProofPixIntegrationSettings() {
     return () => clearTimeout(id);
   }, [showPairedBanner]);
 
-  // Load the ProofPix per-workspace settings (currently just the
-  // show_recurring_jobs toggle). Silent — the settings card renders
-  // its own error state and never blocks the primary devices UI.
+  // Load the ProofPix per-workspace settings. Silent — the settings
+  // card renders its own error state and never blocks the primary
+  // devices UI.
   useEffect(() => {
     const sfJwt = localStorage.getItem('authToken');
     if (!sfJwt) return;
@@ -152,9 +150,6 @@ export default function ProofPixIntegrationSettings() {
         });
         if (!res.ok) return;
         const body = await res.json();
-        if (typeof body?.show_recurring_jobs === 'boolean') {
-          setShowRecurringJobs(body.show_recurring_jobs);
-        }
         if (typeof body?.new_customers_only === 'boolean') {
           setNewCustomersOnly(body.new_customers_only);
         }
@@ -165,46 +160,6 @@ export default function ProofPixIntegrationSettings() {
     })();
     return () => controller.abort();
   }, []);
-
-  const handleToggleRecurringJobs = useCallback(async (nextValue) => {
-    const sfJwt = localStorage.getItem('authToken');
-    if (!sfJwt) {
-      bounceToSigninHere();
-      return;
-    }
-    const prevValue = showRecurringJobs;
-    setShowRecurringJobs(nextValue);   // optimistic
-    setSavingRecurringToggle(true);
-    setSettingsError(null);
-    try {
-      const res = await fetch(`${API_BASE}/integrations/proofpix/settings`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${sfJwt}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ show_recurring_jobs: nextValue }),
-      });
-      if (res.status === 401) {
-        localStorage.removeItem('authToken');
-        bounceToSigninHere();
-        return;
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message || `Save failed (HTTP ${res.status}).`);
-      }
-      const body = await res.json().catch(() => null);
-      if (typeof body?.show_recurring_jobs === 'boolean') {
-        setShowRecurringJobs(body.show_recurring_jobs);
-      }
-    } catch (err) {
-      setShowRecurringJobs(prevValue); // revert
-      setSettingsError(err.message || 'Failed to update setting.');
-    } finally {
-      setSavingRecurringToggle(false);
-    }
-  }, [showRecurringJobs]);
 
   const handleToggleNewCustomersOnly = useCallback(async (nextValue) => {
     const sfJwt = localStorage.getItem('authToken');
@@ -349,13 +304,10 @@ export default function ProofPixIntegrationSettings() {
             disconnectingIds={disconnectingIds}
           />
           <JobVisibilityCard
-            showRecurringJobs={showRecurringJobs}
             newCustomersOnly={newCustomersOnly}
             settingsLoaded={settingsLoaded}
-            savingRecurring={savingRecurringToggle}
             savingNewCustomers={savingNewCustomersToggle}
             error={settingsError}
-            onToggleRecurring={handleToggleRecurringJobs}
             onToggleNewCustomers={handleToggleNewCustomersOnly}
           />
           <LaptopTipCard />
@@ -626,16 +578,12 @@ function LaptopTipCard() {
 // Toggle for the workspace's ProofPix job-visibility setting. Applies
 // to every ProofPix device (team members AND the admin's own mobile
 // view) so the admin sees exactly what the team sees. Default is OFF —
-// recurring cleanings stay off phones until the admin explicitly opts
-// in from here.
+// every job appears until the admin opts in to hide repeat customers.
 function JobVisibilityCard({
-  showRecurringJobs,
   newCustomersOnly,
   settingsLoaded,
-  savingRecurring,
   savingNewCustomers,
   error,
-  onToggleRecurring,
   onToggleNewCustomers,
 }) {
   return (
@@ -648,21 +596,12 @@ function JobVisibilityCard({
         so you see exactly what the team sees.
       </p>
       <VisibilityToggle
-        checked={showRecurringJobs}
-        disabled={savingRecurring || !settingsLoaded}
-        saving={savingRecurring}
-        onChange={onToggleRecurring}
-        title="Show recurring cleanings"
-        description="Off (default) — recurring cleanings are hidden from ProofPix. On — recurring jobs appear alongside one-time jobs."
-      />
-      <div style={{ height: '10px' }} />
-      <VisibilityToggle
         checked={newCustomersOnly}
         disabled={savingNewCustomers || !settingsLoaded}
         saving={savingNewCustomers}
         onChange={onToggleNewCustomers}
         title="Only first-time customer jobs"
-        description="Off (default) — every non-recurring job appears. On — only a customer's first booking appears in ProofPix; repeat visits are hidden. Combines with the recurring toggle above."
+        description="Off (default) — every job appears in ProofPix. On — only a customer's very first booking appears; any repeat visit is hidden, whether it's a recurring cleaning or another one-off job for the same customer."
       />
       {error && (
         <p style={{ fontSize: '12px', color: '#b91c1c', margin: '10px 0 0' }} role="alert">
