@@ -3105,7 +3105,8 @@ export const customerFilesAPI = {
     return r.data;
   },
   // Same table, but filtered to a single job. Backs the Photos section
-  // on the job-detail page. Response includes ProofPix metadata columns.
+  // on the job-detail page. Response includes ProofPix metadata columns
+  // (source, proofpix_metadata with mode/room/captured_by).
   listByJob: async (jobId) => {
     const r = await api.get(`/jobs/${jobId}/files`);
     return r.data;

@@ -1204,7 +1204,10 @@ const JobDetailsV2 = () => {
           )}
 
           {tab === "photos" && (
-            <JobPhotosPanel jobId={job.id} />
+            <JobPhotosPanel
+              jobId={job.id}
+              customerId={job.customer_id || customer?.id || null}
+            />
           )}
 
           {tab !== "overview" && tab !== "photos" && (
@@ -4378,7 +4381,9 @@ const Timeline = ({ job, status }) => {
 // Lists customer_files rows linked via job_id. Read-only v1: write
 // path stays with the existing customer Files tab (and ProofPix
 // mobile's POST /jobs/:jobId/photos). Surfaces ProofPix-source rows
-// with mode/room context pulled from proofpix_metadata.
+// with mode/room/captured_by from proofpix_metadata. Rows with a null
+// customer_id (job had no linked customer at upload) appear here but
+// never on the customer Files tab — we call that out in the UI.
 
 const PHOTO_MODE_LABEL = { before: "Before", after: "After", combined: "Combined", progress: "Progress" }
 
@@ -4389,7 +4394,15 @@ const formatRoomName = (room) => {
   return room.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-const JobPhotosPanel = ({ jobId }) => {
+const proofpixCapturedBy = (file) => {
+  if (file?.source !== "proofpix") return null
+  const meta = file.proofpix_metadata
+  if (!meta || typeof meta !== "object") return null
+  const name = typeof meta.captured_by === "string" ? meta.captured_by.trim() : ""
+  return name || null
+}
+
+const JobPhotosPanel = ({ jobId, customerId }) => {
   const [files, setFiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -4418,20 +4431,31 @@ const JobPhotosPanel = ({ jobId }) => {
 
   const counts = useMemo(() => {
     let photos = 0, docs = 0, proofpix = 0
+    const cleaners = new Set()
     for (const f of files) {
       if (isImageMime(f.mime_type)) photos += 1
       else docs += 1
       if (f.source === "proofpix") proofpix += 1
+      const by = proofpixCapturedBy(f)
+      if (by) cleaners.add(by)
     }
-    return { total: files.length, photos, docs, proofpix }
+    return { total: files.length, photos, docs, proofpix, cleaners: cleaners.size }
   }, [files])
+
+  const orphanCount = useMemo(
+    () => files.filter((f) => f.customer_id == null).length,
+    [files]
+  )
+  // Job-linked photos with no customer never appear under Customer Files.
+  const showCustomerFilesGap = !loading && files.length > 0 && (!customerId || orphanCount > 0)
 
   const subtitle = loading
     ? "Loading…"
     : counts.total === 0
     ? "No photos uploaded for this job yet"
     : `${counts.total} ${counts.total === 1 ? "file" : "files"}` +
-      (counts.proofpix > 0 ? ` · ${counts.proofpix} from ProofPix` : "")
+      (counts.proofpix > 0 ? ` · ${counts.proofpix} from ProofPix` : "") +
+      (counts.cleaners > 1 ? ` · ${counts.cleaners} cleaners` : "")
 
   return (
     <SfCard>
@@ -4442,6 +4466,18 @@ const JobPhotosPanel = ({ jobId }) => {
           style={{ background: "var(--sf-red-soft)", color: "var(--sf-red-dark)" }}
         >
           {error}
+        </div>
+      )}
+      {showCustomerFilesGap && (
+        <div
+          className="mb-3 rounded-[8px] px-3 py-2 text-[12.5px]"
+          style={{ background: "var(--sf-amber-soft, #FEF3C7)", color: "var(--sf-ink-2)" }}
+        >
+          {!customerId
+            ? "This job has no linked customer, so these photos stay on this job only. The customer Files tab only lists photos when the job has a customer."
+            : orphanCount === files.length
+            ? "These photos aren't linked to the customer yet, so they won't appear under Customer → Files. They remain available here on the job."
+            : `${orphanCount} ${orphanCount === 1 ? "photo isn't" : "photos aren't"} linked to the customer and won't appear under Customer → Files.`}
         </div>
       )}
       {loading ? (
@@ -4459,8 +4495,10 @@ const JobPhotosPanel = ({ jobId }) => {
           <div className="text-[13px] font-semibold text-[var(--sf-ink-2)]">
             No photos for this job yet
           </div>
-          <div className="text-[12px] text-[var(--sf-ink-3)] max-w-[320px]">
-            Photos uploaded from ProofPix mobile or attached on the customer's Files tab with this job selected will appear here.
+          <div className="text-[12px] text-[var(--sf-ink-3)] max-w-[360px]">
+            {customerId
+              ? "Photos uploaded from ProofPix mobile or attached on the customer's Files tab will appear here."
+              : "Photos from ProofPix will appear here. Link a customer to this job if you also want them listed under Customer → Files."}
           </div>
         </div>
       ) : (
@@ -4485,9 +4523,12 @@ const JobPhotoCard = ({ file }) => {
     : null
   const modeLabel = meta?.mode ? (PHOTO_MODE_LABEL[meta.mode] || meta.mode) : null
   const roomLabel = formatRoomName(meta?.room)
+  const capturedBy = proofpixCapturedBy(file)
   const date = file.uploaded_at
     ? new Date(file.uploaded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—"
+
+  const metaLine = [capturedBy, roomLabel, date].filter(Boolean).join(" · ")
 
   const onOpen = () => {
     if (file.file_url) window.open(file.file_url, "_blank", "noopener,noreferrer")
@@ -4546,8 +4587,11 @@ const JobPhotoCard = ({ file }) => {
           >
             {file.filename || "Untitled"}
           </div>
-          <div className="text-[11px] text-[var(--sf-ink-3)] mt-0.5 truncate">
-            {roomLabel ? `${roomLabel} · ${date}` : date}
+          <div
+            className="text-[11px] text-[var(--sf-ink-3)] mt-0.5 truncate"
+            title={metaLine}
+          >
+            {metaLine}
           </div>
         </div>
       </div>
