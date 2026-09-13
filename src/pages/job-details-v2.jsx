@@ -41,6 +41,11 @@ import {
 import { useAuth } from "../context/AuthContext"
 import { jobsAPI, teamAPI, customersAPI, invoicesAPI, servicesAPI, customerFilesAPI } from "../services/api"
 import { formatTime as formatTimeShared } from "../utils/formatTime"
+import {
+  buildBeforeAfterReport,
+  photoCapturedBy,
+  sortPhotosChronologically,
+} from "../utils/customerPhotoGallery"
 import { getGoogleMapsApiKey } from "../config/maps"
 import JobRouteMap from "../components/job-route-map"
 import MobileHeader from "../components/mobile-header"
@@ -4449,6 +4454,13 @@ const JobPhotosPanel = ({ jobId, customerId }) => {
   // Job-linked photos with no customer never appear under Customer Files.
   const showCustomerFilesGap = !loading && files.length > 0 && (!customerId || orphanCount > 0)
 
+  const sortedFiles = useMemo(
+    () => sortPhotosChronologically(files, { ascending: true }),
+    [files]
+  )
+
+  const beforeAfterReport = useMemo(() => buildBeforeAfterReport(files), [files])
+
   const subtitle = loading
     ? "Loading…"
     : counts.total === 0
@@ -4502,14 +4514,71 @@ const JobPhotosPanel = ({ jobId, customerId }) => {
           </div>
         </div>
       ) : (
-        <div
-          className="grid gap-3"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
-        >
-          {files.map((f) => (
-            <JobPhotoCard key={f.id} file={f} />
-          ))}
-        </div>
+        <>
+          {beforeAfterReport.length > 0 && (
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="text-[12.5px] font-semibold text-[var(--sf-ink)]">
+                Before / After — all cleaners
+              </div>
+              {beforeAfterReport.map((section) => (
+                <div
+                  key={section.room}
+                  className="rounded-[10px] border border-[var(--sf-border-soft)] p-3"
+                >
+                  <div className="text-[12px] font-semibold text-[var(--sf-ink-2)] mb-2">
+                    {section.room}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {["before", "after"].map((side) => {
+                      const items = side === "before" ? section.before : section.after
+                      return (
+                        <div key={side}>
+                          <div className="text-[10px] font-bold uppercase text-[var(--sf-ink-3)] mb-1.5">
+                            {side}
+                          </div>
+                          {items.length === 0 ? (
+                            <div className="text-[11px] text-[var(--sf-ink-4)] py-4 text-center bg-[var(--sf-panel-soft)] rounded-[6px]">
+                              None
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {items.map(({ file, capturedBy }) => (
+                                <button
+                                  key={file.id}
+                                  type="button"
+                                  onClick={() => file.file_url && window.open(file.file_url, "_blank", "noopener,noreferrer")}
+                                  className="flex items-center gap-1.5 rounded-[6px] border border-[var(--sf-border-soft)] p-1.5"
+                                  style={{ cursor: file.file_url ? "pointer" : "default" }}
+                                >
+                                  <img
+                                    src={file.file_url}
+                                    alt=""
+                                    style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4 }}
+                                  />
+                                  <span className="text-[10px] text-[var(--sf-ink-2)] max-w-[72px] truncate">
+                                    {capturedBy || "—"}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div
+            className="grid gap-3"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
+          >
+            {sortedFiles.map((f) => (
+              <JobPhotoCard key={f.id} file={f} />
+            ))}
+          </div>
+        </>
       )}
     </SfCard>
   )

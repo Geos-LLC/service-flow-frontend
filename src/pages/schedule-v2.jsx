@@ -16,6 +16,9 @@ import {
   X,
   Calendar as CalendarIcon,
   RefreshCw,
+  Navigation,
+  CircleDot,
+  Moon,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { useLocationScope, filterByLocation } from "../context/LocationContext"
@@ -169,6 +172,67 @@ const isCancelledJob = (j) => {
 const isLiveJob = (j) => {
   const s = String(j?.status || "").toLowerCase()
   return s === "in_progress" || s === "in-progress" || s === "in progress" || s === "en_route" || s === "en route"
+}
+
+// Calendar status "sign" — icon + color only (not the whole chip fill).
+// Matches issue #34: on the way / started / finished.
+const normalizeJobStatus = (j) => {
+  const s = String(j?.status || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[-\s]+/g, "_")
+  if (s === "en_route" || s === "enroute") return "en_route"
+  if (
+    s === "in_progress" ||
+    s === "started" ||
+    s === "onsite" ||
+    s === "on_site"
+  ) {
+    return "in_progress"
+  }
+  if (s === "completed" || s === "complete" || s === "done" || s === "finished") {
+    return "completed"
+  }
+  if (s === "cancelled" || s === "canceled") return "cancelled"
+  return "scheduled"
+}
+
+const JOB_STATUS_SIGN = {
+  en_route: { label: "On the way", color: "#2563EB", Icon: Navigation },
+  in_progress: { label: "Started", color: "#D97706", Icon: CircleDot },
+  completed: { label: "Finished", color: "#16A34A", Icon: Check },
+  scheduled: { label: "Scheduled", color: "#94A3B8", Icon: Moon },
+}
+
+const jobStatusSign = (j) => {
+  const key = normalizeJobStatus(j)
+  return JOB_STATUS_SIGN[key] || JOB_STATUS_SIGN.scheduled
+}
+
+const StatusSign = ({ job, size = 14 }) => {
+  const sign = jobStatusSign(job)
+  if (normalizeJobStatus(job) === "cancelled") return null
+  const Icon = sign.Icon
+  const iconPx = Math.max(8, Math.round(size * 0.58))
+  return (
+    <span
+      title={sign.label}
+      aria-label={sign.label}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: sign.color,
+        color: "#fff",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}
+    >
+      <Icon size={iconPx} strokeWidth={2.5} />
+    </span>
+  )
 }
 
 const durationMinutes = (job) => {
@@ -1177,11 +1241,18 @@ const DayView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick }) => {
               />
 
               {/* Time */}
-              <div style={{ width: 84, flexShrink: 0 }}>
+              <div style={{ width: 100, flexShrink: 0 }}>
                 <div
                   className="text-[13px] font-semibold text-[var(--sf-ink)]"
-                  style={{ fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    lineHeight: 1.2,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
                 >
+                  <StatusSign job={j} size={14} />
                   {formatJobTime(j)}
                 </div>
                 <div
@@ -1466,7 +1537,10 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
               {visibleJobs.map((j) => {
                 const a = assigneesFor(j)
                 const color = a.length > 0 ? cleanerColor(a[0].id) : "#DC2626"
-                const live = isLiveJob(j)
+                const statusKey = normalizeJobStatus(j)
+                const sign = jobStatusSign(j)
+                const isActive =
+                  statusKey === "en_route" || statusKey === "in_progress"
                 const dur = durationMinutes(j)
                 const durLabel = dur >= 60
                   ? `${Math.floor(dur / 60)}h${dur % 60 ? ` ${dur % 60}m` : ""}`
@@ -1491,37 +1565,54 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
                       flexDirection: "column",
                       gap: 1,
                       padding: "3px 6px",
-                      background: live ? color : `${color}1a`,
-                      color: live ? "#fff" : color,
-                      borderLeft: `2px solid ${color}`,
-                      border: "none",
+                      // Status = sign only — chip fill stays soft (cleaner tint), not solid live paint
+                      background: statusKey === "completed"
+                        ? "var(--sf-panel-soft)"
+                        : `${color}14`,
+                      color: "var(--sf-ink)",
+                      borderTop: "none",
+                      borderRight: "none",
+                      borderBottom: "none",
+                      borderLeft: `2px solid ${isActive ? sign.color : color}`,
                       borderRadius: 3,
                       cursor: "pointer",
                       fontFamily: "var(--sf-font-ui)",
                       textAlign: "left",
                       overflow: "hidden",
+                      opacity: statusKey === "completed" ? 0.85 : 1,
                     }}
                   >
                     <span
                       style={{
-                        display: "block",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
                         fontVariantNumeric: "tabular-nums",
-                        opacity: 0.85,
                         fontFamily: "var(--sf-font-mono)",
                         fontSize: 9.5,
                         fontWeight: 600,
+                        color: "var(--sf-ink-2)",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
-                        textOverflow: "ellipsis",
+                        minWidth: 0,
                       }}
                     >
-                      {formatJobTime(j)} · {durLabel}
+                      <StatusSign job={j} size={12} />
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {formatJobTime(j)} · {durLabel}
+                      </span>
                     </span>
                     <span
                       style={{
                         display: "block",
                         fontSize: 10.5,
                         fontWeight: 600,
+                        color: "var(--sf-ink)",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -1534,7 +1625,7 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
                         display: "block",
                         fontSize: 9.5,
                         fontWeight: 500,
-                        opacity: 0.75,
+                        color: "var(--sf-ink-3)",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -1573,22 +1664,26 @@ const MonthView = ({ anchor, jobs, cleanerColor, resolveName, onJobClick, onPick
 const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick }) => {
   const assignees = assigneesFor(job)
   const color = forcedColor || (assignees.length > 0 ? cleanerColor(assignees[0].id) : "#DC2626")
-  const live = isLiveJob(job)
-  const first = (customerLabelForJob(job) || "").split(" ")[0] || "—"
-  const teamLetter = assignees[0]?.name
-    ? assignees[0].name.charAt(0).toUpperCase()
-    : assignees.length === 0
-    ? "?"
-    : "·"
+  const statusKey = normalizeJobStatus(job)
+  const sign = jobStatusSign(job)
+  const isActive = statusKey === "en_route" || statusKey === "in_progress"
+  // Full customer name (issue #34) — truncate via CSS, don't shorten to first name
+  const customer = customerLabelForJob(job) || "—"
   const startMins = (() => {
     const d = jobStartDateTime(job)
     return d ? d.getHours() * 60 + d.getMinutes() : 0
   })()
+  const dur = durationMinutes(job)
+  const durLabel = dur >= 60
+    ? `${Math.floor(dur / 60)}h${dur % 60 ? ` ${dur % 60}m` : ""}`
+    : `${dur}m`
+  const showBody = height >= 36
 
   return (
     <button
       onClick={onClick}
       className="sf-timeline-block"
+      title={`${sign.label} · ${customer}`}
       style={{
         position: "absolute",
         top: `${top}px`,
@@ -1598,23 +1693,26 @@ const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick })
         display: "flex",
         flexDirection: "column",
         padding: 0,
-        background: live ? color : "#fff",
-        borderLeft: `3px solid ${color}`,
-        border: `1px solid ${live ? color : color + "40"}`,
-        color: live ? "#fff" : "var(--sf-ink)",
+        // Match month: soft chip, status via sign only (not solid live fill)
+        background: statusKey === "completed" ? "var(--sf-panel-soft)" : "#fff",
+        borderTop: "1px solid var(--sf-border-soft)",
+        borderRight: "1px solid var(--sf-border-soft)",
+        borderBottom: "1px solid var(--sf-border-soft)",
+        borderLeft: `3px solid ${isActive ? sign.color : color}`,
+        color: "var(--sf-ink)",
         borderRadius: 4,
         cursor: "pointer",
         fontFamily: "var(--sf-font-ui)",
         textAlign: "left",
-        boxShadow: live ? `0 1px 4px ${color}40` : "var(--sf-shadow)",
+        boxShadow: "var(--sf-shadow)",
         zIndex: 2,
         overflow: "hidden",
+        opacity: statusKey === "completed" ? 0.88 : 1,
       }}
     >
-      {/* Info strip pinned to top; card body below is coloured to show duration */}
       <div
         style={{
-          height: 22,
+          minHeight: 22,
           flexShrink: 0,
           display: "flex",
           alignItems: "center",
@@ -1622,21 +1720,11 @@ const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick })
           padding: "0 6px",
         }}
       >
-        {live && (
-          <span
-            style={{
-              width: 5,
-              height: 5,
-              borderRadius: 3,
-              background: "#fff",
-              flexShrink: 0,
-            }}
-          />
-        )}
+        <StatusSign job={job} size={12} />
         <span
           style={{
             fontSize: 9.5,
-            color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
+            color: "var(--sf-ink-3)",
             fontFamily: "var(--sf-font-mono)",
             fontVariantNumeric: "tabular-nums",
             flexShrink: 0,
@@ -1653,11 +1741,12 @@ const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick })
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            color: "var(--sf-ink)",
           }}
         >
-          {first}
+          {customer}
         </span>
-        {assignees.length === 0 ? (
+        {assignees.length === 0 && (
           <span
             style={{
               fontSize: 8.5,
@@ -1671,19 +1760,25 @@ const ScheduleBlock = ({ job, top, height, cleanerColor, forcedColor, onClick })
           >
             UNASGN
           </span>
-        ) : (
-          <span
-            style={{
-              fontSize: 9,
-              fontFamily: "var(--sf-font-mono)",
-              color: live ? "rgba(255,255,255,.85)" : "var(--sf-ink-3)",
-              flexShrink: 0,
-            }}
-          >
-            {teamLetter}
-          </span>
         )}
       </div>
+      {showBody && (
+        <div
+          style={{
+            padding: "0 6px 4px 23px",
+            fontSize: 9.5,
+            color: "var(--sf-ink-3)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {durLabel}
+          {assignees[0]?.name
+            ? ` · ${(assignees[0].name || "").split(" ")[0]}`
+            : ""}
+        </div>
+      )}
     </button>
   )
 }

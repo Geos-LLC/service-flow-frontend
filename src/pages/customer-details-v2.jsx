@@ -30,12 +30,25 @@ import {
   Upload,
   Download,
   File as FileIcon,
+  Image as ImageIcon,
   Trash2,
+  RefreshCw,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { customersAPI, jobsAPI, invoicesAPI, estimatesAPI, communicationsAPI, propertyDataAPI, customerFilesAPI } from "../services/api"
 import { normalizeAPIResponse } from "../utils/dataHandler"
 import { formatTime as formatTimeShared } from "../utils/formatTime"
+import {
+  buildBeforeAfterReport,
+  formatRoomName,
+  groupPhotosByCleaner,
+  isImageMime,
+  photoCapturedBy,
+  photoCaptureTimeMs,
+  photoModeLabel,
+  pickUploadJobForCustomer,
+  sortPhotosChronologically,
+} from "../utils/customerPhotoGallery"
 import { getGoogleMapsApiKey } from "../config/maps"
 import MobileHeader from "../components/mobile-header"
 import {
@@ -49,6 +62,7 @@ import {
   SfTab,
   SfAvatar,
   sfInitials,
+  SfSegmented,
 } from "../components/sf-primitives"
 
 /**
@@ -102,7 +116,7 @@ const TABS = [
   { id: "estimates",  label: "Estimates",  counted: true  },
   { id: "properties", label: "Properties", counted: true  },
   { id: "messages",   label: "Messages",   counted: true  },
-  { id: "files",      label: "Files",      counted: false },
+  { id: "files",      label: "Photos",     counted: false },
   { id: "activity",   label: "Activity",   counted: false },
 ]
 
@@ -544,7 +558,7 @@ const CustomerDetailsV2 = () => {
         <EstimatesTab estimates={estimates} customerName={name} />
       )}
       {tab === "files" && (
-        <FilesTab customerId={customerId} />
+        <FilesTab customerId={customerId} jobs={jobs} user={user} />
       )}
     </div>
   )
@@ -2287,7 +2301,10 @@ const TimelineDot = ({ color }) => (
   />
 )
 
-// ── Files tab ──────────────────────────────────────────────
+// ── Photos / Files tab ─────────────────────────────────────
+// Unified gallery: aggregates ProofPix + SF uploads from every job
+// for this customer (including job-linked rows with null customer_id).
+// Photos sort by capture time; optional group-by-cleaner view.
 
 const FILE_FILTERS = [
   { id: "all",       label: "All" },
@@ -2295,7 +2312,10 @@ const FILE_FILTERS = [
   { id: "documents", label: "Documents" },
 ]
 
-const isImageMime = (mime) => String(mime || "").toLowerCase().startsWith("image/")
+const PHOTO_VIEW_MODES = [
+  { value: "all", label: "View all" },
+  { value: "by-cleaner", label: "By cleaner" },
+]
 
 const formatFileSize = (n) => {
   const v = Number(n)
@@ -2305,13 +2325,41 @@ const formatFileSize = (n) => {
   return `${(v / (1024 * 1024)).toFixed(1)} MB`
 }
 
-const FilesTab = ({ customerId }) => {
+const formatCaptureDate = (file) => {
+  const ms = photoCaptureTimeMs(file)
+  if (!ms) return "—"
+  return new Date(ms).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+const cleanerColor = (name) => {
+  let hash = 0
+  const s = String(name || "?")
+  for (let i = 0; i < s.length; i += 1) hash = (hash * 31 + s.charCodeAt(i)) | 0
+  const palette = ["#2563EB", "#7C3AED", "#059669", "#D97706", "#DB2777", "#0891B2", "#4F46E5"]
+  return palette[Math.abs(hash) % palette.length]
+}
+
+const FilesTab = ({ customerId, jobs = [], user }) => {
   const [files, setFiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState("")
-  const [filter, setFilter] = useState("all")
+  const [filter, setFilter] = useState("photos")
+  const [photoView, setPhotoView] = useState("all")
+  const [showReport, setShowReport] = useState(true)
   const inputRef = useRef(null)
+
+  const teamMemberId = user?.teamMemberId ?? user?.team_member_id ?? null
+  const uploadJobId = useMemo(
+    () => pickUploadJobForCustomer(jobs, teamMemberId),
+    [jobs, teamMemberId]
+  )
 
   const reload = useCallback(async () => {
     if (!customerId) return
@@ -2328,19 +2376,26 @@ const FilesTab = ({ customerId }) => {
 
   useEffect(() => { reload() }, [reload])
 
+  // ProofPix mobile uploads land asynchronously — refresh when tab regains focus.
+  useEffect(() => {
+    const onFocus = () => reload()
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
+  }, [reload])
+
   const handleUpload = useCallback(async (fileList) => {
     const list = Array.from(fileList || [])
     if (list.length === 0) return
     setUploading(true)
     try {
-      await customerFilesAPI.upload(customerId, list)
+      await customerFilesAPI.upload(customerId, list, { jobId: uploadJobId })
       await reload()
     } catch (e) {
       alert(e?.response?.data?.error || e?.message || "Upload failed.")
     } finally {
       setUploading(false)
     }
-  }, [customerId, reload])
+  }, [customerId, reload, uploadJobId])
 
   const onDelete = useCallback(async (fileId) => {
     if (!window.confirm("Delete this file?")) return
@@ -2353,15 +2408,11 @@ const FilesTab = ({ customerId }) => {
   }, [customerId])
 
   const onDownloadAll = useCallback(() => {
-    // The bucket is public so the URL works directly. Open each in a
-    // new tab; the browser handles the rest. For lots of files we'd
-    // zip server-side, but this matches the spec's lightweight intent.
     files.forEach((f) => {
       if (f.file_url) window.open(f.file_url, "_blank", "noopener,noreferrer")
     })
   }, [files])
 
-  // Filter chip counts
   const counts = useMemo(() => {
     let photos = 0, documents = 0
     files.forEach((f) => {
@@ -2371,18 +2422,104 @@ const FilesTab = ({ customerId }) => {
     return { all: files.length, photos, documents }
   }, [files])
 
-  // Apply search + filter
+  const cleanerCount = useMemo(() => {
+    const names = new Set()
+    files.filter((f) => isImageMime(f.mime_type)).forEach((f) => {
+      names.add(photoCapturedBy(f) || "Unknown")
+    })
+    return names.size
+  }, [files])
+
   const filtered = useMemo(() => {
     let list = files
     if (filter === "photos") list = list.filter((f) => isImageMime(f.mime_type))
     else if (filter === "documents") list = list.filter((f) => !isImageMime(f.mime_type))
     const q = search.trim().toLowerCase()
-    if (q) list = list.filter((f) => (f.filename || "").toLowerCase().includes(q))
+    if (q) {
+      list = list.filter((f) => {
+        const hay = [
+          f.filename,
+          photoCapturedBy(f),
+          photoModeLabel(f),
+          formatRoomName(f.proofpix_metadata?.room),
+        ].filter(Boolean).join(" ").toLowerCase()
+        return hay.includes(q)
+      })
+    }
+    if (filter === "photos") return sortPhotosChronologically(list, { ascending: true })
     return list
   }, [files, filter, search])
 
+  const groupedPhotos = useMemo(
+    () => (filter === "photos" ? groupPhotosByCleaner(filtered) : []),
+    [filtered, filter]
+  )
+
+  const beforeAfterReport = useMemo(
+    () => buildBeforeAfterReport(files),
+    [files]
+  )
+
+  const renderPhotoGrid = (items) => (
+    <div
+      className="grid gap-3"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+    >
+      {items.map((f) => (
+        <FileCard key={f.id} file={f} onDelete={() => onDelete(f.id)} />
+      ))}
+    </div>
+  )
+
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-4">
+      {/* Summary */}
+      {!loading && counts.photos > 0 && (
+        <div className="text-[12.5px] text-[var(--sf-ink-3)]">
+          {counts.photos} {counts.photos === 1 ? "photo" : "photos"}
+          {cleanerCount > 1 ? ` from ${cleanerCount} cleaners` : ""}
+          {uploadJobId ? ` · uploads attach to job #${String(uploadJobId).slice(-4)}` : ""}
+        </div>
+      )}
+
+      {/* Before/After report — consolidated across all cleaners on customer jobs */}
+      {!loading && beforeAfterReport.length > 0 && (
+        <SfCard>
+          <SfCardHeader
+            title="Before / After report"
+            subtitle="All cleaners on this customer's jobs"
+            right={
+              <SfButton variant="ghost" size="sm" onClick={() => setShowReport((v) => !v)}>
+                {showReport ? "Hide" : "Show"}
+              </SfButton>
+            }
+          />
+          {showReport && (
+            <div className="flex flex-col gap-4">
+              {beforeAfterReport.map((section) => (
+                <div
+                  key={`${section.jobId}-${section.room}`}
+                  className="rounded-[10px] border border-[var(--sf-border-soft)] p-3"
+                >
+                  <div className="text-[12px] font-semibold text-[var(--sf-ink-2)] mb-3">
+                    {section.room}
+                    {section.jobId ? (
+                      <span className="text-[var(--sf-ink-3)] font-normal">
+                        {" "}· Job #{String(section.jobId).slice(-4)}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <BeforeAfterColumn label="Before" items={section.before} />
+                    <BeforeAfterColumn label="After" items={section.after} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </SfCard>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
         <div
@@ -2393,7 +2530,7 @@ const FilesTab = ({ customerId }) => {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search filenames"
+            placeholder="Search photos, cleaners, rooms…"
             className="flex-1 bg-transparent border-none outline-none text-[12.5px] text-[var(--sf-ink)]"
             style={{ fontFamily: "var(--sf-font-ui)", padding: 0, boxShadow: "none" }}
           />
@@ -2408,7 +2545,17 @@ const FilesTab = ({ customerId }) => {
             {f.label}
           </SfFilterChip>
         ))}
+        {filter === "photos" && counts.photos > 0 && (
+          <SfSegmented
+            options={PHOTO_VIEW_MODES}
+            value={photoView}
+            onChange={setPhotoView}
+          />
+        )}
         <div className="flex-1" />
+        <SfButton variant="secondary" size="md" icon={RefreshCw} onClick={reload} disabled={loading}>
+          Refresh
+        </SfButton>
         <SfButton
           variant="secondary"
           size="md"
@@ -2431,52 +2578,101 @@ const FilesTab = ({ customerId }) => {
           ref={inputRef}
           type="file"
           multiple
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
           className="hidden"
           onChange={(e) => {
             handleUpload(e.target.files)
-            // Reset so picking the same file again re-fires onChange
             if (e.target) e.target.value = ""
           }}
         />
       </div>
 
-      {/* Drop zone */}
-      <DropZone onFiles={handleUpload} disabled={uploading} />
+      <DropZone
+        onFiles={handleUpload}
+        disabled={uploading}
+        uploadJobId={uploadJobId}
+      />
 
-      {/* File grid */}
       {loading ? (
         <SfCard>
           <div className="py-10 text-center text-[12.5px] text-[var(--sf-ink-3)]">
-            Loading files…
+            Loading photos…
           </div>
         </SfCard>
       ) : filtered.length === 0 ? (
         <SfCard>
           <EmptyRow
-            icon={files.length === 0 ? Upload : SearchIcon}
-            title={files.length === 0 ? "No files yet" : "No files match"}
+            icon={files.length === 0 ? ImageIcon : SearchIcon}
+            title={files.length === 0 ? "No photos yet" : "No files match"}
             subtitle={
               files.length === 0
-                ? "Drop photos or documents above, or click Upload. ProofPix photos appear here only when they were attached to a job that has this customer linked — job-only photos (no customer) stay on that job's Photos tab."
+                ? "Photos from every cleaner on this customer's jobs appear here — ProofPix uploads sync on refresh. Uploads attach to your active job automatically."
                 : "Try a different filter or clear the search."
             }
           />
         </SfCard>
-      ) : (
-        <div
-          className="grid gap-3"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
-        >
-          {filtered.map((f) => (
-            <FileCard key={f.id} file={f} onDelete={() => onDelete(f.id)} />
+      ) : filter === "photos" && photoView === "by-cleaner" ? (
+        <div className="flex flex-col gap-5">
+          {groupedPhotos.map(([cleaner, items]) => (
+            <div key={cleaner}>
+              <div className="flex items-center gap-2 mb-3">
+                <SfAvatar initials={sfInitials(cleaner)} color={cleanerColor(cleaner)} size={28} />
+                <div className="text-[13px] font-semibold text-[var(--sf-ink)]">{cleaner}</div>
+                <span className="text-[11.5px] text-[var(--sf-ink-3)]">
+                  {items.length} {items.length === 1 ? "photo" : "photos"}
+                </span>
+              </div>
+              {renderPhotoGrid(items)}
+            </div>
           ))}
         </div>
+      ) : (
+        renderPhotoGrid(filtered)
       )}
     </div>
   )
 }
 
-const DropZone = ({ onFiles, disabled }) => {
+const BeforeAfterColumn = ({ label, items }) => (
+  <div>
+    <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--sf-ink-3)] mb-2">
+      {label}
+    </div>
+    {items.length === 0 ? (
+      <div className="text-[12px] text-[var(--sf-ink-4)] py-6 text-center rounded-[8px] bg-[var(--sf-panel-soft)]">
+        No {label.toLowerCase()} photos
+      </div>
+    ) : (
+      <div className="flex flex-col gap-2">
+        {items.map(({ file, capturedBy }) => (
+          <button
+            key={file.id}
+            type="button"
+            onClick={() => file.file_url && window.open(file.file_url, "_blank", "noopener,noreferrer")}
+            className="flex items-center gap-2 rounded-[8px] border border-[var(--sf-border-soft)] p-2 text-left hover:bg-[var(--sf-panel-soft)]"
+            style={{ cursor: file.file_url ? "pointer" : "default" }}
+          >
+            <img
+              src={file.file_url}
+              alt={file.filename || label}
+              style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+            />
+            <div className="min-w-0">
+              <div className="text-[12px] font-semibold text-[var(--sf-ink)] truncate">
+                {capturedBy || "Unknown"}
+              </div>
+              <div className="text-[11px] text-[var(--sf-ink-3)] truncate">
+                {formatCaptureDate(file)}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
+)
+
+const DropZone = ({ onFiles, disabled, uploadJobId }) => {
   const [over, setOver] = useState(false)
   const onDrop = (e) => {
     e.preventDefault()
@@ -2510,13 +2706,19 @@ const DropZone = ({ onFiles, disabled }) => {
       <div className="text-[13px] font-semibold text-[var(--sf-ink)]">
         Drop files here, or click to browse
       </div>
-      <div className="text-[11.5px] text-[var(--sf-ink-3)]">
+      <div className="text-[11.5px] text-[var(--sf-ink-3)] text-center max-w-[420px]">
         Up to 10 files · 10 MB each · images / PDFs / spreadsheets
+        {uploadJobId ? (
+          <> · auto-attached to job #{String(uploadJobId).slice(-4)}</>
+        ) : (
+          <> · linked to this customer</>
+        )}
       </div>
       <input
         ref={inputRef}
         type="file"
         multiple
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
         className="hidden"
         onChange={(e) => {
           onFiles?.(e.target.files)
@@ -2530,17 +2732,10 @@ const DropZone = ({ onFiles, disabled }) => {
 const FileCard = ({ file, onDelete }) => {
   const isImage = isImageMime(file.mime_type)
   const isProofpix = file.source === "proofpix"
-  const meta = (isProofpix && file.proofpix_metadata && typeof file.proofpix_metadata === "object")
-    ? file.proofpix_metadata
-    : null
-  const capturedBy = typeof meta?.captured_by === "string" ? meta.captured_by.trim() : ""
-  const date = file.uploaded_at
-    ? new Date(file.uploaded_at).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
-    : "—"
+  const capturedBy = photoCapturedBy(file)
+  const modeLabel = photoModeLabel(file)
+  const roomLabel = formatRoomName(file.proofpix_metadata?.room)
+  const date = formatCaptureDate(file)
   const ext = (() => {
     const parts = String(file.filename || "").split(".")
     return parts.length > 1 ? parts.pop().toUpperCase().slice(0, 5) : "FILE"
@@ -2554,7 +2749,6 @@ const FileCard = ({ file, onDelete }) => {
         onClick={onOpen}
         style={{ cursor: file.file_url ? "pointer" : "default" }}
       >
-        {/* Preview */}
         {isImage ? (
           <div
             style={{
@@ -2573,23 +2767,64 @@ const FileCard = ({ file, onDelete }) => {
                 display: "block",
               }}
             />
-            <span
-              style={{
-                position: "absolute",
-                top: 8,
-                left: 8,
-                fontSize: 10,
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: ".04em",
-                background: "rgba(15,23,42,.85)",
-                color: "#fff",
-                padding: "2px 6px",
-                borderRadius: 4,
-              }}
-            >
-              {isProofpix ? "ProofPix" : "Photo"}
-            </span>
+            {modeLabel && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  left: 8,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: ".04em",
+                  background: "rgba(15,23,42,.85)",
+                  color: "#fff",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+              >
+                {modeLabel}
+              </span>
+            )}
+            {isProofpix && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 8,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  background: "var(--sf-amber-soft, rgba(242,195,27,.95))",
+                  color: "var(--sf-ink, #0f172a)",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+              >
+                ProofPix
+              </span>
+            )}
+            {capturedBy && (
+              <span
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  left: 8,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  background: "rgba(15,23,42,.88)",
+                  color: "#fff",
+                  padding: "2px 6px 2px 2px",
+                  borderRadius: 999,
+                  maxWidth: "calc(100% - 16px)",
+                }}
+              >
+                <SfAvatar initials={sfInitials(capturedBy)} color={cleanerColor(capturedBy)} size={18} />
+                <span className="truncate">{capturedBy}</span>
+              </span>
+            )}
             {file.job_id && (
               <span
                 style={{
@@ -2635,7 +2870,6 @@ const FileCard = ({ file, onDelete }) => {
                 boxShadow: "0 1px 2px rgba(15,23,42,.05)",
               }}
             >
-              {/* Corner fold */}
               <span
                 style={{
                   position: "absolute",
@@ -2661,7 +2895,6 @@ const FileCard = ({ file, onDelete }) => {
             </div>
           </div>
         )}
-        {/* Footer */}
         <div className="px-3 py-2.5">
           <div
             className="text-[12.5px] font-semibold text-[var(--sf-ink)] truncate"
@@ -2670,21 +2903,30 @@ const FileCard = ({ file, onDelete }) => {
             {file.filename || "Untitled"}
           </div>
           <div className="text-[10.5px] text-[var(--sf-ink-3)] mt-0.5 flex items-center gap-1.5 truncate">
-            {capturedBy && (
+            {roomLabel && (
+              <>
+                <span className="truncate" title={roomLabel}>{roomLabel}</span>
+                <span className="text-[var(--sf-ink-4)]">·</span>
+              </>
+            )}
+            {!isImage && capturedBy && (
               <>
                 <span className="truncate" title={capturedBy}>{capturedBy}</span>
                 <span className="text-[var(--sf-ink-4)]">·</span>
               </>
             )}
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>
-              {formatFileSize(file.size_bytes)}
-            </span>
-            <span className="text-[var(--sf-ink-4)]">·</span>
+            {!isImage && (
+              <>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {formatFileSize(file.size_bytes)}
+                </span>
+                <span className="text-[var(--sf-ink-4)]">·</span>
+              </>
+            )}
             <span>{date}</span>
           </div>
         </div>
       </div>
-      {/* Delete on hover */}
       <button
         onClick={(e) => { e.stopPropagation(); onDelete?.() }}
         aria-label="Delete file"
